@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wallet Stats - URnetwork</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #111827; color: #e5e7eb; min-height: 100vh; display: flex; }
+    nav { width: 240px; background: #1f2937; border-right: 1px solid #374151; padding: 24px 0; flex-shrink: 0; height: 100vh; position: sticky; top: 0; overflow-y: auto; }
+    nav h1 { font-size: 18px; font-weight: 700; color: #f9fafb; padding: 0 20px 20px; border-bottom: 1px solid #374151; margin-bottom: 8px; }
+    nav a { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #9ca3af; text-decoration: none; font-size: 14px; transition: all .15s; }
+    nav a:hover, nav a.active { background: #374151; color: #f9fafb; }
+    nav a.active { border-left: 3px solid #10b981; }
+    main { flex: 1; padding: 32px; max-width: 1200px; }
+    .header { margin-bottom: 24px; }
+    .header h2 { font-size: 24px; font-weight: 700; color: #f9fafb; display: flex; align-items: center; gap: 10px; }
+    .header p { color: #9ca3af; margin-top: 4px; font-size: 14px; }
+    .header .sub { color: #6b7280; font-size: 12px; margin-top: 2px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .card { background: #1f2937; border: 1px solid #374151; border-radius: 12px; padding: 20px; }
+    .card .label { font-size: 12px; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+    .card .value { font-size: 24px; font-weight: 700; }
+    .card .value.green { color: #10b981; }
+    .card .value.yellow { color: #f59e0b; }
+    .card .value.white { color: #f9fafb; }
+    .chart-row { display: flex; gap: 20px; margin-bottom: 24px; }
+    .chart-container { flex: 1; background: #1f2937; border: 1px solid #374151; border-radius: 12px; padding: 20px; min-width: 0; }
+    .chart-container canvas { max-height: 280px; }
+    .chart-title { color: #d1d5db; font-size: 13px; font-weight: 600; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
+    @media (max-width: 768px) { .chart-row { flex-direction: column; } }
+    .section-tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid #374151; }
+    .section-tabs button { padding: 10px 20px; background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 14px; border-bottom: 2px solid transparent; transition: all .15s; }
+    .section-tabs button:hover { color: #e5e7eb; }
+    .section-tabs button.active { color: #10b981; border-bottom-color: #10b981; }
+    .section { display: none; }
+    .section.active { display: block; }
+    .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .toolbar .info { color: #6b7280; font-size: 13px; margin-right: auto; }
+    button.btn { padding: 8px 16px; border-radius: 8px; border: 1px solid #374151; background: #1f2937; color: #e5e7eb; cursor: pointer; font-size: 13px; transition: all .15s; display: flex; align-items: center; gap: 6px; }
+    button.btn:hover { background: #374151; }
+    button.btn.primary { background: #059669; border-color: #059669; color: #fff; }
+    button.btn.primary:hover { background: #10b981; }
+    button.btn.danger { border-color: #ef4444; color: #ef4444; }
+    button.btn.danger:hover { background: #ef4444; color: #fff; }
+    button.btn.disabled { opacity: .4; cursor: default; }
+    button.btn.disabled:hover { background: #1f2937; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 10px 12px; color: #9ca3af; font-weight: 600; border-bottom: 1px solid #374151; white-space: nowrap; }
+    td { padding: 10px 12px; border-bottom: 1px solid #1f2937; }
+    tr:hover td { background: #1a2332; }
+    .text-green { color: #10b981; }
+    .text-yellow { color: #f59e0b; }
+    .text-white { color: #f9fafb; }
+    .text-gray { color: #9ca3af; }
+    .text-right { text-align: right; }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #374151; border-top-color: #10b981; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty { text-align: center; padding: 48px 20px; color: #6b7280; }
+    .empty .icon { font-size: 48px; margin-bottom: 12px; opacity: .3; }
+    .error-banner { background: #7f1d1d; border: 1px solid #ef4444; color: #fca5a5; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; display: none; font-size: 13px; }
+    .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 8px; color: #fff; font-size: 13px; z-index: 1000; opacity: 0; transition: opacity .3s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+    .toast.success { background: #065f46; }
+    .toast.error { background: #7f1d1d; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #111827; }
+    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <h1>URnetwork Client Manager</h1>
+  <a href="#" class="active" data-section="wallet">📊 Wallet Stats</a>
+  <a href="#" data-section="payout">💰 Payout Stats</a>
+</nav>
+
+<main>
+  <div id="error-banner" class="error-banner"></div>
+  <div id="toast" class="toast"></div>
+
+  <!-- Wallet Stats Section -->
+  <div id="section-wallet" class="section active">
+    <div class="header">
+      <h2>
+        <span>📊</span> Data Statistics
+      </h2>
+      <p>Real-time tracking of data transfer earnings (stored locally)</p>
+      <div class="sub">Network: <span id="network-name">mesocyclone</span> · Last updated: <span id="last-updated">—</span></div>
+    </div>
+
+    <div class="cards" id="summary-cards">
+      <div class="card"><div class="label">Current Paid Data</div><div class="value green" id="paid-data">—</div></div>
+      <div class="card"><div class="label">Current Unpaid Data</div><div class="value yellow" id="unpaid-data">—</div></div>
+      <div class="card"><div class="label">Total Data</div><div class="value white" id="total-data">—</div></div>
+      <div class="card"><div class="label">Data Points</div><div class="value white" id="data-points">—</div></div>
+    </div>
+
+    <div class="toolbar">
+      <span class="info" id="db-info">—</span>
+      <button class="btn primary" onclick="refreshWallet()">🔄 Refresh</button>
+      <button class="btn danger" onclick="clearHistory()">🗑️ Clear History</button>
+    </div>
+
+    <div class="chart-row">
+      <div class="chart-container">
+        <div class="chart-title">Paid Bytes Provided</div>
+        <canvas id="paid-chart"></canvas>
+      </div>
+      <div class="chart-container">
+        <div class="chart-title">Unpaid Bytes</div>
+        <canvas id="unpaid-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="section-tabs" id="wallet-tabs">
+      <button class="active" data-tab="all">All Data</button>
+      <button data-tab="paid">Paid Data Transfer History</button>
+      <button data-tab="unpaid">Unpaid Data Transfer History</button>
+    </div>
+
+    <div style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr id="table-headers">
+            <th>Timestamp</th>
+            <th class="text-right">Paid Data</th>
+            <th class="text-right">Unpaid Data</th>
+            <th class="text-right">Total Data</th>
+          </tr>
+        </thead>
+        <tbody id="history-table"></tbody>
+      </table>
+    </div>
+    <div id="table-pagination" style="display:none;align-items:center;justify-content:center;margin-top:16px"></div>
+    <div id="empty-state" class="empty" style="display:none">
+      <div class="icon">📂</div>
+      <p>No data points yet. Click Refresh or wait for the next poll.</p>
+    </div>
+  </div>
+
+  <!-- Payout Stats Section -->
+  <div id="section-payout" class="section">
+    <div class="header">
+      <h2>
+        <span>💰</span> Payout Statistics
+      </h2>
+      <p>Detailed history of all payouts and earnings</p>
+      <div class="sub">Last updated: <span id="payout-last-updated">—</span></div>
+    </div>
+
+    <div class="cards" id="payout-cards">
+      <div class="card"><div class="label">Total Payouts</div><div class="value green" id="total-payouts">—</div></div>
+      <div class="card"><div class="label">Total Bytes</div><div class="value white" id="total-payout-bytes">—</div></div>
+      <div class="card"><div class="label">Completed</div><div class="value green" id="completed-payments">—</div></div>
+      <div class="card"><div class="label">Pending</div><div class="value yellow" id="pending-payments">—</div></div>
+    </div>
+
+    <div class="toolbar">
+      <span class="info" id="payout-info">—</span>
+      <button class="btn primary" onclick="refreshPayouts()">🔄 Refresh</button>
+    </div>
+
+    <div style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr>
+            <th class="text-right">#</th>
+            <th class="text-right">Amount</th>
+            <th class="text-right">Bytes</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="payout-table"></tbody>
+      </table>
+    </div>
+    <div id="payout-empty" class="empty" style="display:none">
+      <div class="icon">💰</div>
+      <p>No payout data available. Try refreshing.</p>
+    </div>
+  </div>
+</main>
+
+<script>
+const API = '';
+
+function fmtBytes(b) {
+  if (!b) return '0 B';
+  const gb = b / 1e9;
+  const tb = gb / 1e3;
+  if (tb >= 1) return tb.toFixed(2) + ' TB';
+  return gb.toFixed(2) + ' GB';
+}
+
+function fmtBytesShort(b) {
+  if (!b) return '0 B';
+  const gb = b / 1e9;
+  const tb = gb / 1e3;
+  if (tb >= 1) return tb.toFixed(1) + ' TB';
+  return gb.toFixed(1) + ' GB';
+}
+
+function fmtTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+}
+
+function fmtDate(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + type + ' show';
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function showError(msg) {
+  const b = document.getElementById('error-banner');
+  if (msg) {
+    b.textContent = msg;
+    b.style.display = 'block';
+  } else {
+    b.style.display = 'none';
+  }
+}
+
+// Sidebar nav
+document.querySelectorAll('nav a').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('nav a').forEach(x => x.classList.remove('active'));
+    a.classList.add('active');
+    const section = a.dataset.section;
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.getElementById('section-' + section).classList.add('active');
+  });
+});
+
+// Section tabs
+document.querySelectorAll('.section-tabs').forEach(tabs => {
+  tabs.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+});
+
+let paidChart = null;
+let unpaidChart = null;
+
+function initChart(canvasId, labels, data, color, label) {
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  let chart = canvasId === 'paid-chart' ? paidChart : unpaidChart;
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: label,
+        data: data,
+        borderColor: color,
+        backgroundColor: color + '20',
+        fill: true,
+        tension: .4,
+        pointBackgroundColor: color,
+        pointBorderColor: '#1f2937',
+        pointBorderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: { position: 'top', labels: { color: '#d1d5db', font: { size: 12 }, boxWidth: 12, padding: 16 } },
+        tooltip: {
+          backgroundColor: '#374151',
+          titleColor: '#f3f4f6',
+          bodyColor: '#d1d5db',
+          borderColor: '#4b5563',
+          borderWidth: 1,
+          padding: 10,
+          callbacks: {
+            label: ctx => ctx.dataset.label + ': ' + fmtBytes(ctx.parsed.y * 1e6)
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#9ca3af', font: { size: 11 }, maxTicksLimit: 8, maxRotation: 0 }, grid: { color: '#374151' } },
+        y: { ticks: { color: '#9ca3af', font: { size: 11 }, callback: v => fmtBytes(v * 1e6) }, grid: { color: '#374151' } }
+      }
+    }
+  });
+  if (canvasId === 'paid-chart') paidChart = chart;
+  else unpaidChart = chart;
+}
+
+let walletEntries = [];
+let walletTab = 'all';
+let walletPage = 1;
+const PAGE_SIZE = 100;
+
+async function loadWalletStats() {
+  try {
+    const [summaryRes, statsRes] = await Promise.all([
+      fetch(API + '/api/wallet-summary'),
+      fetch(API + '/api/wallet-stats')
+    ]);
+    const summary = await summaryRes.json();
+    const stats = await statsRes.json();
+
+    if (summary.error) throw new Error(summary.error);
+
+    document.getElementById('paid-data').textContent = fmtBytes(summary.paid_bytes);
+    document.getElementById('unpaid-data').textContent = fmtBytes(summary.unpaid_bytes);
+    document.getElementById('total-data').textContent = fmtBytes(summary.total_bytes);
+    document.getElementById('data-points').textContent = summary.count;
+
+    if (summary.updated_at) {
+      document.getElementById('last-updated').textContent = fmtTime(summary.updated_at);
+    }
+
+    document.getElementById('db-info').textContent = summary.count + ' records';
+
+    walletEntries = stats.entries || [];
+
+    if (walletEntries.length > 0) {
+      document.getElementById('empty-state').style.display = 'none';
+
+      const labels = [];
+      const paidData = [];
+      const unpaidData = [];
+
+      for (let i = walletEntries.length - 1; i >= 0; i--) {
+        const e = walletEntries[i];
+        const d = new Date(e.created_at);
+        labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+        paidData.push(e.paid_bytes / 1e6);
+        unpaidData.push(e.unpaid_bytes / 1e6);
+      }
+
+      initChart('paid-chart', labels, paidData, '#10b981', 'Paid Bytes Provided');
+      initChart('unpaid-chart', labels, unpaidData, '#f59e0b', 'Unpaid Bytes');
+    } else {
+      document.getElementById('empty-state').style.display = 'block';
+    }
+
+    renderWalletTable();
+  } catch (e) {
+    showError('Error loading wallet stats: ' + e.message);
+  }
+}
+
+function renderWalletTable() {
+  const tbody = document.getElementById('history-table');
+  const pagination = document.getElementById('table-pagination');
+  tbody.innerHTML = '';
+
+  let displayData = [];
+  const chrono = walletEntries.slice().reverse();
+  if (walletTab === 'paid') {
+    for (let i = 1; i < chrono.length; i++) {
+      const prev = chrono[i - 1];
+      const cur = chrono[i];
+      const delta = cur.paid_bytes - prev.paid_bytes;
+      if (delta > 0) {
+        displayData.push({ ts: cur.created_at, value: delta, cumulative: cur.paid_bytes });
+      }
+    }
+  } else if (walletTab === 'unpaid') {
+    for (let i = 1; i < chrono.length; i++) {
+      const prev = chrono[i - 1];
+      const cur = chrono[i];
+      const delta = cur.unpaid_bytes - prev.unpaid_bytes;
+      if (delta > 0) {
+        displayData.push({ ts: cur.created_at, value: delta, cumulative: cur.unpaid_bytes });
+      }
+    }
+  } else {
+    displayData = walletEntries.map(e => ({ ts: e.created_at, paid: e.paid_bytes, unpaid: e.unpaid_bytes, total: e.paid_bytes + e.unpaid_bytes }));
+  }
+
+  if (displayData.length === 0) {
+    document.getElementById('empty-state').style.display = 'block';
+    pagination.style.display = 'none';
+    return;
+  }
+  document.getElementById('empty-state').style.display = 'none';
+
+  const totalPages = Math.ceil(displayData.length / PAGE_SIZE);
+  if (walletPage > totalPages) walletPage = totalPages;
+  const start = (walletPage - 1) * PAGE_SIZE;
+  const pageData = displayData.slice(start, start + PAGE_SIZE);
+
+  if (walletTab === 'all') {
+    pageData.forEach(e => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="text-gray">${fmtTime(e.ts)}</td>
+        <td class="text-right text-green">${fmtBytes(e.paid)}</td>
+        <td class="text-right text-yellow">${fmtBytes(e.unpaid)}</td>
+        <td class="text-right text-white">${fmtBytes(e.total)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } else {
+    pageData.slice().reverse().forEach(e => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="text-gray">${fmtTime(e.ts)}</td>
+        <td class="text-right ${walletTab === 'paid' ? 'text-green' : 'text-yellow'}">${fmtBytes(e.value)}</td>
+        <td class="text-right text-gray">${fmtBytes(e.cumulative)}</td>
+        <td></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  if (totalPages <= 1) {
+    pagination.style.display = 'none';
+  } else {
+    pagination.style.display = 'flex';
+    pagination.innerHTML = '';
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'btn' + (walletPage <= 1 ? ' disabled' : '');
+    prevBtn.textContent = '◀ Prev';
+    if (walletPage > 1) prevBtn.onclick = () => { walletPage--; renderWalletTable(); };
+    pagination.appendChild(prevBtn);
+
+    const info = document.createElement('span');
+    info.style.cssText = 'color: #9ca3af; font-size: 13px; margin: 0 12px;';
+    info.textContent = `Page ${walletPage} of ${totalPages} (${displayData.length} entries)`;
+    pagination.appendChild(info);
+
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'btn' + (walletPage >= totalPages ? ' disabled' : '');
+    nextBtn.textContent = 'Next ▶';
+    if (walletPage < totalPages) nextBtn.onclick = () => { walletPage++; renderWalletTable(); };
+    pagination.appendChild(nextBtn);
+  }
+}
+
+// Wallet tab switching
+document.getElementById('wallet-tabs').addEventListener('click', function(e) {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  this.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  walletTab = btn.dataset.tab;
+  renderWalletTable();
+});
+
+async function refreshWallet() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Refreshing...';
+  showError(null);
+  try {
+    const res = await fetch(API + '/api/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    showToast('Stats updated successfully', 'success');
+    await loadWalletStats();
+  } catch (e) {
+    showToast('Failed to refresh: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🔄 Refresh';
+  }
+}
+
+async function clearHistory() {
+  if (!confirm('Clear all wallet stats data?')) return;
+  try {
+    const res = await fetch(API + '/api/clear', { method: 'POST' });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    showToast('History cleared', 'success');
+    await loadWalletStats();
+  } catch (e) {
+    showToast('Failed to clear: ' + e.message, 'error');
+  }
+}
+
+async function loadPayouts() {
+  try {
+    const res = await fetch(API + '/api/payout-stats');
+    const data = await res.json();
+
+    if (data.error) {
+      document.getElementById('payout-info').textContent = 'Error: ' + data.error;
+      return;
+    }
+
+    document.getElementById('payout-last-updated').textContent = data.last_update ? fmtTime(data.last_update) : '—';
+
+    const payments = data.payments || [];
+    const totalPayouts = payments.reduce((s, p) => s + (p.token_amount || 0), 0);
+    const totalBytes = payments.reduce((s, p) => s + (p.payout_byte_count || 0), 0);
+    const completed = payments.filter(p => p.completed).length;
+    const pending = payments.filter(p => !p.completed && !p.canceled).length;
+
+    document.getElementById('total-payouts').textContent = '$' + totalPayouts.toFixed(2);
+    document.getElementById('total-payout-bytes').textContent = fmtBytes(totalBytes);
+    document.getElementById('completed-payments').textContent = completed;
+    document.getElementById('pending-payments').textContent = pending;
+
+    document.getElementById('payout-info').textContent = payments.length + ' payments';
+
+    const tbody = document.getElementById('payout-table');
+    tbody.innerHTML = '';
+
+    if (payments.length === 0) {
+      document.getElementById('payout-empty').style.display = 'block';
+      return;
+    }
+    document.getElementById('payout-empty').style.display = 'none';
+
+    payments.forEach((p, i) => {
+      const status = p.completed ? '✅ Completed' : p.canceled ? '❌ Canceled' : '⏳ Pending';
+      const statusClass = p.completed ? 'text-green' : p.canceled ? '' : 'text-yellow';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="text-right text-gray">#${payments.length - i}</td>
+        <td class="text-right text-green">$${p.token_amount.toFixed(2)}</td>
+        <td class="text-right text-white">${fmtBytes(p.payout_byte_count || 0)}</td>
+        <td class="${statusClass}">${status}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    document.getElementById('payout-info').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function refreshPayouts() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Refreshing...';
+  try {
+    const res = await fetch(API + '/api/refresh-payout', { method: 'POST' });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    showToast('Payout stats updated (' + data.count + ' payments)', 'success');
+    await loadPayouts();
+  } catch (e) {
+    showToast('Failed to refresh: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🔄 Refresh';
+  }
+}
+
+// Auto-refresh on load if stale, then every 5 min
+let lastLoad = 0;
+async function autoRefresh() {
+  const now = Date.now();
+  if (now - lastLoad > 60000) {
+    lastLoad = now;
+    await loadWalletStats();
+    await loadPayouts();
+  }
+}
+
+// Check which section is visible
+let currentSection = 'wallet';
+document.querySelectorAll('nav a').forEach(a => {
+  a.addEventListener('click', () => {
+    currentSection = a.dataset.section;
+  });
+});
+
+loadWalletStats();
+loadPayouts();
+setInterval(autoRefresh, 30000);
+</script>
+
+</body>
+</html>

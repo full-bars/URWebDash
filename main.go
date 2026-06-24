@@ -1,0 +1,619 @@
+package main
+
+import (
+	"database/sql"
+	_ "embed"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+//go:embed index.html
+var indexHTML string
+
+type walletStats struct {
+	PaidBytes   uint64 `json:"paid_bytes_provided"`
+	UnpaidBytes uint64 `json:"unpaid_bytes_provided"`
+	Error       *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+type exportRecord struct {
+	ID                string `json:"id"`
+	UserID            string `json:"user_id"`
+	NetworkName       string `json:"network_name"`
+	PaidBytesProvided uint64 `json:"paid_bytes_provided"`
+	UnpaidBytes       uint64 `json:"unpaid_bytes"`
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at"`
+}
+
+type payoutRecord struct {
+	TokenAmount    float64 `json:"token_amount"`
+	PayoutByteCount int64  `json:"payout_byte_count"`
+	Completed      bool    `json:"completed"`
+	Canceled       bool    `json:"canceled"`
+	CreatedAt      string  `json:"created_at"`
+}
+
+type accountResponse struct {
+	AccountPayments []payoutRecord `json:"account_payments"`
+	AccountPoints   []interface{}  `json:"account_points"`
+	Error           *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+var (
+	payoutCache      []payoutRecord
+	payoutCacheMu    sync.RWMutex
+	payoutCacheTime  time.Time
+	payoutLastError  string
+	payoutLastUpdate string
+	payoutLastPoints float64
+)
+
+func main() {
+	flag.Parse()
+	cmd := flag.Arg(0)
+
+	switch cmd {
+	case "run":
+		runPolling()
+	case "serve":
+		serveHTTP(flag.Arg(1))
+	case "import":
+		importJSON(flag.Arg(1))
+	case "history":
+		printHistory()
+	default:
+		fmt.Println(`Usage:
+  stats_tracker run                    — start polling daemon
+  stats_tracker serve [port]          — start HTTP server (default :3001)
+  stats_tracker import <file.json>     — import bayouash export
+  stats_tracker history                — print stored history`)
+	}
+}
+
+func dbPath() string {
+	if p := os.Getenv("STATS_DB"); p != "" {
+		return p
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".urnetwork", "wallet_stats.db")
+}
+
+func jwtPath() string {
+	if p := os.Getenv("JWT_PATH"); p != "" {
+		return p
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".urnetwork", "jwt")
+}
+
+func openDB() (*sql.DB, error) {
+	db, err := sql.Open("sqlite", dbPath())
+	if err != nil {
+		return nil, fmt.Errorf("open db: %w", err)
+	}
+	for _, stmt := range []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
+		`CREATE TABLE IF NOT EXISTS wallet_stats (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id TEXT NOT NULL DEFAULT '',
+			network_name TEXT NOT NULL DEFAULT '',
+			paid_bytes INTEGER NOT NULL DEFAULT 0,
+			unpaid_bytes INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_stats_time ON wallet_stats(created_at)`,
+		`CREATE TABLE IF NOT EXISTS payout_stats (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			token_amount REAL NOT NULL DEFAULT 0,
+			payout_byte_count INTEGER NOT NULL DEFAULT 0,
+			completed INTEGER NOT NULL DEFAULT 0,
+			canceled INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_payout_time ON payout_stats(created_at)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("init: %w", err)
+		}
+	}
+	return db, nil
+}
+
+func readJWT() (string, error) {
+	b, err := os.ReadFile(jwtPath())
+	if err != nil {
+		return "", fmt.Errorf("read jwt: %w", err)
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+func fetchStats(token string) (*walletStats, error) {
+	req, err := http.NewRequest("GET", "https://api.bringyour.com/transfer/stats", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "*/*")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API %d: %s", resp.StatusCode, string(body))
+	}
+
+	var s walletStats
+	if err := json.Unmarshal(body, &s); err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
+	return &s, nil
+}
+
+func fetchPayouts(token string) (*accountResponse, error) {
+	req, err := http.NewRequest("GET", "https://api.bringyour.com/account/payments", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "*/*")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API %d: %s", resp.StatusCode, string(body))
+	}
+
+	var r accountResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
+	return &r, nil
+}
+
+func runPolling() {
+	token, err := readJWT()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+
+	db, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	interval := 15 * time.Minute
+	if s := os.Getenv("STATS_INTERVAL"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d >= time.Minute {
+			interval = d
+		}
+	}
+
+	fmt.Printf("[stats] polling every %s | db=%s\n", interval, dbPath())
+
+	update := func() {
+		stats, err := fetchStats(token)
+		if err != nil {
+			fmt.Printf("[stats] fetch error: %v\n", err)
+			return
+		}
+		now := time.Now().UTC().Format(time.RFC3339)
+		_, err = db.Exec(
+			"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
+			int64(stats.PaidBytes), int64(stats.UnpaidBytes), now, now,
+		)
+		if err != nil {
+			fmt.Printf("[stats] insert error: %v\n", err)
+			return
+		}
+		fmt.Printf("[stats] stored: paid=%d unpaid=%d\n", stats.PaidBytes, stats.UnpaidBytes)
+	}
+
+	update()
+	_ = os.Getenv("STATS_INTERVAL")
+
+	// Align to next quarter-hour boundary
+	now := time.Now()
+	_, min, _ := now.Clock()
+	nextQ := ((min / 15) + 1) * 15
+	firstTick := now.Truncate(time.Hour).Add(time.Duration(nextQ) * time.Minute)
+	if firstTick.Before(now) {
+		firstTick = firstTick.Add(interval)
+	}
+	sleepDur := firstTick.Sub(now)
+	fmt.Printf("[stats] next poll at %s (in %v)\n", firstTick.Format("15:04:05"), sleepDur.Round(time.Second))
+	time.Sleep(sleepDur)
+	update()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		update()
+	}
+}
+
+func importJSON(path string) {
+	if path == "" {
+		fmt.Fprintln(os.Stderr, "usage: stats_tracker import <file.json>")
+		os.Exit(1)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read: %v\n", err)
+		os.Exit(1)
+	}
+
+	var records []exportRecord
+	if err := json.Unmarshal(data, &records); err != nil {
+		var wrapper struct {
+			Content string `json:"content"`
+		}
+		if err2 := json.Unmarshal(data, &wrapper); err2 != nil || wrapper.Content == "" {
+			fmt.Fprintf(os.Stderr, "parse: %v\n", err)
+			os.Exit(1)
+		}
+		if err := json.Unmarshal([]byte(wrapper.Content), &records); err != nil {
+			fmt.Fprintf(os.Stderr, "parse wrapped: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	db, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "db: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].CreatedAt < records[j].CreatedAt
+	})
+
+	imported := 0
+	for _, r := range records {
+		res, err := db.Exec(
+			"INSERT OR IGNORE INTO wallet_stats(user_id, network_name, paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?)",
+			r.UserID, r.NetworkName, int64(r.PaidBytesProvided), int64(r.UnpaidBytes), r.CreatedAt, r.UpdatedAt,
+		)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "insert %s: %v\n", r.CreatedAt, err)
+			continue
+		}
+		n, _ := res.RowsAffected()
+		if n > 0 {
+			imported++
+		}
+	}
+	fmt.Printf("imported %d records\n", imported)
+}
+
+func printHistory() {
+	db, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "db: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT id, user_id, network_name, paid_bytes, unpaid_bytes, created_at FROM wallet_stats ORDER BY created_at ASC")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "query: %v\n", err)
+		os.Exit(1)
+	}
+	defer rows.Close()
+
+	fmt.Printf("%-6s %-24s %12s %12s  %s\n", "ID", "Time (UTC)", "Paid", "Unpaid", "Delta")
+	var prevPaid, prevUnpaid int64
+	count := 0
+	for rows.Next() {
+		var id int64
+		var uid, net, ts string
+		var paid, unpaid int64
+		if err := rows.Scan(&id, &uid, &net, &paid, &unpaid, &ts); err != nil {
+			continue
+		}
+		if count > 0 {
+			dpaid := paid - prevPaid
+			dunpaid := unpaid - prevUnpaid
+			fmt.Printf("%-6d %-24s %12d %12d  paid=%+d unpaid=%+d\n", id, ts, paid, unpaid, dpaid, dunpaid)
+		} else {
+			fmt.Printf("%-6d %-24s %12d %12d  (baseline)\n", id, ts, paid, unpaid)
+		}
+		prevPaid, prevUnpaid = paid, unpaid
+		count++
+	}
+	fmt.Printf("\n%d entries\n", count)
+}
+
+// --- HTTP Server ---
+
+func serveHTTP(port string) {
+	if port == "" {
+		port = "3001"
+	}
+
+	token, err := readJWT()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+
+	db, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/wallet-stats", handleWalletStats(db))
+	mux.HandleFunc("/api/wallet-summary", handleWalletSummary(db))
+	mux.HandleFunc("/api/payout-stats", handlePayoutStats(token))
+	mux.HandleFunc("/api/refresh", handleRefresh(token, db))
+	mux.HandleFunc("/api/clear", handleClear(db))
+	mux.HandleFunc("/api/refresh-payout", handleRefreshPayout(token))
+	mux.HandleFunc("/", handleIndex)
+
+	fmt.Printf("[serve] listening on :%s\n", port)
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
+		fmt.Fprintf(os.Stderr, "serve error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func handleWalletStats(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+
+		rows, err := db.Query("SELECT paid_bytes, unpaid_bytes, created_at FROM wallet_stats ORDER BY created_at DESC")
+		if err != nil {
+			jsonError(w, err.Error())
+			return
+		}
+		defer rows.Close()
+
+		type entry struct {
+			PaidBytes   int64  `json:"paid_bytes"`
+			UnpaidBytes int64  `json:"unpaid_bytes"`
+			CreatedAt   string `json:"created_at"`
+		}
+		var entries []entry
+		for rows.Next() {
+			var e entry
+			if err := rows.Scan(&e.PaidBytes, &e.UnpaidBytes, &e.CreatedAt); err != nil {
+				continue
+			}
+			entries = append(entries, e)
+		}
+		var totalCount int
+		db.QueryRow("SELECT COUNT(*) FROM wallet_stats").Scan(&totalCount)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"entries": entries,
+			"count":   len(entries),
+			"total":   totalCount,
+		})
+	}
+}
+
+func handleWalletSummary(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+
+		row := db.QueryRow("SELECT paid_bytes, unpaid_bytes, created_at FROM wallet_stats ORDER BY created_at DESC LIMIT 1")
+		var paid, unpaid int64
+		var ts string
+		err := row.Scan(&paid, &unpaid, &ts)
+		if err != nil {
+			jsonError(w, "no data yet")
+			return
+		}
+
+		var count int
+		db.QueryRow("SELECT COUNT(*) FROM wallet_stats").Scan(&count)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"paid_bytes":   paid,
+			"unpaid_bytes": unpaid,
+			"total_bytes":  paid + unpaid,
+			"updated_at":   ts,
+			"count":        count,
+		})
+	}
+}
+
+func handlePayoutStats(token string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		payoutCacheMu.Lock()
+		if len(payoutCache) == 0 || payoutCacheTime.IsZero() || time.Since(payoutCacheTime) > 5*time.Minute {
+			if resp, err := fetchPayouts(token); err == nil {
+				payoutCache = resp.AccountPayments
+				payoutCacheTime = time.Now()
+			}
+		}
+		cached := payoutCache
+		lastTime := payoutCacheTime
+		lastErr := payoutLastError
+		lastUpd := payoutLastUpdate
+		pts := payoutLastPoints
+		isFresh := !lastTime.IsZero() && time.Since(lastTime) < 5*time.Minute
+		payoutCacheMu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"payments":    cached,
+			"count":       len(cached),
+			"cached_at":   lastTime.Format(time.RFC3339),
+			"last_update": lastUpd,
+			"fresh":       isFresh,
+			"error":       lastErr,
+			"points":      pts,
+		})
+	}
+}
+
+func handleRefresh(token string, db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+
+		stats, err := fetchStats(token)
+		if err != nil {
+			jsonError(w, err.Error())
+			return
+		}
+
+		now := time.Now().UTC().Format(time.RFC3339)
+		_, err = db.Exec(
+			"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
+			int64(stats.PaidBytes), int64(stats.UnpaidBytes), now, now,
+		)
+		if err != nil {
+			jsonError(w, err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":    true,
+			"paid_bytes": stats.PaidBytes,
+			"unpaid_bytes": stats.UnpaidBytes,
+		})
+	}
+}
+
+func handleClear(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+
+		if _, err := db.Exec("DELETE FROM wallet_stats"); err != nil {
+			jsonError(w, err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+		})
+	}
+}
+
+func handleRefreshPayout(token string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+
+		resp, err := fetchPayouts(token)
+		if err != nil {
+			payoutCacheMu.Lock()
+			payoutLastError = err.Error()
+			payoutCacheMu.Unlock()
+			jsonError(w, err.Error())
+			return
+		}
+
+		if resp.Error != nil {
+			payoutCacheMu.Lock()
+			payoutLastError = resp.Error.Message
+			payoutCacheMu.Unlock()
+			jsonError(w, resp.Error.Message)
+			return
+		}
+
+		points := 0.0
+		for _, p := range resp.AccountPoints {
+			if m, ok := p.(map[string]interface{}); ok {
+				if v, ok := m["points"].(float64); ok {
+					points += v
+				}
+			}
+		}
+
+		payoutCacheMu.Lock()
+		payoutCache = resp.AccountPayments
+		payoutCacheTime = time.Now()
+		payoutLastError = ""
+		payoutLastUpdate = time.Now().UTC().Format(time.RFC3339)
+		payoutLastPoints = points
+		payoutCacheMu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   true,
+			"count":     len(resp.AccountPayments),
+			"payments":  resp.AccountPayments,
+			"points":    points,
+		})
+	}
+}
+
+func jsonError(w http.ResponseWriter, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error": msg,
+	})
+}
+
+func handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(indexHTML))
+}
