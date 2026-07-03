@@ -45,6 +45,10 @@ type payoutRecord struct {
 	Completed      bool    `json:"completed"`
 	Canceled       bool    `json:"canceled"`
 	CreatedAt      string  `json:"created_at"`
+	TxHash         string  `json:"tx_hash"`
+	WalletAddress  string  `json:"wallet_address"`
+	Blockchain     string  `json:"blockchain"`
+	TokenType      string  `json:"token_type"`
 }
 
 type accountResponse struct {
