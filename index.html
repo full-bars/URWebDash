@@ -125,10 +125,12 @@
       <table>
         <thead>
           <tr id="table-headers">
-            <th>Timestamp</th>
-            <th class="text-right">Paid Data</th>
-            <th class="text-right">Unpaid Data</th>
-            <th class="text-right">Total Data</th>
+            <th>🗓️ Timestamp</th>
+            <th class="text-right">💵 Paid (GB)</th>
+            <th class="text-right">📦 Unpaid Bytes</th>
+            <th class="text-right">➕ Change Bytes</th>
+            <th class="text-right">📦 Unpaid (GB)</th>
+            <th class="text-right">➕ Change (GB)</th>
           </tr>
         </thead>
         <tbody id="history-table"></tbody>
@@ -388,7 +390,7 @@ function renderWalletTable() {
       }
     }
   } else {
-    displayData = walletEntries.map(e => ({ ts: e.created_at, paid: e.paid_bytes, unpaid: e.unpaid_bytes, total: e.paid_bytes + e.unpaid_bytes }));
+    displayData = walletEntries.map(e => ({ ts: e.created_at, paid: e.paid_bytes, unpaid: e.unpaid_bytes, total: e.paid_bytes + e.unpaid_bytes, change_bytes: e.change_bytes }));
   }
 
   if (displayData.length === 0) {
@@ -406,11 +408,14 @@ function renderWalletTable() {
   if (walletTab === 'all') {
     pageData.forEach(e => {
       const tr = document.createElement('tr');
+      const changeClass = e.change_bytes > 0 ? 'text-green' : 'text-gray';
       tr.innerHTML = `
         <td class="text-gray">${fmtTime(e.ts)}</td>
-        <td class="text-right text-green">${fmtBytes(e.paid)}</td>
-        <td class="text-right text-yellow">${fmtBytes(e.unpaid)}</td>
-        <td class="text-right text-white">${fmtBytes(e.total)}</td>
+        <td class="text-right text-green">${(e.paid / 1e9).toFixed(2)}</td>
+        <td class="text-right text-yellow">${e.unpaid.toLocaleString()}</td>
+        <td class="text-right ${changeClass}">${e.change_bytes > 0 ? '+' : ''}${e.change_bytes.toLocaleString()}</td>
+        <td class="text-right text-yellow">${(e.unpaid / 1e9).toFixed(2)}</td>
+        <td class="text-right ${changeClass}">${e.change_bytes > 0 ? '+' : ''}${(e.change_bytes / 1e9).toFixed(2)}</td>
       `;
       tbody.appendChild(tr);
     });
