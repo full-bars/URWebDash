@@ -40,6 +40,8 @@
     .chart-container canvas { max-height: 250px; }
     .chart-title { color: #d1d5db; font-size: 12px; font-weight: 600; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
     @media (max-width: 768px) { .chart-row { flex-direction: column; } }
+    .section { display: none; }
+    .section.active { display: block; }
     .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
     .toolbar .info { color: #6b7280; font-size: 13px; margin-right: auto; }
     button.btn { padding: 7px 14px; border-radius: 8px; border: 1px solid #374151; background: #1f2937; color: #e5e7eb; cursor: pointer; font-size: 13px; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; }
@@ -86,8 +88,8 @@
 
 <nav id="sidebar">
   <h1>URnetwork Client Manager</h1>
-  <a href="#" class="active" data-section="wallet">📊 Wallet Stats</a>
-  <a href="#" data-section="payout">💰 Payout Stats</a>
+  <a href="#" class="active" data-section="wallet" onclick="return switchSection('wallet')">📊 Data Stats</a>
+  <a href="#" data-section="payout" onclick="return switchSection('payout')">💰 Payout Stats</a>
 </nav>
 
 <main>
@@ -118,8 +120,12 @@
 
     <div class="chart-row">
       <div class="chart-container">
-        <div class="chart-title">Data Volume</div>
-        <canvas id="volume-chart"></canvas>
+        <div class="chart-title">Paid Bytes Provided</div>
+        <canvas id="paid-chart"></canvas>
+      </div>
+      <div class="chart-container">
+        <div class="chart-title">Unpaid Bytes</div>
+        <canvas id="unpaid-chart"></canvas>
       </div>
       <div class="chart-container">
         <div class="chart-title">Transfer Rate (GB/hr)</div>
@@ -194,6 +200,8 @@
   </div>
 </main>
 
+<div style="position:fixed;bottom:8px;right:8px;font-size:10px;color:#374151" id="js-status">JS: loading…</div>
+
 <script>
 const API = '';
 
@@ -253,53 +261,73 @@ function showError(msg) {
 }
 
 // Mobile nav
-document.getElementById('nav-toggle').addEventListener('click', () => {
+const navToggle = document.getElementById('nav-toggle');
+const navOverlay = document.getElementById('nav-overlay');
+if (navToggle) navToggle.addEventListener('click', () => {
   document.getElementById('sidebar').classList.toggle('open');
-  document.getElementById('nav-overlay').classList.toggle('open');
+  if (navOverlay) navOverlay.classList.toggle('open');
 });
-document.getElementById('nav-overlay').addEventListener('click', () => {
+if (navOverlay) navOverlay.addEventListener('click', () => {
   document.getElementById('sidebar').classList.remove('open');
-  document.getElementById('nav-overlay').classList.remove('open');
+  navOverlay.classList.remove('open');
 });
 
 // Sidebar nav
-document.querySelectorAll('nav a').forEach(a => {
-  a.addEventListener('click', e => {
-    e.preventDefault();
-    document.getElementById('sidebar').classList.remove('open');
-    document.getElementById('nav-overlay').classList.remove('open');
-    document.querySelectorAll('nav a').forEach(x => x.classList.remove('active'));
-    a.classList.add('active');
-    const section = a.dataset.section;
-    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    document.getElementById('section-' + section).classList.add('active');
-  });
-});
+function switchSection(section) {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('nav-overlay').classList.remove('open');
+  document.querySelectorAll('#sidebar a').forEach(x => x.classList.remove('active'));
+  const link = document.querySelector('#sidebar a[data-section="' + section + '"]');
+  if (link) link.classList.add('active');
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  const target = document.getElementById('section-' + section);
+  if (target) target.classList.add('active');
+  return false;
+}
 
-let volumeChart = null;
+let paidChart = null;
+let unpaidChart = null;
 let rateChart = null;
 
-function initVolumeChart(labels, paidData, unpaidData) {
-  const ctx = document.getElementById('volume-chart').getContext('2d');
-  if (volumeChart) volumeChart.destroy();
-  volumeChart = new Chart(ctx, {
+function initPaidChart(labels, data) {
+  const ctx = document.getElementById('paid-chart').getContext('2d');
+  if (paidChart) paidChart.destroy();
+  paidChart = new Chart(ctx, {
     type: 'line',
     data: {
       labels,
-      datasets: [
-        { label: 'Paid (GB)', data: paidData, borderColor: '#10b981', backgroundColor: '#10b98120', fill: true, tension: .4, pointRadius: 0, pointHoverRadius: 4 },
-        { label: 'Unpaid (GB)', data: unpaidData, borderColor: '#f59e0b', backgroundColor: '#f59e0b20', fill: true, tension: .4, pointRadius: 0, pointHoverRadius: 4 }
-      ]
+      datasets: [{ label: 'Paid Bytes Provided', data, borderColor: '#10b981', backgroundColor: '#10b98120', fill: true, tension: .4, pointRadius: 0, pointHoverRadius: 4 }]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { intersect: false, mode: 'index' },
       plugins: {
         legend: { position: 'top', labels: { color: '#d1d5db', font: { size: 11 }, boxWidth: 12, padding: 14 } },
-        tooltip: {
-          backgroundColor: '#374151', titleColor: '#f3f4f6', bodyColor: '#d1d5db', borderColor: '#4b5563', borderWidth: 1, padding: 10,
-          callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' GB' }
-        }
+        tooltip: { backgroundColor: '#374151', titleColor: '#f3f4f6', bodyColor: '#d1d5db', borderColor: '#4b5563', borderWidth: 1, padding: 10, callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' GB' } }
+      },
+      scales: {
+        x: { ticks: { color: '#9ca3af', font: { size: 10 }, maxTicksLimit: 8, maxRotation: 0 }, grid: { color: '#374151' } },
+        y: { ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => v.toFixed(1) + ' GB' }, grid: { color: '#374151' } }
+      }
+    }
+  });
+}
+
+function initUnpaidChart(labels, data) {
+  const ctx = document.getElementById('unpaid-chart').getContext('2d');
+  if (unpaidChart) unpaidChart.destroy();
+  unpaidChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{ label: 'Unpaid Bytes', data, borderColor: '#f59e0b', backgroundColor: '#f59e0b20', fill: true, tension: .4, pointRadius: 0, pointHoverRadius: 4 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: { position: 'top', labels: { color: '#d1d5db', font: { size: 11 }, boxWidth: 12, padding: 14 } },
+        tooltip: { backgroundColor: '#374151', titleColor: '#f3f4f6', bodyColor: '#d1d5db', borderColor: '#4b5563', borderWidth: 1, padding: 10, callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' GB' } }
       },
       scales: {
         x: { ticks: { color: '#9ca3af', font: { size: 10 }, maxTicksLimit: 8, maxRotation: 0 }, grid: { color: '#374151' } },
@@ -375,25 +403,38 @@ async function loadWalletStats() {
       document.getElementById('empty-state').style.display = 'none';
 
       const reversed = walletEntries.slice().reverse();
+      const maxPoints = 500;
+      const step = Math.max(1, Math.floor(reversed.length / maxPoints));
+      const chartSlice = [];
+      for (let i = 0; i < reversed.length; i += step) {
+        chartSlice.push(reversed[i]);
+      }
+      if (chartSlice[chartSlice.length - 1] !== reversed[reversed.length - 1]) {
+        chartSlice.push(reversed[reversed.length - 1]);
+      }
       const labels = [];
       const paidGB = [];
       const unpaidGB = [];
       const rateData = [];
 
-      for (let i = 0; i < reversed.length; i++) {
-        const e = reversed[i];
+      for (let i = 0; i < chartSlice.length; i++) {
+        const e = chartSlice[i];
         const d = new Date(e.created_at);
         labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
         paidGB.push(e.paid_bytes / 1e9);
         unpaidGB.push(e.unpaid_bytes / 1e9);
-        if (i > 0 && reversed[i-1].change_bytes !== undefined) {
-          rateData.push(reversed[i-1].change_bytes * 4 / 1e9);
+        if (i > 0) {
+          const prev = chartSlice[i - 1];
+          const hours = (d.getTime() - new Date(prev.created_at).getTime()) / 3600000;
+          const deltaGB = (e.unpaid_bytes - prev.unpaid_bytes) / 1e9;
+          rateData.push(hours > 0 ? Math.max(0, deltaGB / hours) : 0);
         } else {
           rateData.push(0);
         }
       }
 
-      initVolumeChart(labels, paidGB, unpaidGB);
+      initPaidChart(labels, paidGB);
+      initUnpaidChart(labels, unpaidGB);
       initRateChart(labels, rateData);
 
       // 24h change
@@ -536,7 +577,7 @@ async function loadPayouts() {
     document.getElementById('total-payout-bytes').textContent = fmtBytes(totalBytes);
     document.getElementById('completed-payments').textContent = completed;
     document.getElementById('pending-payments').textContent = pending;
-    document.getElementById('payout-points').textContent = data.points ? data.points.toFixed(1) : '—';
+    document.getElementById('payout-points').textContent = data.points !== undefined && data.points !== null ? data.points.toFixed(1) : '—';
 
     document.getElementById('payout-info').textContent = payments.length + ' payments';
 
@@ -604,6 +645,9 @@ async function autoRefresh() {
 loadWalletStats();
 loadPayouts();
 setInterval(autoRefresh, 30000);
+
+const jsStatus = document.getElementById('js-status');
+if (jsStatus) jsStatus.textContent = 'JS: ✓';
 </script>
 
 </body>
