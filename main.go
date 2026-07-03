@@ -59,6 +59,17 @@ type accountResponse struct {
 	} `json:"error,omitempty"`
 }
 
+type pointEntry struct {
+	PointValue int64 `json:"point_value"`
+}
+
+type pointsResponse struct {
+	AccountPoints []pointEntry `json:"account_points"`
+	Error         *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
 var (
 	payoutCache      []payoutRecord
 	payoutCacheMu    sync.RWMutex
@@ -208,6 +219,41 @@ func fetchPayouts(token string) (*accountResponse, error) {
 		return nil, fmt.Errorf("parse: %w", err)
 	}
 	return &r, nil
+}
+
+func fetchPoints(token string) (float64, error) {
+	req, err := http.NewRequest("GET", "https://api.bringyour.com/account/points", nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "*/*")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("read body: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return 0, fmt.Errorf("API %d: %s", resp.StatusCode, string(body))
+	}
+
+	var r pointsResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		return 0, fmt.Errorf("parse: %w", err)
+	}
+
+	var total int64
+	for _, p := range r.AccountPoints {
+		total += p.PointValue
+	}
+	return float64(total) / 1e6, nil
 }
 
 func runPolling() {
@@ -491,6 +537,9 @@ func handlePayoutStats(token string) http.HandlerFunc {
 			if resp, err := fetchPayouts(token); err == nil {
 				payoutCache = resp.AccountPayments
 				payoutCacheTime = time.Now()
+				if pts, err := fetchPoints(token); err == nil {
+					payoutLastPoints = pts
+				}
 			}
 		}
 		cached := payoutCache
@@ -527,11 +576,27 @@ func handleRefresh(token string, db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		now := time.Now().UTC().Format(time.RFC3339)
-		_, err = db.Exec(
-			"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
-			int64(stats.PaidBytes), int64(stats.UnpaidBytes), now, now,
-		)
+		now := time.Now().UTC()
+		_, min, _ := now.Clock()
+		windowStart := now.Truncate(1 * time.Hour).Add(time.Duration((min/15)*15) * time.Minute)
+
+		var existingID int64
+		db.QueryRow("SELECT id FROM wallet_stats WHERE created_at >= ? AND created_at < ? ORDER BY created_at ASC LIMIT 1",
+			windowStart.Format(time.RFC3339),
+			windowStart.Add(15*time.Minute).Format(time.RFC3339),
+		).Scan(&existingID)
+
+		if existingID > 0 {
+			_, err = db.Exec(
+				"UPDATE wallet_stats SET paid_bytes = ?, unpaid_bytes = ?, updated_at = ? WHERE id = ?",
+				int64(stats.PaidBytes), int64(stats.UnpaidBytes), now.Format(time.RFC3339), existingID,
+			)
+		} else {
+			_, err = db.Exec(
+				"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
+				int64(stats.PaidBytes), int64(stats.UnpaidBytes), now.Format(time.RFC3339), now.Format(time.RFC3339),
+			)
+		}
 		if err != nil {
 			jsonError(w, err.Error())
 			return
@@ -539,8 +604,8 @@ func handleRefresh(token string, db *sql.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":    true,
-			"paid_bytes": stats.PaidBytes,
+			"success":      true,
+			"paid_bytes":   stats.PaidBytes,
 			"unpaid_bytes": stats.UnpaidBytes,
 		})
 	}
@@ -589,21 +654,14 @@ func handleRefreshPayout(token string) http.HandlerFunc {
 			return
 		}
 
-		points := 0.0
-		for _, p := range resp.AccountPoints {
-			if m, ok := p.(map[string]interface{}); ok {
-				if v, ok := m["points"].(float64); ok {
-					points += v
-				}
-			}
-		}
+		pts, _ := fetchPoints(token)
 
 		payoutCacheMu.Lock()
 		payoutCache = resp.AccountPayments
 		payoutCacheTime = time.Now()
 		payoutLastError = ""
 		payoutLastUpdate = time.Now().UTC().Format(time.RFC3339)
-		payoutLastPoints = points
+		payoutLastPoints = pts
 		payoutCacheMu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
@@ -611,7 +669,7 @@ func handleRefreshPayout(token string) http.HandlerFunc {
 			"success":   true,
 			"count":     len(resp.AccountPayments),
 			"payments":  resp.AccountPayments,
-			"points":    points,
+			"points":    pts,
 		})
 	}
 }
