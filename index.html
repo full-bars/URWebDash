@@ -86,7 +86,7 @@
 
 <nav id="sidebar">
   <h1>URnetwork Client Manager</h1>
-  <a href="#" class="active" data-section="wallet">📊 Wallet Stats</a>
+  <a href="#" class="active" data-section="wallet">📊 Data Stats</a>
   <a href="#" data-section="payout">💰 Payout Stats</a>
 </nav>
 
@@ -386,8 +386,8 @@ async function loadWalletStats() {
         labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
         paidGB.push(e.paid_bytes / 1e9);
         unpaidGB.push(e.unpaid_bytes / 1e9);
-        if (i > 0 && reversed[i-1].change_bytes !== undefined) {
-          rateData.push(reversed[i-1].change_bytes * 4 / 1e9);
+        if (i > 0 && reversed[i].change_bytes !== undefined) {
+          rateData.push(reversed[i].change_bytes * 4 / 1e9);
         } else {
           rateData.push(0);
         }
@@ -536,7 +536,7 @@ async function loadPayouts() {
     document.getElementById('total-payout-bytes').textContent = fmtBytes(totalBytes);
     document.getElementById('completed-payments').textContent = completed;
     document.getElementById('pending-payments').textContent = pending;
-    document.getElementById('payout-points').textContent = data.points ? data.points.toFixed(1) : '—';
+    document.getElementById('payout-points').textContent = data.points !== undefined && data.points !== null ? data.points.toFixed(1) : '—';
 
     document.getElementById('payout-info').textContent = payments.length + ' payments';
 
