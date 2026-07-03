@@ -117,8 +117,6 @@
 
     <div class="section-tabs" id="wallet-tabs">
       <button class="active" data-tab="all">All Data</button>
-      <button data-tab="paid">Paid Data Transfer History</button>
-      <button data-tab="unpaid">Unpaid Data Transfer History</button>
     </div>
 
     <div style="overflow-x:auto">
@@ -309,7 +307,6 @@ function initChart(canvasId, labels, data, color, label) {
 }
 
 let walletEntries = [];
-let walletTab = 'all';
 let walletPage = 1;
 const PAGE_SIZE = 100;
 
@@ -369,29 +366,7 @@ function renderWalletTable() {
   const pagination = document.getElementById('table-pagination');
   tbody.innerHTML = '';
 
-  let displayData = [];
-  const chrono = walletEntries.slice().reverse();
-  if (walletTab === 'paid') {
-    for (let i = 1; i < chrono.length; i++) {
-      const prev = chrono[i - 1];
-      const cur = chrono[i];
-      const delta = cur.paid_bytes - prev.paid_bytes;
-      if (delta > 0) {
-        displayData.push({ ts: cur.created_at, value: delta, cumulative: cur.paid_bytes });
-      }
-    }
-  } else if (walletTab === 'unpaid') {
-    for (let i = 1; i < chrono.length; i++) {
-      const prev = chrono[i - 1];
-      const cur = chrono[i];
-      const delta = cur.unpaid_bytes - prev.unpaid_bytes;
-      if (delta > 0) {
-        displayData.push({ ts: cur.created_at, value: delta, cumulative: cur.unpaid_bytes });
-      }
-    }
-  } else {
-    displayData = walletEntries.map(e => ({ ts: e.created_at, paid: e.paid_bytes, unpaid: e.unpaid_bytes, total: e.paid_bytes + e.unpaid_bytes, change_bytes: e.change_bytes }));
-  }
+  const displayData = walletEntries.map(e => ({ ts: e.created_at, paid: e.paid_bytes, unpaid: e.unpaid_bytes, change_bytes: e.change_bytes }));
 
   if (displayData.length === 0) {
     document.getElementById('empty-state').style.display = 'block';
@@ -405,32 +380,19 @@ function renderWalletTable() {
   const start = (walletPage - 1) * PAGE_SIZE;
   const pageData = displayData.slice(start, start + PAGE_SIZE);
 
-  if (walletTab === 'all') {
-    pageData.forEach(e => {
-      const tr = document.createElement('tr');
-      const changeClass = e.change_bytes > 0 ? 'text-green' : 'text-gray';
-      tr.innerHTML = `
-        <td class="text-gray">${fmtTime(e.ts)}</td>
-        <td class="text-right text-green">${(e.paid / 1e9).toFixed(2)}</td>
-        <td class="text-right text-yellow">${e.unpaid.toLocaleString()}</td>
-        <td class="text-right ${changeClass}">${e.change_bytes > 0 ? '+' : ''}${e.change_bytes.toLocaleString()}</td>
-        <td class="text-right text-yellow">${(e.unpaid / 1e9).toFixed(2)}</td>
-        <td class="text-right ${changeClass}">${e.change_bytes > 0 ? '+' : ''}${(e.change_bytes / 1e9).toFixed(2)}</td>
-      `;
-      tbody.appendChild(tr);
-    });
-  } else {
-    pageData.slice().reverse().forEach(e => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="text-gray">${fmtTime(e.ts)}</td>
-        <td class="text-right ${walletTab === 'paid' ? 'text-green' : 'text-yellow'}">${fmtBytes(e.value)}</td>
-        <td class="text-right text-gray">${fmtBytes(e.cumulative)}</td>
-        <td></td>
-      `;
-      tbody.appendChild(tr);
-    });
-  }
+  pageData.forEach(e => {
+    const tr = document.createElement('tr');
+    const changeClass = e.change_bytes > 0 ? 'text-green' : 'text-gray';
+    tr.innerHTML = `
+      <td class="text-gray">${fmtTime(e.ts)}</td>
+      <td class="text-right text-green">${(e.paid / 1e9).toFixed(2)}</td>
+      <td class="text-right text-yellow">${e.unpaid.toLocaleString()}</td>
+      <td class="text-right ${changeClass}">${e.change_bytes > 0 ? '+' : ''}${e.change_bytes.toLocaleString()}</td>
+      <td class="text-right text-yellow">${(e.unpaid / 1e9).toFixed(2)}</td>
+      <td class="text-right ${changeClass}">${e.change_bytes > 0 ? '+' : ''}${(e.change_bytes / 1e9).toFixed(2)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
 
   if (totalPages <= 1) {
     pagination.style.display = 'none';
@@ -455,16 +417,6 @@ function renderWalletTable() {
     pagination.appendChild(nextBtn);
   }
 }
-
-// Wallet tab switching
-document.getElementById('wallet-tabs').addEventListener('click', function(e) {
-  const btn = e.target.closest('button');
-  if (!btn) return;
-  this.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  walletTab = btn.dataset.tab;
-  renderWalletTable();
-});
 
 async function refreshWallet() {
   const btn = event.target;
