@@ -411,6 +411,139 @@ func TestHandlePayoutStats_EmptyCache(t *testing.T) {
 	}
 }
 
+func TestHandleRefreshPayout_Success(t *testing.T) {
+	payoutCacheMu.Lock()
+	payoutCache = nil
+	payoutCacheTime = time.Time{}
+	payoutCacheMu.Unlock()
+
+	payCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		payCount++
+		fmt.Fprint(w, `{"account_payments":[{"token_amount":9.99,"payout_byte_count":300,"completed":true}],"account_points":[{"point_value":1000000}]}`)
+	}))
+	defer ts.Close()
+
+	orig := httpClient.Transport
+	defer func() { httpClient.Transport = orig }()
+	httpClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req.URL.Scheme = "http"
+		req.URL.Host = ts.Listener.Addr().String()
+		return ts.Client().Transport.RoundTrip(req)
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/refresh-payout", nil)
+	handleRefreshPayout("jwt")(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var body struct {
+		Success bool  `json:"success"`
+		Count   int   `json:"count"`
+		Points  float64 `json:"points"`
+	}
+	json.NewDecoder(w.Body).Decode(&body)
+	if !body.Success {
+		t.Fatalf("success = false, want true")
+	}
+	if body.Count != 1 {
+		t.Fatalf("count = %d, want 1", body.Count)
+	}
+	if body.Points != 1.0 {
+		t.Fatalf("points = %v, want 1.0", body.Points)
+	}
+
+	payoutCacheMu.RLock()
+	if payoutCache[0].TokenAmount != 9.99 {
+		t.Fatalf("cache token_amount = %v, want 9.99", payoutCache[0].TokenAmount)
+	}
+	payoutCacheMu.RUnlock()
+}
+
+func TestHandleRefreshPayout_APIError(t *testing.T) {
+	payoutCacheMu.Lock()
+	payoutCache = nil
+	payoutCacheTime = time.Time{}
+	payoutCacheMu.Unlock()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer ts.Close()
+
+	orig := httpClient.Transport
+	defer func() { httpClient.Transport = orig }()
+	httpClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req.URL.Scheme = "http"
+		req.URL.Host = ts.Listener.Addr().String()
+		return ts.Client().Transport.RoundTrip(req)
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/refresh-payout", nil)
+	handleRefreshPayout("jwt")(w, r)
+
+	if w.Code != 500 {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+
+	payoutCacheMu.RLock()
+	if payoutLastError == "" {
+		t.Fatalf("payoutLastError not set after API failure")
+	}
+	payoutCacheMu.RUnlock()
+}
+
+func TestImportJSON(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
+
+	db, _ := openDB()
+	defer db.Close()
+
+	records := []exportRecord{
+		{CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z", PaidBytesProvided: 1000, UnpaidBytes: 500},
+		{CreatedAt: "2026-01-01T00:15:00Z", UpdatedAt: "2026-01-01T00:15:00Z", PaidBytesProvided: 2000, UnpaidBytes: 700},
+	}
+	data, _ := json.Marshal(records)
+	f := filepath.Join(tmp, "import.json")
+	os.WriteFile(f, data, 0644)
+
+	importJSON(f)
+
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM wallet_stats").Scan(&count)
+	if count != 2 {
+		t.Fatalf("count = %d, want 2", count)
+	}
+}
+
+func TestImportJSON_Deduplicate(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
+
+	db, _ := openDB()
+	defer db.Close()
+
+	records := []exportRecord{
+		{CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z", PaidBytesProvided: 1000, UnpaidBytes: 500},
+	}
+	data, _ := json.Marshal(records)
+	f := filepath.Join(tmp, "import.json")
+	os.WriteFile(f, data, 0644)
+
+	importJSON(f)
+	importJSON(f)
+
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM wallet_stats").Scan(&count)
+	if count != 1 {
+		t.Fatalf("count = %d after duplicate import, want 1", count)
+	}
+}
+
 func TestHandleRefresh_WrongMethod(t *testing.T) {
 	payoutCacheMu.Lock()
 	payoutCache = nil
@@ -440,6 +573,75 @@ func TestHandleRefresh_WrongMethod(t *testing.T) {
 	handleRefresh("jwt", db)(w, r)
 	if w.Code != 405 {
 		t.Fatalf("status = %d, want 405 for GET", w.Code)
+	}
+}
+
+func TestHandleRefresh_APIError(t *testing.T) {
+	payoutCacheMu.Lock()
+	payoutCache = nil
+	payoutCacheTime = time.Time{}
+	payoutCacheMu.Unlock()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer ts.Close()
+
+	orig := httpClient.Transport
+	defer func() { httpClient.Transport = orig }()
+	httpClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req.URL.Scheme = "http"
+		req.URL.Host = ts.Listener.Addr().String()
+		return ts.Client().Transport.RoundTrip(req)
+	})
+
+	tmp := t.TempDir()
+	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
+	db, _ := openDB()
+	defer db.Close()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/refresh", nil)
+	handleRefresh("jwt", db)(w, r)
+	if w.Code != 500 {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+	var body map[string]string
+	json.NewDecoder(w.Body).Decode(&body)
+	if body["error"] == "" {
+		t.Fatalf("expected error body, got %v", body)
+	}
+}
+
+func TestHandleRefreshPayout_ResponseError(t *testing.T) {
+	payoutCacheMu.Lock()
+	payoutCache = nil
+	payoutCacheTime = time.Time{}
+	payoutCacheMu.Unlock()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"account_payments":[],"account_points":[],"error":{"message":"unauthorized"}}`)
+	}))
+	defer ts.Close()
+
+	orig := httpClient.Transport
+	defer func() { httpClient.Transport = orig }()
+	httpClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req.URL.Scheme = "http"
+		req.URL.Host = ts.Listener.Addr().String()
+		return ts.Client().Transport.RoundTrip(req)
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/refresh-payout", nil)
+	handleRefreshPayout("jwt")(w, r)
+	if w.Code != 500 {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+	var body map[string]string
+	json.NewDecoder(w.Body).Decode(&body)
+	if body["error"] != "unauthorized" {
+		t.Fatalf("error = %q, want 'unauthorized'", body["error"])
 	}
 }
 
