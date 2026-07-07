@@ -1,4 +1,4 @@
-# v0.0.4
+# v0.0.1
 
 - **Fix:** Auto-refresh no longer resets transfer rate time window (uses `rateWindow` instead of hardcoded `'1h'`)
 - **Perf (backend):** Payout cache uses double-check RLock — HTTP fetch no longer blocks readers for 15s
