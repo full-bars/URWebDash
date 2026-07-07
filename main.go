@@ -73,6 +73,9 @@ type pointsResponse struct {
 }
 
 var (
+	Version    = "dev"
+	startTime  = time.Now()
+
 	payoutCache      []payoutRecord
 	payoutCacheMu    sync.RWMutex
 	payoutCacheTime  time.Time
@@ -499,6 +502,7 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/refresh", handleRefresh(token, db))
 	mux.HandleFunc("/api/clear", handleClear(db))
 	mux.HandleFunc("/api/refresh-payout", handleRefreshPayout(token))
+	mux.HandleFunc("/api/status", handleStatus)
 	mux.HandleFunc("/", handleIndex)
 
 	fmt.Printf("[serve] listening on :%s\n", port)
@@ -739,6 +743,14 @@ func jsonError(w http.ResponseWriter, msg string) {
 	w.WriteHeader(500)
 	json.NewEncoder(w).Encode(map[string]string{
 		"error": msg,
+	})
+}
+
+func handleStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"version": Version,
+		"uptime":  time.Since(startTime).String(),
 	})
 }
 
