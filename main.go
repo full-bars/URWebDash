@@ -141,7 +141,7 @@ func openDB() (*sql.DB, error) {
 			network_name TEXT NOT NULL DEFAULT '',
 			paid_bytes INTEGER NOT NULL DEFAULT 0,
 			unpaid_bytes INTEGER NOT NULL DEFAULT 0,
-			created_at TEXT NOT NULL,
+			created_at TEXT NOT NULL UNIQUE,
 			updated_at TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_stats_time ON wallet_stats(created_at)`,
