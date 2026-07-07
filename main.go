@@ -291,16 +291,36 @@ func runPolling() {
 	fmt.Printf("[stats] polling every %s | db=%s\n", interval, dbPath())
 
 	update := func() {
-		stats, err := fetchStats(token)
-		if err != nil {
-			fmt.Printf("[stats] fetch error: %v\n", err)
-			return
-		}
-
 		now := time.Now().UTC()
 		_, min, _ := now.Clock()
 		if min%15 != 0 {
-			fmt.Printf("[stats] skip (not at boundary): %s\n", now.Format("15:04:05"))
+			return
+		}
+
+		windowStart := now.Truncate(15 * time.Minute)
+		var existingID int64
+		db.QueryRow("SELECT id FROM wallet_stats WHERE created_at >= ? AND created_at < ? LIMIT 1",
+			windowStart.Format(time.RFC3339),
+			windowStart.Add(15*time.Minute).Format(time.RFC3339),
+		).Scan(&existingID)
+		if existingID != 0 {
+			return
+		}
+
+		var stats *walletStats
+		var err error
+		for attempt := range 3 {
+			stats, err = fetchStats(token)
+			if err == nil {
+				break
+			}
+			fmt.Printf("[stats] fetch error (attempt %d/3): %v\n", attempt+1, err)
+			if attempt < 2 {
+				time.Sleep(time.Duration(attempt+1) * 5 * time.Second)
+			}
+		}
+		if err != nil {
+			fmt.Printf("[stats] all 3 attempts failed for window %s\n", windowStart.Format("15:04"))
 			return
 		}
 
