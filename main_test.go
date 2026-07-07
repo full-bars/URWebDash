@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -250,4 +252,213 @@ func contains(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func TestFetchStats(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-jwt" {
+			w.WriteHeader(401)
+			return
+		}
+		fmt.Fprint(w, `{"paid_bytes_provided":1234567890,"unpaid_bytes_provided":987654321}`)
+	}))
+	defer ts.Close()
+
+	orig := httpClient.Transport
+	defer func() { httpClient.Transport = orig }()
+	httpClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req.URL.Scheme = "http"
+		req.URL.Host = ts.Listener.Addr().String()
+		return ts.Client().Transport.RoundTrip(req)
+	})
+
+	s, err := fetchStats("test-jwt")
+	if err != nil {
+		t.Fatalf("fetchStats: %v", err)
+	}
+	if s.PaidBytes != 1234567890 {
+		t.Fatalf("paid = %d, want 1234567890", s.PaidBytes)
+	}
+	if s.UnpaidBytes != 987654321 {
+		t.Fatalf("unpaid = %d, want 987654321", s.UnpaidBytes)
+	}
+}
+
+func TestFetchStats_HTTPError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(502)
+	}))
+	defer ts.Close()
+
+	orig := httpClient.Transport
+	defer func() { httpClient.Transport = orig }()
+	httpClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req.URL.Scheme = "http"
+		req.URL.Host = ts.Listener.Addr().String()
+		return ts.Client().Transport.RoundTrip(req)
+	})
+
+	_, err := fetchStats("jwt")
+	if err == nil {
+		t.Fatalf("expected error for 502 response")
+	}
+	if !strings.Contains(err.Error(), "502") {
+		t.Fatalf("error = %v, want to contain 502", err)
+	}
+}
+
+func TestFetchPayouts(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-jwt" {
+			w.WriteHeader(401)
+			return
+		}
+		fmt.Fprint(w, `{"account_payments":[{"token_amount":12.34,"payout_byte_count":5000,"completed":true}],"account_points":[]}`)
+	}))
+	defer ts.Close()
+
+	orig := httpClient.Transport
+	defer func() { httpClient.Transport = orig }()
+	httpClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req.URL.Scheme = "http"
+		req.URL.Host = ts.Listener.Addr().String()
+		return ts.Client().Transport.RoundTrip(req)
+	})
+
+	r, err := fetchPayouts("test-jwt")
+	if err != nil {
+		t.Fatalf("fetchPayouts: %v", err)
+	}
+	if len(r.AccountPayments) != 1 {
+		t.Fatalf("got %d payments, want 1", len(r.AccountPayments))
+	}
+	if r.AccountPayments[0].TokenAmount != 12.34 {
+		t.Fatalf("token_amount = %v, want 12.34", r.AccountPayments[0].TokenAmount)
+	}
+}
+
+func TestFetchPoints(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"account_points":[{"point_value":5000000},{"point_value":7000000}]}`)
+	}))
+	defer ts.Close()
+
+	orig := httpClient.Transport
+	defer func() { httpClient.Transport = orig }()
+	httpClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req.URL.Scheme = "http"
+		req.URL.Host = ts.Listener.Addr().String()
+		return ts.Client().Transport.RoundTrip(req)
+	})
+
+	pts, err := fetchPoints("jwt")
+	if err != nil {
+		t.Fatalf("fetchPoints: %v", err)
+	}
+	if pts != 12.0 {
+		t.Fatalf("points = %v, want 12.0 (12M / 1e6)", pts)
+	}
+}
+
+func TestReadJWT(t *testing.T) {
+	tmp := t.TempDir()
+	f := filepath.Join(tmp, "jwt")
+	os.WriteFile(f, []byte(" my-token-123 \n"), 0644)
+	t.Setenv("JWT_PATH", f)
+
+	tok, err := readJWT()
+	if err != nil {
+		t.Fatalf("readJWT: %v", err)
+	}
+	if tok != "my-token-123" {
+		t.Fatalf("token = %q, want %q", tok, "my-token-123")
+	}
+}
+
+func TestHandlePayoutStats_EmptyCache(t *testing.T) {
+	payoutCacheMu.Lock()
+	payoutCache = nil
+	payoutCacheTime = time.Time{}
+	payoutCacheMu.Unlock()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"account_payments":[{"token_amount":5.0,"payout_byte_count":100,"completed":false}],"account_points":[]}`)
+	}))
+	defer ts.Close()
+
+	orig := httpClient.Transport
+	defer func() { httpClient.Transport = orig }()
+	httpClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req.URL.Scheme = "http"
+		req.URL.Host = ts.Listener.Addr().String()
+		return ts.Client().Transport.RoundTrip(req)
+	})
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/payout-stats", nil)
+	handlePayoutStats("jwt")(w, r)
+
+	var body struct {
+		Payments []payoutRecord `json:"payments"`
+		Count    int            `json:"count"`
+	}
+	json.NewDecoder(w.Body).Decode(&body)
+	if body.Count != 1 {
+		t.Fatalf("count = %d, want 1", body.Count)
+	}
+	if body.Payments[0].TokenAmount != 5.0 {
+		t.Fatalf("token_amount = %v, want 5.0", body.Payments[0].TokenAmount)
+	}
+}
+
+func TestHandleRefresh_WrongMethod(t *testing.T) {
+	payoutCacheMu.Lock()
+	payoutCache = nil
+	payoutCacheTime = time.Time{}
+	payoutCacheMu.Unlock()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"paid_bytes_provided":999,"unpaid_bytes_provided":111,"error":null}`)
+	}))
+	defer ts.Close()
+
+	orig := httpClient.Transport
+	defer func() { httpClient.Transport = orig }()
+	httpClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req.URL.Scheme = "http"
+		req.URL.Host = ts.Listener.Addr().String()
+		return ts.Client().Transport.RoundTrip(req)
+	})
+
+	tmp := t.TempDir()
+	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
+	db, _ := openDB()
+	defer db.Close()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/refresh", nil)
+	handleRefresh("jwt", db)(w, r)
+	if w.Code != 405 {
+		t.Fatalf("status = %d, want 405 for GET", w.Code)
+	}
+}
+
+func TestHandleWalletSummary_EmptyDB(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
+	db, _ := openDB()
+	defer db.Close()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/wallet-summary", nil)
+	handleWalletSummary(db)(w, r)
+	if w.Code != 500 {
+		t.Fatalf("status = %d, want 500 for empty db", w.Code)
+	}
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
