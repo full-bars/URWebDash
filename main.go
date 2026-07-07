@@ -44,7 +44,9 @@ type payoutRecord struct {
 	PayoutByteCount int64  `json:"payout_byte_count"`
 	Completed      bool    `json:"completed"`
 	Canceled       bool    `json:"canceled"`
-	CreatedAt      string  `json:"created_at"`
+	CreateTime     string  `json:"create_time"`
+	CompleteTime   string  `json:"complete_time"`
+	PaymentTime    string  `json:"payment_time"`
 	TxHash         string  `json:"tx_hash"`
 	WalletAddress  string  `json:"wallet_address"`
 	Blockchain     string  `json:"blockchain"`
@@ -77,6 +79,9 @@ var (
 	payoutLastError  string
 	payoutLastUpdate string
 	payoutLastPoints float64
+
+	httpClient = &http.Client{Timeout: 15 * time.Second}
+	cachedJWT  string
 )
 
 func main() {
@@ -92,6 +97,8 @@ func main() {
 		importJSON(flag.Arg(1))
 	case "history":
 		printHistory()
+	case "cleanup":
+		cleanupDB()
 	default:
 		fmt.Println(`Usage:
   stats_tracker run                    — start polling daemon
@@ -150,15 +157,22 @@ func openDB() (*sql.DB, error) {
 			return nil, fmt.Errorf("init: %w", err)
 		}
 	}
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
+	db.SetConnMaxLifetime(5 * time.Minute)
 	return db, nil
 }
 
 func readJWT() (string, error) {
+	if cachedJWT != "" {
+		return cachedJWT, nil
+	}
 	b, err := os.ReadFile(jwtPath())
 	if err != nil {
 		return "", fmt.Errorf("read jwt: %w", err)
 	}
-	return strings.TrimSpace(string(b)), nil
+	cachedJWT = strings.TrimSpace(string(b))
+	return cachedJWT, nil
 }
 
 func fetchStats(token string) (*walletStats, error) {
@@ -169,8 +183,7 @@ func fetchStats(token string) (*walletStats, error) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "*/*")
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http: %w", err)
 	}
@@ -199,8 +212,7 @@ func fetchPayouts(token string) (*accountResponse, error) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "*/*")
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http: %w", err)
 	}
@@ -229,8 +241,7 @@ func fetchPoints(token string) (float64, error) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "*/*")
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("http: %w", err)
 	}
@@ -285,10 +296,18 @@ func runPolling() {
 			fmt.Printf("[stats] fetch error: %v\n", err)
 			return
 		}
-		now := time.Now().UTC().Format(time.RFC3339)
+
+		now := time.Now().UTC()
+		_, min, _ := now.Clock()
+		if min%15 != 0 {
+			fmt.Printf("[stats] skip (not at boundary): %s\n", now.Format("15:04:05"))
+			return
+		}
+
+		nowStr := now.Format(time.RFC3339)
 		_, err = db.Exec(
 			"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
-			int64(stats.PaidBytes), int64(stats.UnpaidBytes), now, now,
+			int64(stats.PaidBytes), int64(stats.UnpaidBytes), nowStr, nowStr,
 		)
 		if err != nil {
 			fmt.Printf("[stats] insert error: %v\n", err)
@@ -296,9 +315,6 @@ func runPolling() {
 		}
 		fmt.Printf("[stats] stored: paid=%d unpaid=%d\n", stats.PaidBytes, stats.UnpaidBytes)
 	}
-
-	update()
-	_ = os.Getenv("STATS_INTERVAL")
 
 	// Align to next quarter-hour boundary
 	now := time.Now()
@@ -412,6 +428,28 @@ func printHistory() {
 		count++
 	}
 	fmt.Printf("\n%d entries\n", count)
+}
+
+func cleanupDB() {
+	db, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "db: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	today := time.Now().UTC().Format("2006-01-02")
+	res, err := db.Exec(
+		"DELETE FROM wallet_stats WHERE created_at >= ? AND created_at < ? AND (CAST(strftime('%M', created_at) AS INTEGER) % 15 != 0 OR CAST(strftime('%S', created_at) AS INTEGER) > 5)",
+		today+"T00:00:00Z",
+		today+"T24:00:00Z",
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cleanup: %v\n", err)
+		os.Exit(1)
+	}
+	n, _ := res.RowsAffected()
+	fmt.Printf("cleaned %d off-schedule entries from %s\n", n, today)
 }
 
 // --- HTTP Server ---
@@ -532,23 +570,29 @@ func handleWalletSummary(db *sql.DB) http.HandlerFunc {
 
 func handlePayoutStats(token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		payoutCacheMu.Lock()
-		if len(payoutCache) == 0 || payoutCacheTime.IsZero() || time.Since(payoutCacheTime) > 5*time.Minute {
+		payoutCacheMu.RLock()
+		needsRefresh := len(payoutCache) == 0 || payoutCacheTime.IsZero() || time.Since(payoutCacheTime) > 5*time.Minute
+		payoutCacheMu.RUnlock()
+
+		if needsRefresh {
 			if resp, err := fetchPayouts(token); err == nil {
+				pts, _ := fetchPoints(token)
+				payoutCacheMu.Lock()
 				payoutCache = resp.AccountPayments
 				payoutCacheTime = time.Now()
-				if pts, err := fetchPoints(token); err == nil {
-					payoutLastPoints = pts
-				}
+				payoutLastPoints = pts
+				payoutCacheMu.Unlock()
 			}
 		}
+
+		payoutCacheMu.RLock()
 		cached := payoutCache
 		lastTime := payoutCacheTime
 		lastErr := payoutLastError
 		lastUpd := payoutLastUpdate
 		pts := payoutLastPoints
 		isFresh := !lastTime.IsZero() && time.Since(lastTime) < 5*time.Minute
-		payoutCacheMu.Unlock()
+		payoutCacheMu.RUnlock()
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -577,29 +621,25 @@ func handleRefresh(token string, db *sql.DB) http.HandlerFunc {
 		}
 
 		now := time.Now().UTC()
-		_, min, _ := now.Clock()
-		windowStart := now.Truncate(1 * time.Hour).Add(time.Duration((min/15)*15) * time.Minute)
+		_, min, sec := now.Clock()
+		if min%15 == 0 && sec < 5 {
+			windowStart := now.Truncate(1 * time.Hour).Add(time.Duration(min) * time.Minute)
+			var existingID int64
+			db.QueryRow("SELECT id FROM wallet_stats WHERE created_at >= ? AND created_at < ? ORDER BY created_at ASC LIMIT 1",
+				windowStart.Format(time.RFC3339),
+				windowStart.Add(time.Minute).Format(time.RFC3339),
+			).Scan(&existingID)
 
-		var existingID int64
-		db.QueryRow("SELECT id FROM wallet_stats WHERE created_at >= ? AND created_at < ? ORDER BY created_at ASC LIMIT 1",
-			windowStart.Format(time.RFC3339),
-			windowStart.Add(15*time.Minute).Format(time.RFC3339),
-		).Scan(&existingID)
-
-		if existingID > 0 {
-			_, err = db.Exec(
-				"UPDATE wallet_stats SET paid_bytes = ?, unpaid_bytes = ?, updated_at = ? WHERE id = ?",
-				int64(stats.PaidBytes), int64(stats.UnpaidBytes), now.Format(time.RFC3339), existingID,
-			)
-		} else {
-			_, err = db.Exec(
-				"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
-				int64(stats.PaidBytes), int64(stats.UnpaidBytes), now.Format(time.RFC3339), now.Format(time.RFC3339),
-			)
-		}
-		if err != nil {
-			jsonError(w, err.Error())
-			return
+			if existingID == 0 {
+				_, err = db.Exec(
+					"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
+					int64(stats.PaidBytes), int64(stats.UnpaidBytes), windowStart.Format(time.RFC3339), now.Format(time.RFC3339),
+				)
+				if err != nil {
+					jsonError(w, err.Error())
+					return
+				}
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")

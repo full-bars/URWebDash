@@ -52,6 +52,8 @@
     button.btn.danger:hover { background: #ef4444; color: #fff; }
     button.btn.disabled { opacity: .4; cursor: default; }
     button.btn.disabled:hover { background: #1f2937; }
+    button.btn-sm { padding: 3px 10px; font-size: 11px; }
+    button.btn-sm.active { background: #374151; color: #f9fafb; border-color: #4b5563; }
     .table-wrap { overflow-x: auto; border: 1px solid #374151; border-radius: 10px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th { text-align: left; padding: 10px 12px; color: #9ca3af; font-weight: 600; border-bottom: 1px solid #374151; white-space: nowrap; background: #1f2937; position: sticky; top: 0; z-index: 2; }
@@ -128,7 +130,15 @@
         <canvas id="unpaid-chart"></canvas>
       </div>
       <div class="chart-container">
-        <div class="chart-title">Transfer Rate (GB/hr)</div>
+        <div class="chart-title">Transfer Rate</div>
+        <div style="display:flex;gap:4px;margin-bottom:8px" id="rate-tabs">
+          <button class="btn btn-sm active" data-window="1h">1H</button>
+          <button class="btn btn-sm" data-window="6h">6H</button>
+          <button class="btn btn-sm" data-window="24h">24H</button>
+          <button class="btn btn-sm" data-window="7d">7D</button>
+          <button class="btn btn-sm" data-window="gbd">GB/d</button>
+          <button class="btn btn-sm" data-window="all">ALL</button>
+        </div>
         <canvas id="rate-chart"></canvas>
       </div>
     </div>
@@ -273,7 +283,11 @@ if (navOverlay) navOverlay.addEventListener('click', () => {
 });
 
 // Sidebar nav
+let currentSection = 'wallet';
+let payoutLoaded = false;
+
 function switchSection(section) {
+  currentSection = section;
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('nav-overlay').classList.remove('open');
   document.querySelectorAll('#sidebar a').forEach(x => x.classList.remove('active'));
@@ -282,6 +296,7 @@ function switchSection(section) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   const target = document.getElementById('section-' + section);
   if (target) target.classList.add('active');
+  if (section === 'payout' && !payoutLoaded) loadPayouts();
   return false;
 }
 
@@ -290,8 +305,13 @@ let unpaidChart = null;
 let rateChart = null;
 
 function initPaidChart(labels, data) {
+  if (paidChart) {
+    paidChart.data.labels = labels;
+    paidChart.data.datasets[0].data = data;
+    paidChart.update('none');
+    return;
+  }
   const ctx = document.getElementById('paid-chart').getContext('2d');
-  if (paidChart) paidChart.destroy();
   paidChart = new Chart(ctx, {
     type: 'line',
     data: {
@@ -314,8 +334,13 @@ function initPaidChart(labels, data) {
 }
 
 function initUnpaidChart(labels, data) {
+  if (unpaidChart) {
+    unpaidChart.data.labels = labels;
+    unpaidChart.data.datasets[0].data = data;
+    unpaidChart.update('none');
+    return;
+  }
   const ctx = document.getElementById('unpaid-chart').getContext('2d');
-  if (unpaidChart) unpaidChart.destroy();
   unpaidChart = new Chart(ctx, {
     type: 'line',
     data: {
@@ -340,6 +365,8 @@ function initUnpaidChart(labels, data) {
 function initRateChart(labels, rateData) {
   const ctx = document.getElementById('rate-chart').getContext('2d');
   if (rateChart) rateChart.destroy();
+  const isAgg = window._rateDaily || (labels.length > 0 && labels[0].includes(' - '));
+  const unit = window._rateDaily ? 'GB/d' : 'GB/hr';
   rateChart = new Chart(ctx, {
     type: 'bar',
     data: {
@@ -350,7 +377,8 @@ function initRateChart(labels, rateData) {
         backgroundColor: rateData.map(v => v >= 0 ? '#3b82f680' : '#ef444480'),
         borderColor: rateData.map(v => v >= 0 ? '#3b82f6' : '#ef4444'),
         borderWidth: 1,
-        borderRadius: 2
+        borderRadius: 2,
+        barPercentage: isAgg ? 0.8 : 0.6,
       }]
     },
     options: {
@@ -360,16 +388,91 @@ function initRateChart(labels, rateData) {
         legend: { display: false },
         tooltip: {
           backgroundColor: '#374151', titleColor: '#f3f4f6', bodyColor: '#d1d5db', borderColor: '#4b5563', borderWidth: 1, padding: 10,
-          callbacks: { label: ctx => ctx.parsed.y.toFixed(2) + ' GB/hr' }
+          callbacks: { label: ctx => ctx.parsed.y.toFixed(2) + ' ' + unit }
         }
       },
       scales: {
-        x: { ticks: { color: '#9ca3af', font: { size: 10 }, maxTicksLimit: 8, maxRotation: 0 }, grid: { color: '#374151' } },
+        x: { ticks: { color: '#9ca3af', font: { size: 10 }, maxTicksLimit: 12, maxRotation: 45 }, grid: { color: '#374151' } },
         y: { ticks: { color: '#9ca3af', font: { size: 10 }, callback: v => v.toFixed(1) }, grid: { color: '#374151' } }
       }
     }
   });
 }
+
+// Rate chart window switching
+let rateWindow = '1h';
+function updateRateChart(wind) {
+  rateWindow = wind;
+  const ts = window._rateTimestamps || [];
+  const vals = window._rateValues || [];
+  if (ts.length === 0) return;
+  const now = ts[ts.length - 1].getTime();
+
+  let filterCutoff, labelFn, aggregate, dailyTotal;
+  switch (wind) {
+    case '1h': filterCutoff = now - 3600000; break;
+    case '6h': filterCutoff = now - 6*3600000; break;
+    case '24h': filterCutoff = now - 24*3600000; break;
+    case '7d': filterCutoff = now - 7*86400000; break;
+    case 'gbd': filterCutoff = now - 90*86400000; dailyTotal = true; break;
+    default: filterCutoff = 0; break;
+  }
+  const showTime = wind !== '7d' && wind !== 'all' && wind !== 'gbd';
+  labelFn = showTime
+    ? d => d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    : d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  aggregate = !showTime;
+
+  let filtered = [];
+  for (let i = 0; i < ts.length; i++) {
+    if (ts[i].getTime() >= filterCutoff) {
+      filtered.push({ ts: ts[i], val: vals[i] });
+    }
+  }
+
+  let labels, data;
+  window._rateDaily = !!dailyTotal;
+  if (dailyTotal) {
+    const buckets = new Map();
+    for (const f of filtered) {
+      const key = f.ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(f.val);
+    }
+    labels = [];
+    data = [];
+    for (const [k, v] of buckets) {
+      labels.push(k);
+      data.push(v.reduce((a, b) => a + b, 0));
+    }
+  } else if (aggregate && filtered.length > 48) {
+    const buckets = new Map();
+    for (const f of filtered) {
+      const key = f.ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(f.val);
+    }
+    labels = [];
+    data = [];
+    for (const [k, v] of buckets) {
+      labels.push(k);
+      data.push(v.reduce((a, b) => a + b, 0) / v.length);
+    }
+  } else {
+    labels = filtered.map(f => labelFn(f.ts));
+    data = filtered.map(f => f.val);
+  }
+
+  initRateChart(labels, data);
+}
+
+document.getElementById('rate-tabs').addEventListener('click', function(e) {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  this.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  updateRateChart(btn.dataset.window);
+});
 
 let walletEntries = [];
 let walletPage = 1;
@@ -415,7 +518,6 @@ async function loadWalletStats() {
       const labels = [];
       const paidGB = [];
       const unpaidGB = [];
-      const rateData = [];
 
       for (let i = 0; i < chartSlice.length; i++) {
         const e = chartSlice[i];
@@ -423,8 +525,23 @@ async function loadWalletStats() {
         labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
         paidGB.push(e.paid_bytes / 1e9);
         unpaidGB.push(e.unpaid_bytes / 1e9);
+      }
+
+      // Compute rate from raw entries (not downsampled) for accuracy
+      const rateMax = 2000;
+      const rateStep = Math.max(1, Math.floor(reversed.length / rateMax));
+      const rateEntries = [];
+      for (let i = 0; i < reversed.length; i += rateStep) rateEntries.push(reversed[i]);
+      if (rateEntries[rateEntries.length - 1] !== reversed[reversed.length - 1]) {
+        rateEntries.push(reversed[reversed.length - 1]);
+      }
+      window._rateTimestamps = rateEntries.map(e => new Date(e.created_at));
+      const rateData = [];
+      for (let i = 0; i < rateEntries.length; i++) {
+        const e = rateEntries[i];
+        const d = new Date(e.created_at);
         if (i > 0) {
-          const prev = chartSlice[i - 1];
+          const prev = rateEntries[i - 1];
           const hours = (d.getTime() - new Date(prev.created_at).getTime()) / 3600000;
           const deltaGB = (e.unpaid_bytes - prev.unpaid_bytes) / 1e9;
           rateData.push(hours > 0 ? Math.max(0, deltaGB / hours) : 0);
@@ -432,10 +549,13 @@ async function loadWalletStats() {
           rateData.push(0);
         }
       }
+      window._rateValues = rateData;
 
       initPaidChart(labels, paidGB);
       initUnpaidChart(labels, unpaidGB);
-      initRateChart(labels, rateData);
+      window._rateTimestamps = chartSlice.map(e => new Date(e.created_at));
+      window._rateValues = rateData;
+      updateRateChart(rateWindow);
 
       // 24h change
       const now = Date.now();
@@ -556,7 +676,7 @@ async function clearHistory() {
 }
 
 async function loadPayouts() {
-  try {
+  payoutLoaded = true;  try {
     const res = await fetch(API + '/api/payout-stats');
     const data = await res.json();
 
@@ -602,7 +722,7 @@ async function loadPayouts() {
         <td class="text-gray">${payments.length - i}</td>
         <td class="text-right text-green">${amount}</td>
         <td class="text-right text-white text-mono">${fmtBytes(p.payout_byte_count || 0)}</td>
-        <td class="text-right text-gray">${p.created_at ? fmtTimeShort(p.created_at) : '—'}</td>
+        <td class="text-right text-gray">${p.complete_time || p.payment_time || p.create_time ? fmtTimeShort(p.complete_time || p.payment_time || p.create_time) : '—'}</td>
         <td class="text-left text-mono" style="font-size:11px">${txLink}</td>
         <td class="text-gray">${p.blockchain || '—'}</td>
         <td class="${statusClass}">${status}</td>
@@ -638,12 +758,11 @@ async function autoRefresh() {
   if (now - lastLoad > 60000) {
     lastLoad = now;
     await loadWalletStats();
-    await loadPayouts();
+    if (currentSection === 'payout') await loadPayouts();
   }
 }
 
 loadWalletStats();
-loadPayouts();
 setInterval(autoRefresh, 30000);
 
 const jsStatus = document.getElementById('js-status');
