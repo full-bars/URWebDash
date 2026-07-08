@@ -534,16 +534,17 @@ func handleWalletStats(db *sql.DB) http.HandlerFunc {
 			ChangeBytes int64  `json:"change_bytes"`
 		}
 		var entries []entry
-		var prev int64
+		var prevTotal int64
 		for rows.Next() {
 			var e entry
 			if err := rows.Scan(&e.PaidBytes, &e.UnpaidBytes, &e.CreatedAt); err != nil {
 				continue
 			}
+			total := e.PaidBytes + e.UnpaidBytes
 			if len(entries) > 0 {
-				e.ChangeBytes = e.UnpaidBytes - prev
+				e.ChangeBytes = total - prevTotal
 			}
-			prev = e.UnpaidBytes
+			prevTotal = total
 			entries = append(entries, e)
 		}
 
