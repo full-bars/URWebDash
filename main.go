@@ -44,6 +44,7 @@ type payoutRecord struct {
 	TokenAmount    float64 `json:"token_amount"`
 	PayoutByteCount int64  `json:"payout_byte_count"`
 	PointsEarned   float64 `json:"points_earned"`
+	ReliabilityPts float64 `json:"reliability_points"`
 	Completed      bool    `json:"completed"`
 	Canceled       bool    `json:"canceled"`
 	CreateTime     string  `json:"create_time"`
@@ -66,6 +67,7 @@ type accountResponse struct {
 type pointEntry struct {
 	PointValue       int64  `json:"point_value"`
 	AccountPaymentID string `json:"account_payment_id"`
+	Event            string `json:"event"`
 }
 
 type pointsResponse struct {
@@ -601,13 +603,20 @@ func handlePayoutStats(token string) http.HandlerFunc {
 			if resp, err := fetchPayouts(token); err == nil {
 				pointEntries, _ := fetchPoints(token)
 				pointsByPayment := make(map[string]float64)
+				reliabilityByPayment := make(map[string]float64)
 				var totalPoints float64
+				var totalReliability float64
 				for _, pe := range pointEntries {
 					pointsByPayment[pe.AccountPaymentID] += float64(pe.PointValue) / 1e6
 					totalPoints += float64(pe.PointValue) / 1e6
+					if pe.Event == "payout_reliability" {
+						reliabilityByPayment[pe.AccountPaymentID] += float64(pe.PointValue) / 1e6
+						totalReliability += float64(pe.PointValue) / 1e6
+					}
 				}
 				for i := range resp.AccountPayments {
 					resp.AccountPayments[i].PointsEarned = pointsByPayment[resp.AccountPayments[i].PaymentID]
+					resp.AccountPayments[i].ReliabilityPts = reliabilityByPayment[resp.AccountPayments[i].PaymentID]
 				}
 				payoutCacheMu.Lock()
 				payoutCache = resp.AccountPayments
@@ -728,13 +737,20 @@ func handleRefreshPayout(token string) http.HandlerFunc {
 
 		pointEntries, _ := fetchPoints(token)
 		pointsByPayment := make(map[string]float64)
+		reliabilityByPayment := make(map[string]float64)
 		var totalPoints float64
+		var totalReliability float64
 		for _, pe := range pointEntries {
 			pointsByPayment[pe.AccountPaymentID] += float64(pe.PointValue) / 1e6
 			totalPoints += float64(pe.PointValue) / 1e6
+			if pe.Event == "payout_reliability" {
+				reliabilityByPayment[pe.AccountPaymentID] += float64(pe.PointValue) / 1e6
+				totalReliability += float64(pe.PointValue) / 1e6
+			}
 		}
 		for i := range resp.AccountPayments {
 			resp.AccountPayments[i].PointsEarned = pointsByPayment[resp.AccountPayments[i].PaymentID]
+			resp.AccountPayments[i].ReliabilityPts = reliabilityByPayment[resp.AccountPayments[i].PaymentID]
 		}
 
 		payoutCacheMu.Lock()
