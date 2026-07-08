@@ -550,7 +550,7 @@ async function loadWalletStats() {
         if (i > 0) {
           const prev = rateEntries[i - 1];
           const hours = (d.getTime() - new Date(prev.created_at).getTime()) / 3600000;
-          const deltaGB = (e.unpaid_bytes - prev.unpaid_bytes) / 1e9;
+          const deltaGB = (e.unpaid_bytes + e.paid_bytes - prev.unpaid_bytes - prev.paid_bytes) / 1e9;
           rateData.push(hours > 0 ? Math.max(0, deltaGB / hours) : 0);
         } else {
           rateData.push(0);
