@@ -42,6 +42,7 @@ type exportRecord struct {
 type payoutRecord struct {
 	TokenAmount    float64 `json:"token_amount"`
 	PayoutByteCount int64  `json:"payout_byte_count"`
+	PointsEarned   float64 `json:"points_earned"`
 	Completed      bool    `json:"completed"`
 	Canceled       bool    `json:"canceled"`
 	CreateTime     string  `json:"create_time"`
@@ -721,12 +722,15 @@ func handleRefreshPayout(token string) http.HandlerFunc {
 		pts, _ := fetchPoints(token)
 
 		payoutCacheMu.Lock()
+		oldCache := payoutCache
 		payoutCache = resp.AccountPayments
 		payoutCacheTime = time.Now()
 		payoutLastError = ""
 		payoutLastUpdate = time.Now().UTC().Format(time.RFC3339)
 		payoutLastPoints = pts
 		payoutCacheMu.Unlock()
+
+		notifyPayoutChanges(oldCache, resp.AccountPayments)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -738,12 +742,65 @@ func handleRefreshPayout(token string) http.HandlerFunc {
 	}
 }
 
+func notifyPayoutChanges(old []payoutRecord, new []payoutRecord) {
+	oldByTx := make(map[string]payoutRecord)
+	for _, p := range old {
+		if p.TxHash != "" {
+			oldByTx[p.TxHash] = p
+		}
+	}
+
+	for _, p := range new {
+		if p.TxHash == "" {
+			continue
+		}
+
+		oldP, existed := oldByTx[p.TxHash]
+
+		if !existed {
+			amount := fmt.Sprintf("$%.2f", p.TokenAmount)
+			bytes := fmt.Sprintf("%.1f GB", float64(p.PayoutByteCount)/1e9)
+			status := "⏳ Pending"
+			if p.Completed {
+				status = "✅ Completed"
+			}
+			sendDiscordNotification(fmt.Sprintf("💰 **New Payout** %s\nAmount: %s · Data: %s · Status: %s\nChain: %s",
+				status, amount, bytes, p.Blockchain))
+			continue
+		}
+
+		if !oldP.Completed && p.Completed {
+			amount := fmt.Sprintf("$%.2f", p.TokenAmount)
+			sendDiscordNotification(fmt.Sprintf("✅ **Payout Completed**\nAmount: %s\nTx: %s",
+				amount, p.TxHash[:12]+"…"))
+		}
+	}
+}
+
 func jsonError(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
 	json.NewEncoder(w).Encode(map[string]string{
 		"error": msg,
 	})
+}
+
+func discordWebhookURL() string {
+	return os.Getenv("DISCORD_WEBHOOK_URL")
+}
+
+func sendDiscordNotification(content string) {
+	url := discordWebhookURL()
+	if url == "" {
+		return
+	}
+	go func() {
+		body, _ := json.Marshal(map[string]string{"content": content})
+		resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
+		if err == nil {
+			resp.Body.Close()
+		}
+	}()
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {

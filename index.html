@@ -198,6 +198,7 @@
           <tr>
             <th>#</th>
             <th class="text-right">Amount</th>
+            <th class="text-right">Points</th>
             <th class="text-right">Bytes</th>
             <th class="text-right">Date</th>
             <th>Transaction</th>
@@ -719,6 +720,7 @@ async function loadPayouts() {
       const status = p.completed ? '✅ Completed' : p.canceled ? '❌ Canceled' : '⏳ Pending';
       const statusClass = p.completed ? 'text-green' : p.canceled ? 'text-gray' : 'text-yellow';
       const amount = p.token_amount ? '$' + p.token_amount.toFixed(2) + (p.token_type ? ' ' + p.token_type : '') : '—';
+      const points = p.points_earned ? p.points_earned.toLocaleString(undefined, {maximumFractionDigits: 0}) : '—';
       const txLink = p.tx_hash
         ? `<a href="https://solscan.io/tx/${p.tx_hash}" target="_blank" rel="noopener" style="color:#3b82f6;text-decoration:none">${p.tx_hash.slice(0, 12)}…${p.tx_hash.slice(-8)}</a>`
         : '—';
@@ -726,6 +728,7 @@ async function loadPayouts() {
       tr.innerHTML = `
         <td class="text-gray">${payments.length - i}</td>
         <td class="text-right text-green">${amount}</td>
+        <td class="text-right text-blue">${points}</td>
         <td class="text-right text-white text-mono">${fmtBytes(p.payout_byte_count || 0)}</td>
         <td class="text-right text-gray">${p.complete_time || p.payment_time || p.create_time ? fmtTimeShort(p.complete_time || p.payment_time || p.create_time) : '—'}</td>
         <td class="text-left text-mono" style="font-size:11px">${txLink}</td>
