@@ -780,7 +780,7 @@ func notifyPayoutChanges(old []payoutRecord, new []payoutRecord) {
 			if p.Completed {
 				status = "✅ Completed"
 			}
-			sendDiscordNotification(fmt.Sprintf("💰 **New Payout** %s\nAmount: %s · Data: %s · Status: %s\nChain: %s",
+			sendDiscordNotification(fmt.Sprintf("💰 **New Payout** %s\nAmount: %s · Data: %s\nChain: %s",
 				status, amount, bytes, p.Blockchain))
 			continue
 		}

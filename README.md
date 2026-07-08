@@ -2,6 +2,13 @@
 
 Wallet and payout stats dashboard for URnetwork providers. Polls the bringyour.com API, stores history in SQLite, and serves a dark-theme Chart.js UI.
 
+## Features
+
+- **Data Stats** — Real-time paid/unpaid bytes tracking with hourly snapshots, charts, and transfer rate visualization
+- **Payout Stats** — Complete payment history with amounts, bytes, points earned per payment, and Solana transaction links
+- **Discord Webhooks** — Automatic notifications when new payments appear or pending payments complete
+- **Auto-Refresh** — Dashboard updates every 30 seconds, payout stats refresh every 5 minutes
+
 ## Quick Start
 
 ```bash
@@ -46,3 +53,4 @@ Accepts a JSON array of records with fields: `paid_bytes_provided`, `unpaid_byte
 |---|---|---|
 | `STATS_INTERVAL` | `15m` | Polling interval (min 1m) |
 | `JWT_PATH` | `~/.urnetwork/jwt` | Path to JWT token file |
+| `DISCORD_WEBHOOK_URL` | — | Discord webhook URL for payout notifications |
