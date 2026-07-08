@@ -355,8 +355,15 @@ func TestFetchPoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetchPoints: %v", err)
 	}
-	if pts != 12.0 {
-		t.Fatalf("points = %v, want 12.0 (12M / 1e6)", pts)
+	if len(pts) != 2 {
+		t.Fatalf("points count = %v, want 2", len(pts))
+	}
+	var total int64
+	for _, p := range pts {
+		total += p.PointValue
+	}
+	if total != 12000000 {
+		t.Fatalf("total points = %v, want 12000000 (12M)", total)
 	}
 }
 

@@ -40,8 +40,10 @@ type exportRecord struct {
 }
 
 type payoutRecord struct {
+	PaymentID      string  `json:"payment_id"`
 	TokenAmount    float64 `json:"token_amount"`
 	PayoutByteCount int64  `json:"payout_byte_count"`
+	PointsEarned   float64 `json:"points_earned"`
 	Completed      bool    `json:"completed"`
 	Canceled       bool    `json:"canceled"`
 	CreateTime     string  `json:"create_time"`
@@ -62,7 +64,8 @@ type accountResponse struct {
 }
 
 type pointEntry struct {
-	PointValue int64 `json:"point_value"`
+	PointValue       int64  `json:"point_value"`
+	AccountPaymentID string `json:"account_payment_id"`
 }
 
 type pointsResponse struct {
@@ -236,38 +239,34 @@ func fetchPayouts(token string) (*accountResponse, error) {
 	return &r, nil
 }
 
-func fetchPoints(token string) (float64, error) {
+func fetchPoints(token string) ([]pointEntry, error) {
 	req, err := http.NewRequest("GET", "https://api.bringyour.com/account/points", nil)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "*/*")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("http: %w", err)
+		return nil, fmt.Errorf("http: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return 0, fmt.Errorf("read body: %w", err)
+		return nil, fmt.Errorf("read body: %w", err)
 	}
 	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("API %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API %d: %s", resp.StatusCode, string(body))
 	}
 
 	var r pointsResponse
 	if err := json.Unmarshal(body, &r); err != nil {
-		return 0, fmt.Errorf("parse: %w", err)
+		return nil, fmt.Errorf("parse: %w", err)
 	}
 
-	var total int64
-	for _, p := range r.AccountPoints {
-		total += p.PointValue
-	}
-	return float64(total) / 1e6, nil
+	return r.AccountPoints, nil
 }
 
 func runPolling() {
@@ -600,11 +599,20 @@ func handlePayoutStats(token string) http.HandlerFunc {
 
 		if needsRefresh {
 			if resp, err := fetchPayouts(token); err == nil {
-				pts, _ := fetchPoints(token)
+				pointEntries, _ := fetchPoints(token)
+				pointsByPayment := make(map[string]float64)
+				var totalPoints float64
+				for _, pe := range pointEntries {
+					pointsByPayment[pe.AccountPaymentID] += float64(pe.PointValue) / 1e6
+					totalPoints += float64(pe.PointValue) / 1e6
+				}
+				for i := range resp.AccountPayments {
+					resp.AccountPayments[i].PointsEarned = pointsByPayment[resp.AccountPayments[i].PaymentID]
+				}
 				payoutCacheMu.Lock()
 				payoutCache = resp.AccountPayments
 				payoutCacheTime = time.Now()
-				payoutLastPoints = pts
+				payoutLastPoints = totalPoints
 				payoutCacheMu.Unlock()
 			}
 		}
@@ -718,23 +726,70 @@ func handleRefreshPayout(token string) http.HandlerFunc {
 			return
 		}
 
-		pts, _ := fetchPoints(token)
+		pointEntries, _ := fetchPoints(token)
+		pointsByPayment := make(map[string]float64)
+		var totalPoints float64
+		for _, pe := range pointEntries {
+			pointsByPayment[pe.AccountPaymentID] += float64(pe.PointValue) / 1e6
+			totalPoints += float64(pe.PointValue) / 1e6
+		}
+		for i := range resp.AccountPayments {
+			resp.AccountPayments[i].PointsEarned = pointsByPayment[resp.AccountPayments[i].PaymentID]
+		}
 
 		payoutCacheMu.Lock()
+		oldCache := payoutCache
 		payoutCache = resp.AccountPayments
 		payoutCacheTime = time.Now()
 		payoutLastError = ""
 		payoutLastUpdate = time.Now().UTC().Format(time.RFC3339)
-		payoutLastPoints = pts
+		payoutLastPoints = totalPoints
 		payoutCacheMu.Unlock()
+
+		notifyPayoutChanges(oldCache, resp.AccountPayments)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":   true,
 			"count":     len(resp.AccountPayments),
 			"payments":  resp.AccountPayments,
-			"points":    pts,
+			"points":    totalPoints,
 		})
+	}
+}
+
+func notifyPayoutChanges(old []payoutRecord, new []payoutRecord) {
+	oldByTx := make(map[string]payoutRecord)
+	for _, p := range old {
+		if p.TxHash != "" {
+			oldByTx[p.TxHash] = p
+		}
+	}
+
+	for _, p := range new {
+		if p.TxHash == "" {
+			continue
+		}
+
+		oldP, existed := oldByTx[p.TxHash]
+
+		if !existed {
+			amount := fmt.Sprintf("$%.2f", p.TokenAmount)
+			bytes := fmt.Sprintf("%.1f GB", float64(p.PayoutByteCount)/1e9)
+			status := "⏳ Pending"
+			if p.Completed {
+				status = "✅ Completed"
+			}
+			sendDiscordNotification(fmt.Sprintf("💰 **New Payout** %s\nAmount: %s · Data: %s\nChain: %s",
+				status, amount, bytes, p.Blockchain))
+			continue
+		}
+
+		if !oldP.Completed && p.Completed {
+			amount := fmt.Sprintf("$%.2f", p.TokenAmount)
+			sendDiscordNotification(fmt.Sprintf("✅ **Payout Completed**\nAmount: %s\nTx: %s",
+				amount, p.TxHash[:12]+"…"))
+		}
 	}
 }
 
@@ -744,6 +799,24 @@ func jsonError(w http.ResponseWriter, msg string) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"error": msg,
 	})
+}
+
+func discordWebhookURL() string {
+	return os.Getenv("DISCORD_WEBHOOK_URL")
+}
+
+func sendDiscordNotification(content string) {
+	url := discordWebhookURL()
+	if url == "" {
+		return
+	}
+	go func() {
+		body, _ := json.Marshal(map[string]string{"content": content})
+		resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
+		if err == nil {
+			resp.Body.Close()
+		}
+	}()
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
