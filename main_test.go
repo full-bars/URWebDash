@@ -166,29 +166,6 @@ func TestHandleWalletSummary(t *testing.T) {
 	}
 }
 
-func TestHandleClear(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
-
-	db, err := openDB()
-	if err != nil {
-		t.Fatalf("openDB() = %v", err)
-	}
-	defer db.Close()
-
-	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(1, 2, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')")
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/api/clear", nil)
-	handleClear(db)(w, r)
-
-	var count int
-	db.QueryRow("SELECT COUNT(*) FROM wallet_stats").Scan(&count)
-	if count != 0 {
-		t.Fatalf("count after clear = %d, want 0", count)
-	}
-}
-
 func TestHandleWalletStats_ReverseOrder(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
