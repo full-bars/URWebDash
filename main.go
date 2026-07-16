@@ -40,20 +40,20 @@ type exportRecord struct {
 }
 
 type payoutRecord struct {
-	PaymentID      string  `json:"payment_id"`
-	TokenAmount    float64 `json:"token_amount"`
-	PayoutByteCount int64  `json:"payout_byte_count"`
-	PointsEarned   float64 `json:"points_earned"`
-	ReliabilityPts float64 `json:"reliability_points"`
-	Completed      bool    `json:"completed"`
-	Canceled       bool    `json:"canceled"`
-	CreateTime     string  `json:"create_time"`
-	CompleteTime   string  `json:"complete_time"`
-	PaymentTime    string  `json:"payment_time"`
-	TxHash         string  `json:"tx_hash"`
-	WalletAddress  string  `json:"wallet_address"`
-	Blockchain     string  `json:"blockchain"`
-	TokenType      string  `json:"token_type"`
+	PaymentID       string  `json:"payment_id"`
+	TokenAmount     float64 `json:"token_amount"`
+	PayoutByteCount int64   `json:"payout_byte_count"`
+	PointsEarned    float64 `json:"points_earned"`
+	ReliabilityPts  float64 `json:"reliability_points"`
+	Completed       bool    `json:"completed"`
+	Canceled        bool    `json:"canceled"`
+	CreateTime      string  `json:"create_time"`
+	CompleteTime    string  `json:"complete_time"`
+	PaymentTime     string  `json:"payment_time"`
+	TxHash          string  `json:"tx_hash"`
+	WalletAddress   string  `json:"wallet_address"`
+	Blockchain      string  `json:"blockchain"`
+	TokenType       string  `json:"token_type"`
 }
 
 type accountResponse struct {
@@ -78,8 +78,8 @@ type pointsResponse struct {
 }
 
 var (
-	Version    = "dev"
-	startTime  = time.Now()
+	Version   = "dev"
+	startTime = time.Now()
 
 	payoutCache      []payoutRecord
 	payoutCacheMu    sync.RWMutex
@@ -107,12 +107,32 @@ func main() {
 		printHistory()
 	case "cleanup":
 		cleanupDB()
+	case "testwebhook":
+		url := discordWebhookURL()
+		if url == "" {
+			fmt.Fprintln(os.Stderr, "no webhook URL configured")
+			os.Exit(1)
+		}
+		body, _ := json.Marshal(map[string]string{"content": "🛫 **Traffic Spike**\n```\n┌──────────────────────┬────────────┐\n├──────────────────────┼────────────┤\n│ 15m Delta            │   +1.45 GB │\n│ Total Unpaid         │  742.29 GB │\n│ At (UTC)             │   01:15:01 │\n└──────────────────────┴────────────┘\n```"})
+		resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "POST error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode > 299 {
+			b, _ := io.ReadAll(resp.Body)
+			fmt.Fprintf(os.Stderr, "%d: %s\n", resp.StatusCode, string(b))
+			os.Exit(1)
+		}
+		fmt.Println("Test notification sent successfully")
 	default:
 		fmt.Println(`Usage:
   stats_tracker run                    — start polling daemon
   stats_tracker serve [port]          — start HTTP server (default :3001)
   stats_tracker import <file.json>     — import bayouash export
-  stats_tracker history                — print stored history`)
+  stats_tracker history                — print stored history
+  stats_tracker testwebhook           — send a test Discord notification`)
 	}
 }
 
@@ -338,6 +358,8 @@ func runPolling() {
 			return
 		}
 		fmt.Printf("[stats] stored: paid=%d unpaid=%d\n", stats.PaidBytes, stats.UnpaidBytes)
+
+		checkTrafficSpike(db, stats.UnpaidBytes, now)
 	}
 
 	// Align to next quarter-hour boundary
@@ -501,7 +523,6 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/wallet-summary", handleWalletSummary(db))
 	mux.HandleFunc("/api/payout-stats", handlePayoutStats(token))
 	mux.HandleFunc("/api/refresh", handleRefresh(token, db))
-	mux.HandleFunc("/api/clear", handleClear(db))
 	mux.HandleFunc("/api/refresh-payout", handleRefreshPayout(token))
 	mux.HandleFunc("/api/status", handleStatus)
 	mux.HandleFunc("/", handleIndex)
@@ -681,6 +702,7 @@ func handleRefresh(token string, db *sql.DB) http.HandlerFunc {
 					jsonError(w, err.Error())
 					return
 				}
+				checkTrafficSpike(db, stats.UnpaidBytes, now)
 			}
 		}
 
@@ -689,25 +711,6 @@ func handleRefresh(token string, db *sql.DB) http.HandlerFunc {
 			"success":      true,
 			"paid_bytes":   stats.PaidBytes,
 			"unpaid_bytes": stats.UnpaidBytes,
-		})
-	}
-}
-
-func handleClear(db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-			http.Error(w, "method not allowed", 405)
-			return
-		}
-
-		if _, err := db.Exec("DELETE FROM wallet_stats"); err != nil {
-			jsonError(w, err.Error())
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
 		})
 	}
 }
@@ -767,10 +770,10 @@ func handleRefreshPayout(token string) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":   true,
-			"count":     len(resp.AccountPayments),
-			"payments":  resp.AccountPayments,
-			"points":    totalPoints,
+			"success":  true,
+			"count":    len(resp.AccountPayments),
+			"payments": resp.AccountPayments,
+			"points":   totalPoints,
 		})
 	}
 }
@@ -818,20 +821,66 @@ func jsonError(w http.ResponseWriter, msg string) {
 	})
 }
 
+func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time) {
+	var prevUnpaid sql.NullInt64
+	db.QueryRow(
+		"SELECT unpaid_bytes FROM wallet_stats ORDER BY id DESC LIMIT 1 OFFSET 1",
+	).Scan(&prevUnpaid)
+	if !prevUnpaid.Valid {
+		return
+	}
+	deltaBytes := int64(unpaidBytes) - prevUnpaid.Int64
+	if deltaBytes <= 1_000_000_000 {
+		return
+	}
+	deltaGB := float64(deltaBytes) / 1e9
+	totalGB := float64(unpaidBytes) / 1e9
+	nowStr := now.Format("15:04:05")
+	sendDiscordNotification(fmt.Sprintf(
+		"🛫 **Traffic Spike**\n"+
+			"```\n"+
+			"┌──────────────────────┬────────────┐\n"+
+			"├──────────────────────┼────────────┤\n"+
+			"│ 15m Delta            │ %10s │\n"+
+			"│ Total Unpaid         │ %10s │\n"+
+			"│ At (UTC)             │ %10s │\n"+
+			"└──────────────────────┴────────────┘\n"+
+			"```",
+		fmt.Sprintf("+%.2f GB", deltaGB),
+		fmt.Sprintf("%.2f GB", totalGB),
+		nowStr,
+	))
+}
+
 func discordWebhookURL() string {
-	return os.Getenv("DISCORD_WEBHOOK_URL")
+	if url := os.Getenv("DISCORD_WEBHOOK_URL"); url != "" {
+		return url
+	}
+	home, _ := os.UserHomeDir()
+	b, err := os.ReadFile(filepath.Join(home, ".urnetwork", "discord_webhook"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 func sendDiscordNotification(content string) {
 	url := discordWebhookURL()
 	if url == "" {
+		fmt.Println("[webhook] DISCORD_WEBHOOK_URL not set and no ~/.urnetwork/discord_webhook file")
 		return
 	}
 	go func() {
 		body, _ := json.Marshal(map[string]string{"content": content})
 		resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
-		if err == nil {
-			resp.Body.Close()
+		if err != nil {
+			fmt.Printf("[webhook] POST error: %v\n", err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode > 299 {
+			b, _ := io.ReadAll(resp.Body)
+			fmt.Printf("[webhook] %d: %s\n", resp.StatusCode, string(b))
 		}
 	}()
 }

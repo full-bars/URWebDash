@@ -122,7 +122,7 @@
     <div class="toolbar">
       <span class="info" id="db-info">—</span>
       <button class="btn primary" onclick="refreshWallet()">🔄 Refresh</button>
-      <button class="btn danger" onclick="clearHistory()">🗑️ Clear History</button>
+      
     </div>
 
     <div class="chart-row">
@@ -560,8 +560,6 @@ async function loadWalletStats() {
 
       initPaidChart(labels, paidGB);
       initUnpaidChart(labels, unpaidGB);
-      window._rateTimestamps = chartSlice.map(e => new Date(e.created_at));
-      window._rateValues = rateData;
       updateRateChart(rateWindow);
 
       // 24h change
@@ -666,19 +664,6 @@ async function refreshWallet() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '🔄 Refresh';
-  }
-}
-
-async function clearHistory() {
-  if (!confirm('Clear all wallet stats data?')) return;
-  try {
-    const res = await fetch(API + '/api/clear', { method: 'POST' });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    showToast('History cleared', 'success');
-    await loadWalletStats();
-  } catch (e) {
-    showToast('Failed to clear: ' + e.message, 'error');
   }
 }
 
