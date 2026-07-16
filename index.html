@@ -560,8 +560,6 @@ async function loadWalletStats() {
 
       initPaidChart(labels, paidGB);
       initUnpaidChart(labels, unpaidGB);
-      window._rateTimestamps = chartSlice.map(e => new Date(e.created_at));
-      window._rateValues = rateData;
       updateRateChart(rateWindow);
 
       // 24h change
