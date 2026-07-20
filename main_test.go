@@ -643,6 +643,86 @@ func TestHandleWalletSummary_EmptyDB(t *testing.T) {
 	}
 }
 
+func TestHandleWalletStats_ChangeBytes(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
+
+	db, err := openDB()
+	if err != nil {
+		t.Fatalf("openDB: %v", err)
+	}
+	defer db.Close()
+
+	entries := []struct {
+		paid   int64
+		unpaid int64
+		ts     string
+	}{
+		{1000, 500, "2026-07-20T05:00:00Z"},
+		{1000, 800, "2026-07-20T05:15:00Z"},
+		{1000, 1200, "2026-07-20T05:30:00Z"},
+		{1100, 1500, "2026-07-20T05:45:00Z"},
+	}
+	for _, e := range entries {
+		_, err := db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
+			e.paid, e.unpaid, e.ts, e.ts)
+		if err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/wallet-stats", nil)
+	handleWalletStats(db)(w, r)
+
+	var resp struct {
+		Entries []struct {
+			PaidBytes   int64  `json:"paid_bytes"`
+			UnpaidBytes int64  `json:"unpaid_bytes"`
+			CreatedAt   string `json:"created_at"`
+			ChangeBytes int64  `json:"change_bytes"`
+		} `json:"entries"`
+		Count int `json:"count"`
+		Total int `json:"total"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.Count != 4 {
+		t.Fatalf("count = %d, want 4", resp.Count)
+	}
+
+	// Entries should be newest first
+	if resp.Entries[0].CreatedAt != "2026-07-20T05:45:00Z" {
+		t.Fatalf("first entry = %q, want newest first", resp.Entries[0].CreatedAt)
+	}
+
+	// change_bytes = total(paid+unpaid) - previous total
+	// row 1 (05:00): 1500 total, no previous → change_bytes = 0
+	// row 2 (05:15): 1800 total, prev 1500 → change_bytes = 300
+	// row 3 (05:30): 2200 total, prev 1800 → change_bytes = 400
+	// row 4 (05:45): 2600 total, prev 2200 → change_bytes = 400
+	// reversed (newest first): 05:45(400), 05:30(400), 05:15(300), 05:00(0)
+	expected := []struct {
+		ts          string
+		changeBytes int64
+	}{
+		{"2026-07-20T05:45:00Z", 400},
+		{"2026-07-20T05:30:00Z", 400},
+		{"2026-07-20T05:15:00Z", 300},
+		{"2026-07-20T05:00:00Z", 0},
+	}
+	for i, exp := range expected {
+		if resp.Entries[i].CreatedAt != exp.ts {
+			t.Errorf("entry[%d] timestamp = %q, want %q", i, resp.Entries[i].CreatedAt, exp.ts)
+		}
+		if resp.Entries[i].ChangeBytes != exp.changeBytes {
+			t.Errorf("entry[%d] change_bytes = %d, want %d (ts=%s)", i, resp.Entries[i].ChangeBytes, exp.changeBytes, exp.ts)
+		}
+	}
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
