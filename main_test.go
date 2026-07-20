@@ -424,8 +424,8 @@ func TestHandleRefreshPayout_Success(t *testing.T) {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
 	var body struct {
-		Success bool  `json:"success"`
-		Count   int   `json:"count"`
+		Success bool    `json:"success"`
+		Count   int     `json:"count"`
 		Points  float64 `json:"points"`
 	}
 	json.NewDecoder(w.Body).Decode(&body)
