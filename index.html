@@ -91,7 +91,7 @@
 <div class="nav-overlay" id="nav-overlay"></div>
 
 <nav id="sidebar">
-  <h1>URnetwork Client Manager</h1>
+  <h1>URnetwork Fleet Data &amp; Payouts</h1>
   <div class="nav-links">
     <a href="#" class="active" data-section="wallet" onclick="return switchSection('wallet')">📊 Data Stats</a>
     <a href="#" data-section="payout" onclick="return switchSection('payout')">💰 Payout Stats</a>
@@ -370,10 +370,19 @@ function initUnpaidChart(labels, data) {
 }
 
 function initRateChart(labels, rateData) {
-  const ctx = document.getElementById('rate-chart').getContext('2d');
-  if (rateChart) rateChart.destroy();
   const isAgg = window._rateDaily || (labels.length > 0 && labels[0].includes(' - '));
   const unit = window._rateDaily ? 'GB/d' : 'GB/hr';
+  if (rateChart) {
+    rateChart.data.labels = labels;
+    rateChart.data.datasets[0].data = rateData;
+    rateChart.data.datasets[0].backgroundColor = rateData.map(v => v >= 0 ? '#3b82f680' : '#ef444480');
+    rateChart.data.datasets[0].borderColor = rateData.map(v => v >= 0 ? '#3b82f6' : '#ef4444');
+    rateChart.data.datasets[0].barPercentage = isAgg ? 0.8 : 0.6;
+    rateChart.options.plugins.tooltip.callbacks.label = ctx => ctx.parsed.y.toFixed(2) + ' ' + unit;
+    rateChart.update('none');
+    return;
+  }
+  const ctx = document.getElementById('rate-chart').getContext('2d');
   rateChart = new Chart(ctx, {
     type: 'bar',
     data: {
@@ -535,20 +544,13 @@ async function loadWalletStats() {
       }
 
       // Compute rate from raw entries (not downsampled) for accuracy
-      const rateMax = 2000;
-      const rateStep = Math.max(1, Math.floor(reversed.length / rateMax));
-      const rateEntries = [];
-      for (let i = 0; i < reversed.length; i += rateStep) rateEntries.push(reversed[i]);
-      if (rateEntries[rateEntries.length - 1] !== reversed[reversed.length - 1]) {
-        rateEntries.push(reversed[reversed.length - 1]);
-      }
-      window._rateTimestamps = rateEntries.map(e => new Date(e.created_at));
+      window._rateTimestamps = reversed.map(e => new Date(e.created_at));
       const rateData = [];
-      for (let i = 0; i < rateEntries.length; i++) {
-        const e = rateEntries[i];
+      for (let i = 0; i < reversed.length; i++) {
+        const e = reversed[i];
         const d = new Date(e.created_at);
         if (i > 0) {
-          const prev = rateEntries[i - 1];
+          const prev = reversed[i - 1];
           const hours = (d.getTime() - new Date(prev.created_at).getTime()) / 3600000;
           const deltaGB = (e.unpaid_bytes + e.paid_bytes - prev.unpaid_bytes - prev.paid_bytes) / 1e9;
           rateData.push(hours > 0 ? Math.max(0, deltaGB / hours) : 0);
