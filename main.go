@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -201,6 +202,24 @@ func readJWT() (string, error) {
 	}
 	cachedJWT = strings.TrimSpace(string(b))
 	return cachedJWT, nil
+}
+
+func networkNameFromJWT(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		NetworkName string `json:"network_name"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	return claims.NetworkName
 }
 
 func fetchStats(token string) (*walletStats, error) {
@@ -525,6 +544,7 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/refresh", handleRefresh(token, db))
 	mux.HandleFunc("/api/refresh-payout", handleRefreshPayout(token))
 	mux.HandleFunc("/api/status", handleStatus)
+	mux.HandleFunc("/api/network", handleNetworkName(token))
 	mux.HandleFunc("/", handleIndex)
 
 	fmt.Printf("[serve] listening on :%s\n", port)
@@ -891,6 +911,15 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		"version": Version,
 		"uptime":  time.Since(startTime).String(),
 	})
+}
+
+func handleNetworkName(token string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"network_name": networkNameFromJWT(token),
+		})
+	}
 }
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
