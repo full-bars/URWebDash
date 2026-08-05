@@ -108,7 +108,7 @@
     <div class="header">
       <h2>📊 Data Statistics</h2>
       <p>Real-time tracking of data transfer earnings (stored locally)</p>
-      <div class="sub">Network: <span id="network-name">mesocyclone</span> · Last updated: <span id="last-updated">—</span></div>
+      <div class="sub">Network: <span id="network-name">—</span> · Last updated: <span id="last-updated">—</span></div>
     </div>
 
     <div class="cards" id="summary-cards">
@@ -763,10 +763,16 @@ async function autoRefresh() {
 
 async function loadServiceStatus() {
   try {
-    const res = await fetch(API + '/api/status');
-    const data = await res.json();
+    const [statusRes, networkRes] = await Promise.all([
+      fetch(API + '/api/status'),
+      fetch(API + '/api/network')
+    ]);
+    const status = await statusRes.json();
+    const network = await networkRes.json();
     const el = document.getElementById('svc-status');
-    if (el) el.textContent = data.version + ' · up ' + data.uptime;
+    if (el) el.textContent = status.version + ' · up ' + status.uptime;
+    const netEl = document.getElementById('network-name');
+    if (netEl && network.network_name) netEl.textContent = network.network_name;
   } catch (_) {}
 }
 
