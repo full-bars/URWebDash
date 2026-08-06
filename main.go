@@ -41,20 +41,22 @@ type exportRecord struct {
 }
 
 type payoutRecord struct {
-	PaymentID       string  `json:"payment_id"`
-	TokenAmount     float64 `json:"token_amount"`
-	PayoutByteCount int64   `json:"payout_byte_count"`
-	PointsEarned    float64 `json:"points_earned"`
-	ReliabilityPts  float64 `json:"reliability_points"`
-	Completed       bool    `json:"completed"`
-	Canceled        bool    `json:"canceled"`
-	CreateTime      string  `json:"create_time"`
-	CompleteTime    string  `json:"complete_time"`
-	PaymentTime     string  `json:"payment_time"`
-	TxHash          string  `json:"tx_hash"`
-	WalletAddress   string  `json:"wallet_address"`
-	Blockchain      string  `json:"blockchain"`
-	TokenType       string  `json:"token_type"`
+	PaymentID        string   `json:"payment_id"`
+	TokenAmount      float64  `json:"token_amount"`
+	PayoutByteCount  int64    `json:"payout_byte_count"`
+	PayoutNanoCents  float64  `json:"payout_nano_cents"`
+	PointsEarned     float64  `json:"points_earned"`
+	ReliabilityPts   float64  `json:"reliability_points"`
+	Completed        bool     `json:"completed"`
+	Canceled         bool     `json:"canceled"`
+	CreateTime       string   `json:"create_time"`
+	CompleteTime     string   `json:"complete_time"`
+	PaymentTime      string   `json:"payment_time"`
+	TxHash           string   `json:"tx_hash"`
+	WalletAddress    string   `json:"wallet_address"`
+	Blockchain       string   `json:"blockchain"`
+	TokenType        string   `json:"token_type"`
+	EstimatedAmount  *float64 `json:"estimated_amount,omitempty"`
 }
 
 type accountResponse struct {
@@ -308,6 +310,76 @@ func fetchPoints(token string) ([]pointEntry, error) {
 	}
 
 	return r.AccountPoints, nil
+}
+
+// settlementFee estimates the typical wallet/transfer fee applied when a
+// payment settles: the median gap between the gross amount the network booked
+// (payout_nano_cents) and the tokens that actually landed (token_amount),
+// sampled over the most recent settled payments. Only recent payments are
+// sampled because the fee has changed over time; the median keeps a one-off
+// outlier from skewing the estimate.
+func settlementFee(payments []payoutRecord) float64 {
+	const feeSampleSize = 10
+
+	type sample struct {
+		t   time.Time
+		fee float64
+	}
+	var samples []sample
+	for _, p := range payments {
+		if p.TokenAmount <= 0 || p.PayoutNanoCents <= 0 || p.PaymentTime == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339Nano, p.PaymentTime)
+		if err != nil {
+			continue
+		}
+		samples = append(samples, sample{t: t, fee: p.PayoutNanoCents/1e9 - p.TokenAmount})
+	}
+	sort.Slice(samples, func(i, j int) bool { return samples[i].t.After(samples[j].t) })
+	if len(samples) > feeSampleSize {
+		samples = samples[:feeSampleSize]
+	}
+
+	var fees []float64
+	for _, s := range samples {
+		if s.fee >= 0 {
+			fees = append(fees, s.fee)
+		}
+	}
+	if len(fees) == 0 {
+		return 0
+	}
+	sort.Float64s(fees)
+	return fees[len(fees)/2]
+}
+
+// estimateFor returns the estimated settlement amount for a payment that has
+// not been paid yet: the gross booked amount minus the typical fee. Returns
+// nil when the payment already has a token amount or no booked amount exists.
+func estimateFor(p payoutRecord, fee float64) *float64 {
+	if p.TokenAmount > 0 || p.PayoutNanoCents <= 0 {
+		return nil
+	}
+	est := p.PayoutNanoCents/1e9 - fee
+	if est < 0 {
+		est = 0
+	}
+	return &est
+}
+
+// enrichPayoutEstimates stamps each unpaid payment with its estimated amount
+// and returns the total estimated value of all pending payments.
+func enrichPayoutEstimates(payments []payoutRecord) float64 {
+	fee := settlementFee(payments)
+	var total float64
+	for i := range payments {
+		if est := estimateFor(payments[i], fee); est != nil {
+			payments[i].EstimatedAmount = est
+			total += *est
+		}
+	}
+	return total
 }
 
 func runPolling() {
@@ -677,15 +749,20 @@ func handlePayoutStats(token string) http.HandlerFunc {
 		isFresh := !lastTime.IsZero() && time.Since(lastTime) < 5*time.Minute
 		payoutCacheMu.RUnlock()
 
+		respPayments := make([]payoutRecord, len(cached))
+		copy(respPayments, cached)
+		estimatedPending := enrichPayoutEstimates(respPayments)
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"payments":    cached,
-			"count":       len(cached),
-			"cached_at":   lastTime.Format(time.RFC3339),
-			"last_update": lastUpd,
-			"fresh":       isFresh,
-			"error":       lastErr,
-			"points":      pts,
+			"payments":          respPayments,
+			"count":             len(cached),
+			"cached_at":         lastTime.Format(time.RFC3339),
+			"last_update":       lastUpd,
+			"fresh":             isFresh,
+			"error":             lastErr,
+			"points":            pts,
+			"estimated_pending": estimatedPending,
 		})
 	}
 }
@@ -788,12 +865,17 @@ func handleRefreshPayout(token string) http.HandlerFunc {
 
 		notifyPayoutChanges(oldCache, resp.AccountPayments)
 
+		respPayments := make([]payoutRecord, len(resp.AccountPayments))
+		copy(respPayments, resp.AccountPayments)
+		estimatedPending := enrichPayoutEstimates(respPayments)
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":  true,
-			"count":    len(resp.AccountPayments),
-			"payments": resp.AccountPayments,
-			"points":   totalPoints,
+			"success":           true,
+			"count":             len(resp.AccountPayments),
+			"payments":          respPayments,
+			"points":            totalPoints,
+			"estimated_pending": estimatedPending,
 		})
 	}
 }

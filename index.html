@@ -36,6 +36,8 @@
     .card .value.green { color: #10b981; }
     .card .value.yellow { color: #f59e0b; }
     .card .value.blue { color: #3b82f6; }
+    .card .value.violet { color: #8b5cf6; }
+    .text-violet { color: #a78bfa; }
     .card .value.white { color: #f9fafb; }
     .chart-row { display: flex; gap: 18px; margin-bottom: 20px; }
     .chart-container { flex: 1; background: #1f2937; border: 1px solid #374151; border-radius: 10px; padding: 18px; min-width: 0; }
@@ -181,6 +183,7 @@
 
     <div class="cards" id="payout-cards">
       <div class="card"><div class="label">Total Earned</div><div class="value green" id="total-payouts">—</div></div>
+      <div class="card"><div class="label">Estimated Pending</div><div class="value violet" id="estimated-pending">—</div></div>
       <div class="card"><div class="label">Total Bytes</div><div class="value white" id="total-payout-bytes">—</div></div>
       <div class="card"><div class="label">Completed</div><div class="value green" id="completed-payments">—</div></div>
       <div class="card"><div class="label">Pending</div><div class="value yellow" id="pending-payments">—</div></div>
@@ -687,7 +690,8 @@ async function loadPayouts() {
     const completed = payments.filter(p => p.completed).length;
     const pending = payments.filter(p => !p.completed && !p.canceled).length;
 
-    document.getElementById('total-payouts').textContent = '$' + totalPayouts.toFixed(2);
+    document.getElementById('total-payouts').textContent = '$' + totalPayouts.toFixed(4);
+    document.getElementById('estimated-pending').textContent = data.estimated_pending > 0 ? '~$' + data.estimated_pending.toFixed(4) : '—';
     document.getElementById('total-payout-bytes').textContent = fmtBytes(totalBytes);
     document.getElementById('completed-payments').textContent = completed;
     document.getElementById('pending-payments').textContent = pending;
@@ -707,7 +711,11 @@ async function loadPayouts() {
     payments.forEach((p, i) => {
       const status = p.completed ? '✅ Completed' : p.canceled ? '❌ Canceled' : '⏳ Pending';
       const statusClass = p.completed ? 'text-green' : p.canceled ? 'text-gray' : 'text-yellow';
-      const amount = p.token_amount ? '$' + p.token_amount.toFixed(2) + (p.token_type ? ' ' + p.token_type : '') : '—';
+      const amount = p.token_amount
+        ? '$' + p.token_amount.toFixed(2) + (p.token_type ? ' ' + p.token_type : '')
+        : (p.estimated_amount != null
+          ? `<span class="text-violet" title="Estimated from the booked payout minus the typical fee on your previous payments">~$${p.estimated_amount.toFixed(4)}</span>`
+          : '—');
       const points = p.points_earned ? p.points_earned.toLocaleString(undefined, {maximumFractionDigits: 0}) : '—';
       const reliability = p.reliability_points ? p.reliability_points.toLocaleString(undefined, {maximumFractionDigits: 0}) : '—';
       const txLink = p.tx_hash
