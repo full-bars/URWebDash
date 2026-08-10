@@ -735,6 +735,8 @@ func handlePayoutStats(token string) http.HandlerFunc {
 				payoutCacheMu.Lock()
 				payoutCache = resp.AccountPayments
 				payoutCacheTime = time.Now()
+				payoutLastUpdate = time.Now().UTC().Format(time.RFC3339)
+				payoutLastError = ""
 				payoutLastPoints = totalPoints
 				payoutCacheMu.Unlock()
 			}
