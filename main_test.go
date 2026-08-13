@@ -728,3 +728,237 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
+
+// --- payout notification store ---
+
+func resetNotifyStore(t *testing.T, storePath string) {
+	t.Helper()
+	t.Setenv("PAYOUT_NOTIFY_STORE", storePath)
+	os.Remove(storePath)
+	os.Remove(storePath + ".tmp")
+	notifyStoreMu.Lock()
+	defer notifyStoreMu.Unlock()
+	notifyStore = nil
+	notifyStorePath = ""
+	notifyStoreSeeded = false
+}
+
+func notifyTestPayouts() []payoutRecord {
+	return []payoutRecord{
+		{PaymentID: "pay-1", TxHash: "tx-1111111111111111111111111111111111111111111111111111111111111111", TokenAmount: 12.34, PayoutByteCount: 5000000000, Completed: true, Blockchain: "solana"},
+		{PaymentID: "pay-2", TxHash: "tx-2222222222222222222222222222222222222222222222222222222222222222", TokenAmount: 5.00, PayoutByteCount: 2000000000, Completed: false, Blockchain: "solana"},
+	}
+}
+
+func TestNotifyStoreColdStartSeedsWithoutNotifying(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "notified.json")
+	resetNotifyStore(t, storePath)
+
+	var sent []string
+	oldSend := notifySend
+	notifySend = func(content string) { sent = append(sent, content) }
+	defer func() { notifySend = oldSend }()
+
+	fresh := notifyTestPayouts()
+	syncPayoutNotifyStore(fresh, true) // cold start via the explicit refresh path
+
+	if len(sent) != 0 {
+		t.Fatalf("cold start sent %d notifications, want 0 (seed only)", len(sent))
+	}
+	if _, err := os.Stat(storePath); err != nil {
+		t.Fatalf("store file not written after seeding: %v", err)
+	}
+	// Identical re-fetch must stay silent.
+	syncPayoutNotifyStore(fresh, true)
+	if len(sent) != 0 {
+		t.Fatalf("dedup failed: %d notifications after re-fetch", len(sent))
+	}
+}
+
+func TestNotifyStoreRestartDoesNotReannounce(t *testing.T) {
+	// Exact reported bug: process restart wipes the in-memory cache, and the
+	// old code re-announced every payout with a tx_hash as brand new.
+	storePath := filepath.Join(t.TempDir(), "notified.json")
+	resetNotifyStore(t, storePath)
+
+	// First run seeds the baseline.
+	syncPayoutNotifyStore(notifyTestPayouts(), true)
+
+	// Simulate restart: package state reset, store file still on disk.
+	notifyStoreMu.Lock()
+	notifyStore = nil
+	notifyStorePath = ""
+	notifyStoreSeeded = false
+	notifyStoreMu.Unlock()
+
+	var sent []string
+	oldSend := notifySend
+	notifySend = func(content string) { sent = append(sent, content) }
+	defer func() { notifySend = oldSend }()
+
+	syncPayoutNotifyStore(notifyTestPayouts(), true)
+	if len(sent) != 0 {
+		t.Fatalf("restart re-announced %d payouts, want 0: %v", len(sent), sent)
+	}
+}
+
+func TestNotifyStoreNewPaymentAndCompletion(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "notified.json")
+	resetNotifyStore(t, storePath)
+
+	syncPayoutNotifyStore(notifyTestPayouts(), true) // seed
+
+	var sent []string
+	oldSend := notifySend
+	notifySend = func(content string) { sent = append(sent, content) }
+	defer func() { notifySend = oldSend }()
+
+	// New payout appears (new payment_id + tx_hash).
+	fresh := append(notifyTestPayouts(), payoutRecord{PaymentID: "pay-3", TxHash: "tx-3333333333333333333333333333333333333333333333333333333333333333", TokenAmount: 99.0, PayoutByteCount: 7000000000, Completed: false, Blockchain: "solana"})
+	syncPayoutNotifyStore(fresh, true)
+	if len(sent) != 1 || !strings.Contains(sent[0], "💰 **New Payout**") || !strings.Contains(sent[0], "⏳ Pending") {
+		t.Fatalf("new payout notification wrong: %v", sent)
+	}
+
+	// Existing pending payment completes.
+	sent = nil
+	fresh[1].Completed = true // pay-2
+	syncPayoutNotifyStore(fresh, true)
+	if len(sent) != 1 || !strings.Contains(sent[0], "✅ **Payout Completed**") {
+		t.Fatalf("completion notification wrong: %v", sent)
+	}
+
+	// No further changes -> silent.
+	sent = nil
+	syncPayoutNotifyStore(fresh, true)
+	if len(sent) != 0 {
+		t.Fatalf("no-change fetch notified: %v", sent)
+	}
+}
+
+func TestNotifyStorePathOverride(t *testing.T) {
+	resetNotifyStore(t, filepath.Join(t.TempDir(), "notified.json"))
+	t.Setenv("PAYOUT_NOTIFY_STORE", "/tmp/custom_notify.json")
+	notifyStoreMu.Lock()
+	notifyStorePath = ""
+	notifyStoreMu.Unlock()
+	if p := notifyStoreFile(); p != "/tmp/custom_notify.json" {
+		t.Fatalf("notifyStoreFile() = %q, want override", p)
+	}
+}
+
+func TestNotifyStoreEmptyFirstFetchDoesNotSeed(t *testing.T) {
+	// A transient upstream glitch returning zero payouts on cold start must
+	// NOT become the permanent baseline (that would re-announce everything
+	// on the next good fetch).
+	storePath := filepath.Join(t.TempDir(), "notified.json")
+	resetNotifyStore(t, storePath)
+
+	var sent []string
+	oldSend := notifySend
+	notifySend = func(content string) { sent = append(sent, content) }
+	defer func() { notifySend = oldSend }()
+
+	// Cold start with an empty response: no seed file, no notifications.
+	syncPayoutNotifyStore(nil, true)
+	if len(sent) != 0 {
+		t.Fatalf("empty first fetch notified: %v", sent)
+	}
+	if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+		t.Fatalf("empty first fetch wrote a seed file (err=%v)", err)
+	}
+
+	// Next fetch has real payouts: seeds silently, still no notifications.
+	syncPayoutNotifyStore(notifyTestPayouts(), true)
+	if len(sent) != 0 {
+		t.Fatalf("seed fetch notified: %v", sent)
+	}
+	if _, err := os.Stat(storePath); err != nil {
+		t.Fatalf("seed file missing after good fetch: %v", err)
+	}
+
+	// Identical re-fetch stays silent (baseline took).
+	syncPayoutNotifyStore(notifyTestPayouts(), true)
+	if len(sent) != 0 {
+		t.Fatalf("re-fetch notified after seed: %v", sent)
+	}
+}
+
+func TestNotifyStoreEmptyFileReseeds(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "notified.json")
+	resetNotifyStore(t, storePath)
+
+	// A valid-but-empty store file must be treated as unseeded.
+	if err := os.WriteFile(storePath, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var sent []string
+	oldSend := notifySend
+	notifySend = func(content string) { sent = append(sent, content) }
+	defer func() { notifySend = oldSend }()
+
+	syncPayoutNotifyStore(notifyTestPayouts(), true)
+	if len(sent) != 0 {
+		t.Fatalf("empty store file caused notifications: %v", sent)
+	}
+	// The re-seeded baseline persists (file now non-empty).
+	b, err := os.ReadFile(storePath)
+	if err != nil {
+		t.Fatalf("read store: %v", err)
+	}
+	if !strings.Contains(string(b), "pay-1") {
+		t.Fatalf("store not re-seeded after empty file: %s", b)
+	}
+}
+
+func TestNotifyStoreTxHashChangeReannounces(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "notified.json")
+	resetNotifyStore(t, storePath)
+
+	fresh := notifyTestPayouts()
+	syncPayoutNotifyStore(fresh, true) // seed
+
+	var sent []string
+	oldSend := notifySend
+	notifySend = func(content string) { sent = append(sent, content) }
+	defer func() { notifySend = oldSend }()
+
+	// Same payment_id, different tx_hash (re-planned payout): announce again.
+	fresh[0].TxHash = "tx-9999999999999999999999999999999999999999999999999999999999999999"
+	syncPayoutNotifyStore(fresh, true)
+	if len(sent) != 1 || !strings.Contains(sent[0], "💰 **New Payout**") {
+		t.Fatalf("tx_hash change not re-announced: %v", sent)
+	}
+}
+
+func TestNotifyStoreIgnoresNoTxHash(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "notified.json")
+	resetNotifyStore(t, storePath)
+
+	var sent []string
+	oldSend := notifySend
+	notifySend = func(content string) { sent = append(sent, content) }
+	defer func() { notifySend = oldSend }()
+
+	// Payments without a tx_hash never seed or announce.
+	noTx := []payoutRecord{{PaymentID: "pay-x", TokenAmount: 1.0, Completed: false, Blockchain: "solana"}}
+	syncPayoutNotifyStore(noTx, true)
+	if len(sent) != 0 {
+		t.Fatalf("no-tx_hash payments notified: %v", sent)
+	}
+	if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+		t.Fatalf("no-tx_hash payments wrote a seed file")
+	}
+
+	// Mix: only the tx-hashed one seeds; the no-tx one is ignored.
+	mixed := append(notifyTestPayouts(), payoutRecord{PaymentID: "pay-x", TokenAmount: 1.0, Completed: false, Blockchain: "solana"})
+	syncPayoutNotifyStore(mixed, true)
+	if len(sent) != 0 {
+		t.Fatalf("mixed fetch notified: %v", sent)
+	}
+	syncPayoutNotifyStore(mixed, true)
+	if len(sent) != 0 {
+		t.Fatalf("re-fetch notified: %v", sent)
+	}
+}
