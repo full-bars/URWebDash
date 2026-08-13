@@ -41,22 +41,22 @@ type exportRecord struct {
 }
 
 type payoutRecord struct {
-	PaymentID        string   `json:"payment_id"`
-	TokenAmount      float64  `json:"token_amount"`
-	PayoutByteCount  int64    `json:"payout_byte_count"`
-	PayoutNanoCents  float64  `json:"payout_nano_cents"`
-	PointsEarned     float64  `json:"points_earned"`
-	ReliabilityPts   float64  `json:"reliability_points"`
-	Completed        bool     `json:"completed"`
-	Canceled         bool     `json:"canceled"`
-	CreateTime       string   `json:"create_time"`
-	CompleteTime     string   `json:"complete_time"`
-	PaymentTime      string   `json:"payment_time"`
-	TxHash           string   `json:"tx_hash"`
-	WalletAddress    string   `json:"wallet_address"`
-	Blockchain       string   `json:"blockchain"`
-	TokenType        string   `json:"token_type"`
-	EstimatedAmount  *float64 `json:"estimated_amount,omitempty"`
+	PaymentID       string   `json:"payment_id"`
+	TokenAmount     float64  `json:"token_amount"`
+	PayoutByteCount int64    `json:"payout_byte_count"`
+	PayoutNanoCents float64  `json:"payout_nano_cents"`
+	PointsEarned    float64  `json:"points_earned"`
+	ReliabilityPts  float64  `json:"reliability_points"`
+	Completed       bool     `json:"completed"`
+	Canceled        bool     `json:"canceled"`
+	CreateTime      string   `json:"create_time"`
+	CompleteTime    string   `json:"complete_time"`
+	PaymentTime     string   `json:"payment_time"`
+	TxHash          string   `json:"tx_hash"`
+	WalletAddress   string   `json:"wallet_address"`
+	Blockchain      string   `json:"blockchain"`
+	TokenType       string   `json:"token_type"`
+	EstimatedAmount *float64 `json:"estimated_amount,omitempty"`
 }
 
 type accountResponse struct {
