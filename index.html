@@ -603,15 +603,16 @@ function renderWeeklyUsage() {
   const container = document.getElementById('weekly-cards');
   if (!container) return;
   const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const DAY = 86400000;
   const days = [];
   for (let i = 0; i < 7; i++) {
-    days.push({ start: todayStart - i * DAY, gb: 0, hasData: false });
+    // Local calendar arithmetic (not fixed 24h steps) so buckets stay aligned
+    // to local midnight across DST transitions.
+    days.push({ start: new Date(now.getFullYear(), now.getMonth(), now.getDate() - i).getTime(), gb: 0, hasData: false });
   }
   for (const e of walletEntries) {
     const ts = new Date(e.created_at).getTime();
-    if (ts < todayStart - 6 * DAY) break; // entries are newest-first; outside the window
+    if (ts < days[6].start) break; // entries are newest-first; outside the window
     for (const day of days) {
       if (ts >= day.start) {
         day.gb += (e.change_bytes || 0) / 1e9;
