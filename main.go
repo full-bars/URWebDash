@@ -1039,17 +1039,10 @@ func syncPayoutNotifyStore(fresh []payoutRecord, notify bool) {
 			rec.Completed = true
 			notifyStore[p.PaymentID] = rec
 			changed = true
-			continue
 		}
-
-		if p.Completed && !rec.Completed {
-			// Completed is terminal: never flip the stored state back to
-			// pending, which could re-fire the completion notification on a
-			// later fetch if upstream data is non-monotonic.
-			rec.Completed = true
-			notifyStore[p.PaymentID] = rec
-			changed = true
-		}
+		// Completed is terminal: if a later fetch reports the payout back as
+		// pending, fall through with no state change (no flip back, so the
+		// completion notification can never re-fire).
 	}
 	if changed {
 		if err := saveNotifyStore(); err != nil {
