@@ -601,9 +601,8 @@ async function loadWalletStats() {
 // Daily 24h usage for the last 7 calendar days (sum of change_bytes per day).
 function renderWeeklyUsage() {
   const container = document.getElementById('weekly-cards');
-  if (!container) return;
+  if (!container || !Array.isArray(walletEntries)) return;
   const now = new Date();
-  const DAY = 86400000;
   const days = [];
   for (let i = 0; i < 7; i++) {
     // Local calendar arithmetic (not fixed 24h steps) so buckets stay aligned
@@ -612,10 +611,13 @@ function renderWeeklyUsage() {
   }
   for (const e of walletEntries) {
     const ts = new Date(e.created_at).getTime();
+    if (isNaN(ts)) continue;
     if (ts < days[6].start) break; // entries are newest-first; outside the window
     for (const day of days) {
       if (ts >= day.start) {
-        day.gb += (e.change_bytes || 0) / 1e9;
+        // Clamp at 0 (rate-chart convention): a counter reset would otherwise
+        // subtract a large negative delta from the day's total.
+        day.gb += Math.max(0, e.change_bytes || 0) / 1e9;
         day.hasData = true;
         break;
       }
