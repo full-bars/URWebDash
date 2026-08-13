@@ -919,6 +919,9 @@ func saveNotifyStore() error {
 		return err
 	}
 	path := notifyStoreFile()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
@@ -938,6 +941,11 @@ func saveNotifyStore() error {
 // notify=false callers (the lazy page-load cache path) only ensure the
 // baseline exists and never announce; notify=true callers (explicit refresh)
 // run the full diff.
+//
+// Concurrency: notifyStoreMu serializes all store access. Two racing refreshes
+// apply in whichever order they acquire the lock, so an older fetch could
+// theoretically overwrite a newer record; accepted for a single-operator
+// dashboard (the lazy path never announces).
 func syncPayoutNotifyStore(fresh []payoutRecord, notify bool) {
 	notifyStoreMu.Lock()
 	defer notifyStoreMu.Unlock()
@@ -950,6 +958,11 @@ func syncPayoutNotifyStore(fresh []payoutRecord, notify bool) {
 			if uerr := json.Unmarshal(b, &store); uerr != nil {
 				fmt.Printf("[webhook] notify store parse error: %v (will re-seed)\n", uerr)
 				notifyStore = map[string]notifyRecord{}
+				notifyStoreSeeded = false
+			} else if len(store) == 0 {
+				// Valid but empty: treat as unseeded so a truncated store
+				// cannot cause every payout to be re-announced as new.
+				notifyStore = store
 				notifyStoreSeeded = false
 			} else {
 				notifyStore = store
@@ -966,17 +979,27 @@ func syncPayoutNotifyStore(fresh []payoutRecord, notify bool) {
 	}
 
 	if !notifyStoreSeeded {
-		// Cold start: baseline every known payout, announce nothing.
+		// Cold start: baseline every known payout, announce nothing. An
+		// empty/short first response (transient upstream glitch) must NOT
+		// become the permanent baseline — that would re-announce every
+		// payout as new on the next good fetch. Stay unseeded and retry.
+		seeded := 0
 		for _, p := range fresh {
 			if p.TxHash == "" {
 				continue
 			}
 			notifyStore[p.PaymentID] = notifyRecord{TxHash: p.TxHash, Completed: p.Completed}
+			seeded++
+		}
+		if seeded == 0 {
+			fmt.Println("[webhook] notify store: cold-start fetch had no payouts, not seeding yet")
+			return
+		}
+		if err := saveNotifyStore(); err != nil {
+			fmt.Printf("[webhook] notify store save error: %v (will retry seed)\n", err)
+			return
 		}
 		notifyStoreSeeded = true
-		if err := saveNotifyStore(); err != nil {
-			fmt.Printf("[webhook] notify store save error: %v\n", err)
-		}
 		return
 	}
 
@@ -1007,17 +1030,23 @@ func syncPayoutNotifyStore(fresh []payoutRecord, notify bool) {
 
 		if !rec.Completed && p.Completed {
 			amount := fmt.Sprintf("$%.2f", p.TokenAmount)
+			tx := p.TxHash
+			if len(tx) > 12 {
+				tx = tx[:12]
+			}
 			notifySend(fmt.Sprintf("✅ **Payout Completed**\nAmount: %s\nTx: %s",
-				amount, p.TxHash[:12]+"…"))
+				amount, tx+"…"))
 			rec.Completed = true
 			notifyStore[p.PaymentID] = rec
 			changed = true
 			continue
 		}
 
-		if rec.Completed != p.Completed {
-			// Silent state refresh (e.g. API flips a row back to pending).
-			rec.Completed = p.Completed
+		if p.Completed && !rec.Completed {
+			// Completed is terminal: never flip the stored state back to
+			// pending, which could re-fire the completion notification on a
+			// later fetch if upstream data is non-monotonic.
+			rec.Completed = true
 			notifyStore[p.PaymentID] = rec
 			changed = true
 		}
