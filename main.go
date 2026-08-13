@@ -93,7 +93,20 @@ var (
 
 	httpClient = &http.Client{Timeout: 15 * time.Second}
 	cachedJWT  string
+
+	// Payout notification dedup state, persisted to disk so a process
+	// restart does not re-announce every historical payout as new.
+	notifyStore       map[string]notifyRecord
+	notifyStoreMu     sync.Mutex
+	notifyStorePath   string
+	notifyStoreSeeded bool
+	notifySend        = sendDiscordNotification // test hook
 )
+
+type notifyRecord struct {
+	TxHash    string `json:"tx_hash"`
+	Completed bool   `json:"completed"`
+}
 
 func main() {
 	flag.Parse()
@@ -739,6 +752,10 @@ func handlePayoutStats(token string) http.HandlerFunc {
 				payoutLastError = ""
 				payoutLastPoints = totalPoints
 				payoutCacheMu.Unlock()
+
+				// Seed the notification baseline on cold start; never
+				// announce from the lazy page-load path.
+				syncPayoutNotifyStore(resp.AccountPayments, false)
 			}
 		}
 
@@ -857,7 +874,6 @@ func handleRefreshPayout(token string) http.HandlerFunc {
 		}
 
 		payoutCacheMu.Lock()
-		oldCache := payoutCache
 		payoutCache = resp.AccountPayments
 		payoutCacheTime = time.Now()
 		payoutLastError = ""
@@ -865,7 +881,7 @@ func handleRefreshPayout(token string) http.HandlerFunc {
 		payoutLastPoints = totalPoints
 		payoutCacheMu.Unlock()
 
-		notifyPayoutChanges(oldCache, resp.AccountPayments)
+		syncPayoutNotifyStore(resp.AccountPayments, true)
 
 		respPayments := make([]payoutRecord, len(resp.AccountPayments))
 		copy(respPayments, resp.AccountPayments)
@@ -882,37 +898,133 @@ func handleRefreshPayout(token string) http.HandlerFunc {
 	}
 }
 
-func notifyPayoutChanges(old []payoutRecord, new []payoutRecord) {
-	oldByTx := make(map[string]payoutRecord)
-	for _, p := range old {
-		if p.TxHash != "" {
-			oldByTx[p.TxHash] = p
+// notifyStoreFile returns the persisted notification-dedup store path
+// (env-overridable for tests and unusual installs).
+func notifyStoreFile() string {
+	if notifyStorePath != "" {
+		return notifyStorePath
+	}
+	if p := os.Getenv("PAYOUT_NOTIFY_STORE"); p != "" {
+		notifyStorePath = p
+		return p
+	}
+	home, _ := os.UserHomeDir()
+	notifyStorePath = filepath.Join(home, ".urnetwork", "payout_notified.json")
+	return notifyStorePath
+}
+
+func saveNotifyStore() error {
+	b, err := json.Marshal(notifyStore)
+	if err != nil {
+		return err
+	}
+	path := notifyStoreFile()
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// syncPayoutNotifyStore diffs the fresh /account/payments list against the
+// persisted notification-dedup store and announces only genuine changes.
+//
+// The store (keyed by payment_id) is the notification source of truth, not
+// the in-memory payoutCache, so a process restart cannot re-announce every
+// historical payout as new. On a cold start (no store file yet) the first
+// successful fetch seeds a baseline WITHOUT sending anything; notifications
+// fire only for changes after that baseline.
+//
+// notify=false callers (the lazy page-load cache path) only ensure the
+// baseline exists and never announce; notify=true callers (explicit refresh)
+// run the full diff.
+func syncPayoutNotifyStore(fresh []payoutRecord, notify bool) {
+	notifyStoreMu.Lock()
+	defer notifyStoreMu.Unlock()
+
+	if notifyStore == nil {
+		b, err := os.ReadFile(notifyStoreFile())
+		switch {
+		case err == nil:
+			store := map[string]notifyRecord{}
+			if uerr := json.Unmarshal(b, &store); uerr != nil {
+				fmt.Printf("[webhook] notify store parse error: %v (will re-seed)\n", uerr)
+				notifyStore = map[string]notifyRecord{}
+				notifyStoreSeeded = false
+			} else {
+				notifyStore = store
+				notifyStoreSeeded = true
+			}
+		case os.IsNotExist(err):
+			notifyStore = map[string]notifyRecord{}
+			notifyStoreSeeded = false
+		default:
+			fmt.Printf("[webhook] notify store read error: %v (will re-seed)\n", err)
+			notifyStore = map[string]notifyRecord{}
+			notifyStoreSeeded = false
 		}
 	}
 
-	for _, p := range new {
+	if !notifyStoreSeeded {
+		// Cold start: baseline every known payout, announce nothing.
+		for _, p := range fresh {
+			if p.TxHash == "" {
+				continue
+			}
+			notifyStore[p.PaymentID] = notifyRecord{TxHash: p.TxHash, Completed: p.Completed}
+		}
+		notifyStoreSeeded = true
+		if err := saveNotifyStore(); err != nil {
+			fmt.Printf("[webhook] notify store save error: %v\n", err)
+		}
+		return
+	}
+
+	if !notify {
+		return
+	}
+
+	changed := false
+	for _, p := range fresh {
 		if p.TxHash == "" {
 			continue
 		}
 
-		oldP, existed := oldByTx[p.TxHash]
-
-		if !existed {
+		rec, ok := notifyStore[p.PaymentID]
+		if !ok || rec.TxHash != p.TxHash {
 			amount := fmt.Sprintf("$%.2f", p.TokenAmount)
 			bytes := fmt.Sprintf("%.1f GB", float64(p.PayoutByteCount)/1e9)
 			status := "⏳ Pending"
 			if p.Completed {
 				status = "✅ Completed"
 			}
-			sendDiscordNotification(fmt.Sprintf("💰 **New Payout** %s\nAmount: %s · Data: %s\nChain: %s",
+			notifySend(fmt.Sprintf("💰 **New Payout** %s\nAmount: %s · Data: %s\nChain: %s",
 				status, amount, bytes, p.Blockchain))
+			notifyStore[p.PaymentID] = notifyRecord{TxHash: p.TxHash, Completed: p.Completed}
+			changed = true
 			continue
 		}
 
-		if !oldP.Completed && p.Completed {
+		if !rec.Completed && p.Completed {
 			amount := fmt.Sprintf("$%.2f", p.TokenAmount)
-			sendDiscordNotification(fmt.Sprintf("✅ **Payout Completed**\nAmount: %s\nTx: %s",
+			notifySend(fmt.Sprintf("✅ **Payout Completed**\nAmount: %s\nTx: %s",
 				amount, p.TxHash[:12]+"…"))
+			rec.Completed = true
+			notifyStore[p.PaymentID] = rec
+			changed = true
+			continue
+		}
+
+		if rec.Completed != p.Completed {
+			// Silent state refresh (e.g. API flips a row back to pending).
+			rec.Completed = p.Completed
+			notifyStore[p.PaymentID] = rec
+			changed = true
+		}
+	}
+	if changed {
+		if err := saveNotifyStore(); err != nil {
+			fmt.Printf("[webhook] notify store save error: %v\n", err)
 		}
 	}
 }

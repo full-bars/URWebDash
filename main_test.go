@@ -728,3 +728,120 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
+
+// --- payout notification store ---
+
+func resetNotifyStore(t *testing.T, storePath string) {
+	t.Helper()
+	t.Setenv("PAYOUT_NOTIFY_STORE", storePath)
+	os.Remove(storePath)
+	os.Remove(storePath + ".tmp")
+	notifyStoreMu.Lock()
+	defer notifyStoreMu.Unlock()
+	notifyStore = nil
+	notifyStorePath = ""
+	notifyStoreSeeded = false
+}
+
+func notifyTestPayouts() []payoutRecord {
+	return []payoutRecord{
+		{PaymentID: "pay-1", TxHash: "tx-1111111111111111111111111111111111111111111111111111111111111111", TokenAmount: 12.34, PayoutByteCount: 5000000000, Completed: true, Blockchain: "solana"},
+		{PaymentID: "pay-2", TxHash: "tx-2222222222222222222222222222222222222222222222222222222222222222", TokenAmount: 5.00, PayoutByteCount: 2000000000, Completed: false, Blockchain: "solana"},
+	}
+}
+
+func TestNotifyStoreColdStartSeedsWithoutNotifying(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "notified.json")
+	resetNotifyStore(t, storePath)
+
+	var sent []string
+	oldSend := notifySend
+	notifySend = func(content string) { sent = append(sent, content) }
+	defer func() { notifySend = oldSend }()
+
+	fresh := notifyTestPayouts()
+	syncPayoutNotifyStore(fresh, true) // cold start via the explicit refresh path
+
+	if len(sent) != 0 {
+		t.Fatalf("cold start sent %d notifications, want 0 (seed only)", len(sent))
+	}
+	if _, err := os.Stat(storePath); err != nil {
+		t.Fatalf("store file not written after seeding: %v", err)
+	}
+	// Identical re-fetch must stay silent.
+	syncPayoutNotifyStore(fresh, true)
+	if len(sent) != 0 {
+		t.Fatalf("dedup failed: %d notifications after re-fetch", len(sent))
+	}
+}
+
+func TestNotifyStoreRestartDoesNotReannounce(t *testing.T) {
+	// Exact reported bug: process restart wipes the in-memory cache, and the
+	// old code re-announced every payout with a tx_hash as brand new.
+	storePath := filepath.Join(t.TempDir(), "notified.json")
+	resetNotifyStore(t, storePath)
+
+	// First run seeds the baseline.
+	syncPayoutNotifyStore(notifyTestPayouts(), true)
+
+	// Simulate restart: package state reset, store file still on disk.
+	notifyStoreMu.Lock()
+	notifyStore = nil
+	notifyStorePath = ""
+	notifyStoreSeeded = false
+	notifyStoreMu.Unlock()
+
+	var sent []string
+	oldSend := notifySend
+	notifySend = func(content string) { sent = append(sent, content) }
+	defer func() { notifySend = oldSend }()
+
+	syncPayoutNotifyStore(notifyTestPayouts(), true)
+	if len(sent) != 0 {
+		t.Fatalf("restart re-announced %d payouts, want 0: %v", len(sent), sent)
+	}
+}
+
+func TestNotifyStoreNewPaymentAndCompletion(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "notified.json")
+	resetNotifyStore(t, storePath)
+
+	syncPayoutNotifyStore(notifyTestPayouts(), true) // seed
+
+	var sent []string
+	oldSend := notifySend
+	notifySend = func(content string) { sent = append(sent, content) }
+	defer func() { notifySend = oldSend }()
+
+	// New payout appears (new payment_id + tx_hash).
+	fresh := append(notifyTestPayouts(), payoutRecord{PaymentID: "pay-3", TxHash: "tx-3333333333333333333333333333333333333333333333333333333333333333", TokenAmount: 99.0, PayoutByteCount: 7000000000, Completed: false, Blockchain: "solana"})
+	syncPayoutNotifyStore(fresh, true)
+	if len(sent) != 1 || !strings.Contains(sent[0], "💰 **New Payout**") || !strings.Contains(sent[0], "⏳ Pending") {
+		t.Fatalf("new payout notification wrong: %v", sent)
+	}
+
+	// Existing pending payment completes.
+	sent = nil
+	fresh[1].Completed = true // pay-2
+	syncPayoutNotifyStore(fresh, true)
+	if len(sent) != 1 || !strings.Contains(sent[0], "✅ **Payout Completed**") {
+		t.Fatalf("completion notification wrong: %v", sent)
+	}
+
+	// No further changes -> silent.
+	sent = nil
+	syncPayoutNotifyStore(fresh, true)
+	if len(sent) != 0 {
+		t.Fatalf("no-change fetch notified: %v", sent)
+	}
+}
+
+func TestNotifyStorePathOverride(t *testing.T) {
+	t.Setenv("PAYOUT_NOTIFY_STORE", "/tmp/custom_notify.json")
+	notifyStoreMu.Lock()
+	notifyStorePath = ""
+	notifyStoreMu.Unlock()
+	if p := notifyStoreFile(); p != "/tmp/custom_notify.json" {
+		t.Fatalf("notifyStoreFile() = %q, want override", p)
+	}
+}
