@@ -39,6 +39,9 @@
     .card .value.violet { color: #8b5cf6; }
     .text-violet { color: #a78bfa; }
     .card .value.white { color: #f9fafb; }
+    .weekly-header { color: #9ca3af; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; margin: -4px 0 8px; }
+    .weekly-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px; }
+    .weekly-cards .card { padding: 12px 14px; }
     .chart-row { display: flex; gap: 18px; margin-bottom: 20px; }
     .chart-container { flex: 1; background: #1f2937; border: 1px solid #374151; border-radius: 10px; padding: 18px; min-width: 0; }
     .chart-container canvas { max-height: 250px; }
@@ -120,6 +123,9 @@
       <div class="card"><div class="label">24h Change</div><div class="value blue" id="change-24h">—</div></div>
       <div class="card"><div class="label">Data Points</div><div class="value white" id="data-points">—</div></div>
     </div>
+
+    <div class="weekly-header">📅 24h Change · Last 7 Days</div>
+    <div class="weekly-cards" id="weekly-cards"></div>
 
     <div class="toolbar">
       <span class="info" id="db-info">—</span>
@@ -578,14 +584,57 @@ async function loadWalletStats() {
         }
       }
       document.getElementById('change-24h').textContent = fmtBytes(change24h);
+
+      renderWeeklyUsage();
     } else {
       document.getElementById('empty-state').style.display = 'block';
       document.getElementById('change-24h').textContent = '—';
+      renderWeeklyUsage();
     }
 
     renderWalletTable();
   } catch (e) {
     showError('Error loading wallet stats: ' + e.message);
+  }
+}
+
+// Daily 24h usage for the last 7 calendar days (sum of change_bytes per day).
+function renderWeeklyUsage() {
+  const container = document.getElementById('weekly-cards');
+  if (!container) return;
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const DAY = 86400000;
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    days.push({ start: todayStart - i * DAY, gb: 0, hasData: false });
+  }
+  for (const e of walletEntries) {
+    const ts = new Date(e.created_at).getTime();
+    if (ts < todayStart - 6 * DAY) break; // entries are newest-first; outside the window
+    for (const day of days) {
+      if (ts >= day.start) {
+        day.gb += (e.change_bytes || 0) / 1e9;
+        day.hasData = true;
+        break;
+      }
+    }
+  }
+  container.innerHTML = '';
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(days[i].start);
+    const tile = document.createElement('div');
+    tile.className = 'card';
+    tile.title = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + (i === 0 ? ' · today' : '');
+    const val = document.createElement('div');
+    val.className = 'value blue';
+    val.textContent = days[i].hasData ? days[i].gb.toFixed(2) + ' GB' : '—';
+    tile.appendChild(label);
+    tile.appendChild(val);
+    container.appendChild(tile);
   }
 }
 
