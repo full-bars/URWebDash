@@ -1,3 +1,21 @@
+# v0.0.4
+
+### Features
+
+- **Last 7 Days Usage Strip** - Added a per-day usage card strip under the summary cards, computed client-side from existing byte-change deltas. Buckets use local calendar-day arithmetic so they stay aligned to midnight across DST transitions.
+- **Estimated Pending Payouts** - Pending payments now show an estimated dollar amount instead of an em dash. The API already returns the gross booked amount for pending payments, so the estimate fills in the unknown wallet fee using the median gap between booked and settled amounts across the 10 most recent settled payments. Adds an "Estimated Pending" stat card; Total Earned now renders to 4 decimals to match.
+- **Dynamic Network Name** - The sidebar network label is now decoded from the JWT via a new `/api/network` endpoint instead of showing a hardcoded placeholder.
+
+### Fixes
+
+- **Payout Notifications Survive Restarts** - Notification dedup state was tracked only in memory, so restarting the process re-announced every historical payout as new. The baseline is now persisted to `~/.urnetwork/payout_notified.json` (atomic writes, keyed by payment ID) and seeded silently on cold start. Also hardened against bad cold-start baselines — a transient empty fetch or empty store file no longer poisons the dedup state — and removed an unreachable dead branch left over from the completion-flip logic.
+- **Payout "Last Updated" Timestamp** - The lazy cache-refresh path now populates `last_update` (previously only the explicit refresh path did), fixing a stuck "Last updated: —" on the Payout Statistics page.
+
+### Internal
+
+- **Weekly Strip Hardening** - Clamped negative deltas to 0, guarded against a missing wallet-entries global, and skip malformed timestamps in the new usage strip.
+- **gofmt Cleanliness** - Restored formatting on `main.go` (whitespace/alignment only, no behavior change).
+
 # v0.0.3
 
 ### UI
