@@ -1,1 +1,46 @@
-IyB2MC4wLjMKCiMjIyBVSQoKLSAqKlNpZGViYXIgVGl0bGUqKiAtLCAiVVJuZXR3b3JrIENsaWVudCBNYW5hZ2VyIiDihoQgIlVSbmV0d29yayBGbGVldCBEYXRhICYgUGF5b3V0cyIKCiMjIyBGaXhlcwoKLSAqKjFIIFJhdGUgQ2hhcnQqKiAtIEZpeGVkIGRvd25zYW1wbGluZyBidWcgd2hlcmUgaW5kZXgtYmFzZWQgc2FtcGxpbmcgc2tpcHBlZCA5LzEwIGVudHJpZXMgKH4xNTBtaW4gc3BhY2luZyksIGNhdXNpbmcgb25seSAxIGJhciB0byBhcHBlYXIuIFJhdGUgZGF0YSBub3cgdXNlcyBhbGwgZW50cmllcyBmb3IgYWNjdXJhdGUgZGVsdGFzLgotICoqQ2hhcnQgR2xpdGNoIG9uIEF1dG8tUmVmcmVzaCoqIC0gUmF0ZSBjaGFydCB3YXMgZGVzdHJveWluZyBhbmQgcmVjcmVhdGluZyBpdHNlbGYgZXZlcnkgMzAgc2Vjb25kcywgY2F1c2luZyBhIHZpc2libGUgZmxhc2guIE5vdyB1cGRhdGVzIGRhdGEgaW4tcGxhY2UuCi0gKio0NGggQ2hhbmdlIG9uIFBheW91dCBQYWdlKiogLSBObyBsb25nZXIgZ29lcyBuZWdhdGl2ZSBvbiB0aGUgcGF5b3V0IHRhYi4KLSAqKlJlbW92ZWQgIkNsZWFyIEhpc3RvcnkiKiogLSBSZW1vdmVkIHRoZSAiQ2xlYXIgSGlzdG9yeSIgYnV0dG9uIGFuZCBpdHMgQVBJIGhhbmRsZXIgdG8gcHJldmVudCBhY2NpZGVudGFsIGRhdGEgbG9zcy4KCiMjIyBJbnRlcm5hbAoKLSAqKkNJIEltcHJvdmVtZW50cyoqIC0gQWRkZWQgYC1yYWNlYCBkZXRlY3Rpb24sIGBnb2ZtdGAgZm9ybWF0dGluZyBjaGVjaywgYW5kIGEgd2FsbGV0LXN0YXRzIHJlc3BvbnNlIHZhbGlkYXRpb24gdGVzdAoKIyB2MC4wLjIKCiMjIyBGZWF0dXJlcwoKLSAqKlBheW91dCBQb2ludHMgcGVyIFBheW1lbnQqKiAtIFR3byBjb2x1bW5zIGluIHRoZSBwYXlvdXQgdGFibGU6IHRvdGFsIHBvaW50cyBlYXJuZWQgYW5kIHJlbGlhYmlsaXR5IHBvaW50cyBwZXIgcGF5bWVudAotICoqRGlzY29yZCBXZWJob29rIE5vdGlmaWNhdGlvbnMqKiAtIEF1dG9tYXRpYyBhbGVydHMgd2hlbiBhIG5ldyBwYXltZW50IGFycml2ZXMgb3IgYSBwZW5kaW5nIHBheW1lbnQgY29tcGxldGVzCi0gKipWZXJzaW9uICsgVXB0aW1lIGluIFNpZGViYXJqKiAtIEZvb3RlciBzaG93cyBidWlsZCB2ZXJzaW9uIGFuZCBzZXJ2aWNlIHVwdGltZQoKIyMjIEZpeGVzCgotICoqMjRoIENoYW5nZSBvbiBXYWxsZXQgU3RhdHMqKiAtIE5vdyBkaXNwbGF5cyBhY3R1YWwgZGF0YSB2b2x1bWUgY2hhbmdlIG92ZXIgdGhlIGxhc3QgMjQgaG91cnMKLSAqKkZvcm1hdCBTdHJpbmcgQnVnKiogLSBGaXhlZCBmb3JtYXQgc3RyaW5nIGlzc3VlIGluIHBheW91dCBkaXNwbGF5CgojIyMgSW50ZXJuYWwKCi0gKipSZXNpbGllbnQgUG9sbGluZyoqIC0gUmV0cmllcyBBUEkgZmV0Y2ggd2l0aCBiYWNrb2ZmIG9uIG1pc3NlZCBwb2xsIHdpbmRvd3MKLSAqKkRhdGFiYXNlIENsZWFudXAqKiAtIFJlbW92ZWQgYC5kYmAgZmlsZXMgZnJvbSBnaXQgdHJhY2tpbmcKLSAqKlRlc3QgU3VpdGUqKiAtIDIyIHRlc3RzIGNvdmVyaW5nIEFQSSBmZXRjaCwgSldULCBwYXlvdXQgY2FjaGUsIGltcG9ydCwgYW5kIHJlZnJlc2ggaGFuZGxlcnMKLSAqKkNJIFBpcGVsaW5lKiogLSBgZ28gdmV0YCBhbmQgYGdvIHRlc3RgIG9uIGV2ZXJ5IFBSL3B1c2ggdG8gbWFzdGVyCgojIHYwLjAuMQoKLSAqKkZpeDoqKiBBdXRvLXJlZnJlc2ggbm8gbG9uZ2VyIHJlc2V0cyB0cmFuc2ZlciByYXRlIHRpbWUgd2luZG93ICh1c2VzIGByYXRlV2luZG93YCBpbnN0ZWFkIG9mIGhhcmRjb2RlZCBgJzFoJ2ApCi0gKipQZXJmIChiYWNrZW5kKToqKiBQYXlvdXQgY2FjaGUgdXNlcyBkb3VibGUtY2hlY2sgUkxvY2sg4oCUIEhUVFAgZmV0Y2ggbm8gbG9uZ2VyIGJsb2NrcyByZWFkZXJzIGZvciAxNXMKLSAqKlBlcmYgKGJhY2tlbmQpOioqIFNoYXJlZCBgaHR0cC5DbGllbnRgIGFuZCBjYWNoZWQgSldUIHRva2VuCi0gKipQZXJmIChiYWNrZW5kKToqKiBEQiBjb25uZWN0aW9uIHBvb2wgdHVuaW5nIChtYXggb3Blbi9pZGxlL2Nvbm4gbGlmZXRpbWUpCi0gKipQZXJmIChmcm9udGVuZCk6KiogUGFpZC91bnBhaWQgY2hhcnRzIHVzZSBgQ2hhcnQudXBkYXRlKClgIGluc3RlYWQgb2YgZGVzdHJveStjcmVhdGUKLSAqKlBlcmYgKGZyb250ZW5kKToqKiBQYXlvdXRzIGxhenktbG9hZGVkIG9ubHkgd2hlbiBwYXlvdXQgdGFiIGlzIGFjdGl2ZQotICoqQWNjdXJhY3k6KiogUmF0ZSBkYXRhIGNvbXB1dGVkIGZyb20gcmF3IGVudHJpZXMgKDJLIGNhcCkgaW5zdGVhZCBvZiBkb3duc2FtcGxlZCBjaGFydFNsaWNlCg==
+# v0.0.3
+
+### UI
+
+- **Sidebar Title** – "URnetwork Client Manager" → "URnetwork Fleet Data & Payouts"
+
+### Fixes
+
+- **1H Rate Chart** - Fixed downsampling bug where index-based sampling skipped 9/10 entries (~150min spacing), causing only 1 bar to appear. Rate data now uses all entries for accurate deltas.
+- **Chart Glitch on Auto-Refresh** - Rate chart was destroying and recreating itself every 30 seconds, causing a visible flash. Now updates data in-place.
+- **44h Change on Payout Page** - No longer goes negative on the payout tab.
+- **Removed "Clear History"** - Removed the "Clear History" button and its API handler to prevent accidental data loss.
+
+### Internal
+
+- **CI Improvements** - Added `-race` detection, `gofmt` formatting check, and a wallet-stats response validation test
+
+# v0.0.2
+
+### Features
+
+- **Payout Points per Payment** - Two columns in the payout table: total points earned and reliability points per payment
+- **Discord Webhook Notifications** - Automatic alerts when a new payment arrives or a pending payment completes
+- **Version + Uptime in Sidebar** - Footer shows build version and service uptime
+
+### Fixes
+
+- **24h Change on Wallet Stats** - Now displays actual data volume change over the last 24 hours
+- **Format String Bug** - Fixed format string issue in payout display
+
+### Internal
+
+- **Resilient Polling** - Retries API fetch with backoff on missed poll windows
+- **Database Cleanup** - Removed `.db` files from git tracking
+- **Test Suite** - 22 tests covering API fetch, JWT, payout cache, import, and refresh handlers
+- **CI Pipeline** - `go vet` and `go test` on every PR/push to master
+
+# v0.0.1
+
+- **Fix:** Auto-refresh no longer resets transfer rate time window (uses `rateWindow` instead of hardcoded `'1h'`)
+- **Perf (backend):** Payout cache uses double-check RLock — HTTP fetch no longer blocks readers for 15s
+- **Perf (backend):** Shared `http.Client` and cached JWT token
+- **Perf (backend):** DB connection pool tuning (max open/idle/conn lifetime)
+- **Perf (frontend):** Paid/unpaid charts use `Chart.update()` instead of destroy+create
+- **Perf (frontend):** Payouts lazy-loaded only when payout tab is active
+- **Accuracy:** Rate data computed from raw entries (2K cap) instead of downsampled chartSlice
