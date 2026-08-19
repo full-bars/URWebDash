@@ -146,8 +146,9 @@ func main() {
 		fmt.Println(`Usage:
   stats_tracker run                    — start polling daemon
   stats_tracker serve [port]          — start HTTP server (default :3001)
-  stats_tracker import <file.json>     — import bayouash export
+  stats_tracker import <file.json>     — import wallet stats history from a JSON export
   stats_tracker history                — print stored history
+  stats_tracker cleanup                — delete off-schedule wallet_stats entries for today
   stats_tracker testwebhook           — send a test Discord notification`)
 	}
 }
