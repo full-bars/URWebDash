@@ -962,3 +962,43 @@ func TestNotifyStoreIgnoresNoTxHash(t *testing.T) {
 		t.Fatalf("re-fetch notified: %v", sent)
 	}
 }
+
+func TestOpenDB_BusyTimeoutOnAllPooledConnections(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
+
+	db, err := openDB()
+	if err != nil {
+		t.Fatalf("openDB() = %v", err)
+	}
+	defer db.Close()
+
+	// Grab several distinct connections from the pool and confirm each one
+	// carries the busy_timeout pragma. A pool of 4 allows us to probe 4.
+	var want int64 = 5000
+	for i := 0; i < 4; i++ {
+		conn, err := db.Conn(t.Context())
+		if err != nil {
+			t.Fatalf("db.Conn(%d) = %v", i, err)
+		}
+		var got int64
+		if err := conn.QueryRowContext(t.Context(), "PRAGMA busy_timeout").Scan(&got); err != nil {
+			conn.Close()
+			t.Fatalf("query busy_timeout on conn %d: %v", i, err)
+		}
+		conn.Close()
+		if got != want {
+			t.Fatalf("conn %d busy_timeout = %d, want %d", i, got, want)
+		}
+	}
+}
+
+func TestOpenDB_DBPathPlain(t *testing.T) {
+	t.Setenv("STATS_DB", "/tmp/plain-paths.db")
+	if p := dbPath(); p != "/tmp/plain-paths.db" {
+		t.Fatalf("dbPath() = %q, want plain path", p)
+	}
+	if d := dbDSN(); d != "file:/tmp/plain-paths.db?_pragma=busy_timeout(5000)" {
+		t.Fatalf("dbDSN() = %q, want DSN with _pragma busy_timeout", d)
+	}
+}

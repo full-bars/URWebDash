@@ -161,6 +161,17 @@ func dbPath() string {
 	return filepath.Join(home, ".urnetwork", "wallet_stats.db")
 }
 
+func dbDSN() string {
+	p := dbPath()
+	// Apply busy_timeout on EVERY pooled connection. A db.Exec("PRAGMA
+	// busy_timeout") only configures whichever connection happened to run
+	// it; the pool can open others that still return SQLITE_BUSY. The
+	// _pragma DSN parameter is applied to each newly opened connection.
+	// journal_mode=WAL is NOT put here: it is a persistent file property
+	// stored in the database header, so the init loop sets it once.
+	return "file:" + p + "?_pragma=busy_timeout(5000)"
+}
+
 func jwtPath() string {
 	if p := os.Getenv("JWT_PATH"); p != "" {
 		return p
@@ -170,14 +181,13 @@ func jwtPath() string {
 }
 
 func openDB() (*sql.DB, error) {
-	db, err := sql.Open("sqlite", dbPath())
+	db, err := sql.Open("sqlite", dbDSN())
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 	for _, stmt := range []string{
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA synchronous=NORMAL",
-		"PRAGMA busy_timeout=5000",
 		`CREATE TABLE IF NOT EXISTS wallet_stats (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id TEXT NOT NULL DEFAULT '',
