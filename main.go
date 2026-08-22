@@ -177,6 +177,7 @@ func openDB() (*sql.DB, error) {
 	for _, stmt := range []string{
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA synchronous=NORMAL",
+		"PRAGMA busy_timeout=5000",
 		`CREATE TABLE IF NOT EXISTS wallet_stats (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id TEXT NOT NULL DEFAULT '',
@@ -703,6 +704,9 @@ func handleWalletSummary(db *sql.DB) http.HandlerFunc {
 		var ts string
 		err := row.Scan(&paid, &unpaid, &ts)
 		if err != nil {
+			if err != sql.ErrNoRows {
+				fmt.Printf("[wallet-summary] scan error: %v\n", err)
+			}
 			jsonError(w, "no data yet")
 			return
 		}

@@ -513,6 +513,7 @@ async function loadWalletStats() {
     const stats = await statsRes.json();
 
     if (summary.error) throw new Error(summary.error);
+    showError(null);
 
     document.getElementById('paid-data').textContent = fmtBytes(summary.paid_bytes);
     document.getElementById('unpaid-data').textContent = fmtBytes(summary.unpaid_bytes);
