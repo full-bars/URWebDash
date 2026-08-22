@@ -428,12 +428,7 @@ func runPolling() {
 	}
 	defer db.Close()
 
-	interval := 15 * time.Minute
-	if s := os.Getenv("STATS_INTERVAL"); s != "" {
-		if d, err := time.ParseDuration(s); err == nil && d >= time.Minute {
-			interval = d
-		}
-	}
+	interval := statsInterval()
 
 	fmt.Printf("[stats] polling every %s | db=%s\n", interval, dbPath())
 
@@ -1081,13 +1076,43 @@ func jsonError(w http.ResponseWriter, msg string) {
 	})
 }
 
+// statsInterval returns the polling cadence from STATS_INTERVAL (default 15m,
+// minimum 1m), matching the ALWAYS-used start of the poller loop.
+func statsInterval() time.Duration {
+	const def = 15 * time.Minute
+	if s := os.Getenv("STATS_INTERVAL"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d >= time.Minute {
+			return d
+		}
+	}
+	return def
+}
+
 func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time) {
 	var prevUnpaid sql.NullInt64
+	var prevAt sql.NullString
 	db.QueryRow(
-		"SELECT unpaid_bytes FROM wallet_stats ORDER BY id DESC LIMIT 1 OFFSET 1",
-	).Scan(&prevUnpaid)
+		"SELECT unpaid_bytes, created_at FROM wallet_stats ORDER BY id DESC LIMIT 1 OFFSET 1",
+	).Scan(&prevUnpaid, &prevAt)
 	if !prevUnpaid.Valid {
 		return
+	}
+	// If the previous row is not a recent poll window, this is a backfill
+	// after the poller dropped windows, not a genuine short-window burst.
+	// Example above threshold with no gap guard: polls lost for
+	// 04:30-05:45 lumped into one row, so the 06:00 delta read as an 18 GB
+	// "15m spike" and alerted. Skip and log instead. The threshold is two
+	// poll intervals so it stays correct if STATS_INTERVAL is raised.
+	if prevAt.Valid {
+		pt, perr := time.Parse(time.RFC3339, prevAt.String)
+		if perr != nil {
+			fmt.Printf("[webhook] traffic spike: could not parse prev created_at %q: %v (proceeding unguarded)\n",
+				prevAt.String, perr)
+		} else if now.Sub(pt) > 2*statsInterval() {
+			fmt.Printf("[webhook] traffic spike skipped: prev row %s is %.0fm old (backfill, not a %s window)\n",
+				pt.Format("15:04"), now.Sub(pt).Minutes(), statsInterval())
+			return
+		}
 	}
 	deltaBytes := int64(unpaidBytes) - prevUnpaid.Int64
 	if deltaBytes <= 1_000_000_000 {

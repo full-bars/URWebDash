@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1127,5 +1128,88 @@ func TestIndexHTML_ErrorBannerNotClearedBeforeErrorCheck(t *testing.T) {
 	badPattern := regexp.MustCompile(`(?s)showError\(null\);\s*if\s*\(summary\.error\)\s*throw new Error\(summary\.error\);`)
 	if badPattern.MatchString(indexHTML) {
 		t.Fatalf("showError(null) must not run before the summary.error check")
+	}
+}
+
+// sendDiscordNotification posts to the resolved webhook URL in a goroutine.
+// These tests point it at a local httptest server and count real posts.
+type spikeCountServer struct {
+	mu  sync.Mutex
+	n   int
+	URL string
+}
+
+func (c *spikeCountServer) add()       { c.mu.Lock(); c.n++; c.mu.Unlock() }
+func (c *spikeCountServer) count() int { c.mu.Lock(); defer c.mu.Unlock(); return c.n }
+
+func newSpikeCountServer() (*spikeCountServer, func()) {
+	s := &spikeCountServer{}
+	hh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.add()
+		w.WriteHeader(204)
+	}))
+	s.URL = hh.URL
+	return s, hh.Close
+}
+
+// The gap guard must skip a backfill: when the previous stored row is older
+// than 30 minutes (the poller dropped windows), a huge delta is not a genuine
+// 15-minute burst and must not alert.
+func TestCheckTrafficSpike_GapGuardSkipsOldRow(t *testing.T) {
+	srv, close := newSpikeCountServer()
+	defer close()
+	t.Setenv("DISCORD_WEBHOOK_URL", srv.URL)
+	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "t.db"))
+	db, _ := openDB()
+	defer db.Close()
+	// Insert an old previous row (04:15) then a newest row (06:00) so the
+	// 04:15 row is the OFFSET-1 "previous" checkTrafficSpike reads.
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1294821013940,'2026-08-22T04:15:01Z','2026-08-22T04:15:01Z')")
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1313080594146,'2026-08-22T06:00:00Z','2026-08-22T06:00:00Z')")
+
+	out := captureStdout(t, func() {
+		checkTrafficSpike(db, 1313080594146, time.Date(2026, 8, 22, 6, 0, 0, 0, time.UTC))
+	})
+	if srv.count() != 0 {
+		t.Fatalf("gap guard should skip backfill, server saw %d post(s)", srv.count())
+	}
+	if !strings.Contains(out, "traffic spike skipped") {
+		t.Fatalf("expected skip log, got %q", out)
+	}
+}
+
+func TestCheckTrafficSpike_RecentWindowFires(t *testing.T) {
+	srv, close := newSpikeCountServer()
+	defer close()
+	t.Setenv("DISCORD_WEBHOOK_URL", srv.URL)
+	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "t.db"))
+	db, _ := openDB()
+	defer db.Close()
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1000000000,'2026-08-22T05:45:00Z','2026-08-22T05:45:00Z')")
+	// newest row 10 min after the previous -> recent window.
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,19000000000,'2026-08-22T05:55:00Z','2026-08-22T05:55:00Z')")
+
+	checkTrafficSpike(db, 19000000000, time.Date(2026, 8, 22, 5, 55, 0, 0, time.UTC))
+	for i := 0; i < 50 && srv.count() == 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if srv.count() != 1 {
+		t.Fatalf("recent over-threshold delta should fire, server saw %d post(s)", srv.count())
+	}
+}
+
+func TestCheckTrafficSpike_SubThresholdDoesNotFire(t *testing.T) {
+	srv, close := newSpikeCountServer()
+	defer close()
+	t.Setenv("DISCORD_WEBHOOK_URL", srv.URL)
+	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "t.db"))
+	db, _ := openDB()
+	defer db.Close()
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1000000000,'2026-08-22T05:45:00Z','2026-08-22T05:45:00Z')")
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1500000000,'2026-08-22T05:55:00Z','2026-08-22T05:55:00Z')")
+
+	checkTrafficSpike(db, 1500000000, time.Date(2026, 8, 22, 5, 55, 0, 0, time.UTC))
+	if srv.count() != 0 {
+		t.Fatalf("sub-threshold delta should not fire, server saw %d post(s)", srv.count())
 	}
 }
