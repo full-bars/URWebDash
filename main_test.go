@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -960,5 +963,169 @@ func TestNotifyStoreIgnoresNoTxHash(t *testing.T) {
 	syncPayoutNotifyStore(mixed, true)
 	if len(sent) != 0 {
 		t.Fatalf("re-fetch notified: %v", sent)
+	}
+}
+
+func TestOpenDB_BusyTimeoutOnAllPooledConnections(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
+
+	db, err := openDB()
+	if err != nil {
+		t.Fatalf("openDB() = %v", err)
+	}
+	defer db.Close()
+
+	// Grab several distinct connections from the pool and confirm each one
+	// carries the busy_timeout pragma. A pool of 4 allows us to probe 4.
+	var want int64 = 5000
+	for i := 0; i < 4; i++ {
+		conn, err := db.Conn(t.Context())
+		if err != nil {
+			t.Fatalf("db.Conn(%d) = %v", i, err)
+		}
+		var got int64
+		if err := conn.QueryRowContext(t.Context(), "PRAGMA busy_timeout").Scan(&got); err != nil {
+			conn.Close()
+			t.Fatalf("query busy_timeout on conn %d: %v", i, err)
+		}
+		conn.Close()
+		if got != want {
+			t.Fatalf("conn %d busy_timeout = %d, want %d", i, got, want)
+		}
+	}
+}
+
+func TestOpenDB_DBPathPlain(t *testing.T) {
+	t.Setenv("STATS_DB", "/tmp/plain-paths.db")
+	if p := dbPath(); p != "/tmp/plain-paths.db" {
+		t.Fatalf("dbPath() = %q, want plain path", p)
+	}
+	d := dbDSN()
+	if !strings.HasPrefix(d, "file:///tmp/plain-paths.db") {
+		t.Fatalf("dbDSN() = %q, want file: URI for the path", d)
+	}
+	if !strings.Contains(d, "_pragma=busy_timeout%285000%29") {
+		t.Fatalf("dbDSN() = %q, want percent-encoded _pragma busy_timeout query", d)
+	}
+	// A literal '?' or '#' in the path must not split the DSN query.
+	t.Setenv("STATS_DB", "/tmp/odd?name#.db")
+	d2 := dbDSN()
+	if strings.Count(d2, "?") != 1 {
+		t.Fatalf("dbDSN() = %q, want exactly one '?' (the query separator)", d2)
+	}
+	if !strings.Contains(d2, "_pragma=busy_timeout%285000%29") {
+		t.Fatalf("dbDSN() = %q, wanted _pragma to survive a '?'/'#' in the path", d2)
+	}
+}
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+
+	fn()
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("read captured stdout: %v", err)
+	}
+	return buf.String()
+}
+
+func TestHandleWalletSummary_ScanErrorIsLoggedAndHidden(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
+
+	db, err := openDB()
+	if err != nil {
+		t.Fatalf("openDB() = %v", err)
+	}
+	defer db.Close()
+
+	// Insert a row whose paid_bytes value cannot be converted to int64,
+	// forcing row.Scan to fail with an error other than sql.ErrNoRows.
+	_, err = db.Exec(
+		"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
+		"not-a-number", 500, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert malformed row: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/wallet-summary", nil)
+
+	output := captureStdout(t, func() {
+		handleWalletSummary(db)(w, r)
+	})
+
+	if w.Code != 500 {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+
+	var body map[string]string
+	json.NewDecoder(w.Body).Decode(&body)
+	if body["error"] != "no data yet" {
+		t.Fatalf("error = %q, want %q (internal scan error must not leak to client)", body["error"], "no data yet")
+	}
+
+	if !strings.Contains(output, "[wallet-summary] scan error:") {
+		t.Fatalf("expected scan error to be logged to stdout, got: %q", output)
+	}
+}
+
+func TestHandleWalletSummary_EmptyDB_DoesNotLogScanError(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
+
+	db, err := openDB()
+	if err != nil {
+		t.Fatalf("openDB() = %v", err)
+	}
+	defer db.Close()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/wallet-summary", nil)
+
+	output := captureStdout(t, func() {
+		handleWalletSummary(db)(w, r)
+	})
+
+	if w.Code != 500 {
+		t.Fatalf("status = %d, want 500 for empty db", w.Code)
+	}
+	// sql.ErrNoRows is the expected "no data imported yet" case and must
+	// not be logged as if it were an unexpected scan failure.
+	if strings.Contains(output, "[wallet-summary] scan error:") {
+		t.Fatalf("sql.ErrNoRows should not be logged as a scan error, got: %q", output)
+	}
+}
+
+func TestIndexHTML_ClearsErrorBannerAfterSuccessfulSummaryFetch(t *testing.T) {
+	// Regression test: loadWalletStats() previously left any error banner
+	// from a prior failed load on screen even after a subsequent successful
+	// fetch, because it only ever called showError() with a message, never
+	// to clear it. The fix calls showError(null) immediately after
+	// confirming summary.error is unset, before any DOM updates happen.
+	pattern := regexp.MustCompile(`(?s)if\s*\(summary\.error\)\s*throw new Error\(summary\.error\);\s*showError\(null\);\s*document\.getElementById\('paid-data'\)`)
+	if !pattern.MatchString(indexHTML) {
+		t.Fatalf("expected showError(null) to run in loadWalletStats() right after the summary.error check and before rendering paid-data")
+	}
+}
+
+func TestIndexHTML_ErrorBannerNotClearedBeforeErrorCheck(t *testing.T) {
+	// Guard against a regression where showError(null) is hoisted above the
+	// summary.error check, which would clear the banner even when the
+	// summary fetch actually failed.
+	badPattern := regexp.MustCompile(`(?s)showError\(null\);\s*if\s*\(summary\.error\)\s*throw new Error\(summary\.error\);`)
+	if badPattern.MatchString(indexHTML) {
+		t.Fatalf("showError(null) must not run before the summary.error check")
 	}
 }

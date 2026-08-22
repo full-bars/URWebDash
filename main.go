@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -161,6 +162,23 @@ func dbPath() string {
 	return filepath.Join(home, ".urnetwork", "wallet_stats.db")
 }
 
+func dbDSN() string {
+	// Apply busy_timeout on EVERY pooled connection. A db.Exec("PRAGMA
+	// busy_timeout") only configures whichever connection happened to run
+	// it; the pool can open others that still return SQLITE_BUSY. The
+	// _pragma DSN parameter is applied to each newly opened connection.
+	// journal_mode=WAL is NOT put here: it is a persistent file property
+	// stored in the database header, so the init loop sets it once.
+	//
+	// Build the path as a percent-encoded file: URI so a literal '?' or '#'
+	// in STATS_DB cannot split the DSN and silently drop the _pragma.
+	u := url.URL{Scheme: "file", Path: dbPath()}
+	q := url.Values{}
+	q.Set("_pragma", "busy_timeout(5000)")
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 func jwtPath() string {
 	if p := os.Getenv("JWT_PATH"); p != "" {
 		return p
@@ -170,7 +188,7 @@ func jwtPath() string {
 }
 
 func openDB() (*sql.DB, error) {
-	db, err := sql.Open("sqlite", dbPath())
+	db, err := sql.Open("sqlite", dbDSN())
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
@@ -703,6 +721,9 @@ func handleWalletSummary(db *sql.DB) http.HandlerFunc {
 		var ts string
 		err := row.Scan(&paid, &unpaid, &ts)
 		if err != nil {
+			if err != sql.ErrNoRows {
+				fmt.Printf("[wallet-summary] scan error: %v\n", err)
+			}
 			jsonError(w, "no data yet")
 			return
 		}
