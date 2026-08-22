@@ -1001,8 +1001,21 @@ func TestOpenDB_DBPathPlain(t *testing.T) {
 	if p := dbPath(); p != "/tmp/plain-paths.db" {
 		t.Fatalf("dbPath() = %q, want plain path", p)
 	}
-	if d := dbDSN(); d != "file:/tmp/plain-paths.db?_pragma=busy_timeout(5000)" {
-		t.Fatalf("dbDSN() = %q, want DSN with _pragma busy_timeout", d)
+	d := dbDSN()
+	if !strings.HasPrefix(d, "file:///tmp/plain-paths.db") {
+		t.Fatalf("dbDSN() = %q, want file: URI for the path", d)
+	}
+	if !strings.Contains(d, "_pragma=busy_timeout%285000%29") {
+		t.Fatalf("dbDSN() = %q, want percent-encoded _pragma busy_timeout query", d)
+	}
+	// A literal '?' or '#' in the path must not split the DSN query.
+	t.Setenv("STATS_DB", "/tmp/odd?name#.db")
+	d2 := dbDSN()
+	if strings.Count(d2, "?") != 1 {
+		t.Fatalf("dbDSN() = %q, want exactly one '?' (the query separator)", d2)
+	}
+	if !strings.Contains(d2, "_pragma=busy_timeout%285000%29") {
+		t.Fatalf("dbDSN() = %q, wanted _pragma to survive a '?'/'#' in the path", d2)
 	}
 }
 func captureStdout(t *testing.T, fn func()) string {

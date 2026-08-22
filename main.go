@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -162,14 +163,20 @@ func dbPath() string {
 }
 
 func dbDSN() string {
-	p := dbPath()
 	// Apply busy_timeout on EVERY pooled connection. A db.Exec("PRAGMA
 	// busy_timeout") only configures whichever connection happened to run
 	// it; the pool can open others that still return SQLITE_BUSY. The
 	// _pragma DSN parameter is applied to each newly opened connection.
 	// journal_mode=WAL is NOT put here: it is a persistent file property
 	// stored in the database header, so the init loop sets it once.
-	return "file:" + p + "?_pragma=busy_timeout(5000)"
+	//
+	// Build the path as a percent-encoded file: URI so a literal '?' or '#'
+	// in STATS_DB cannot split the DSN and silently drop the _pragma.
+	u := url.URL{Scheme: "file", Path: dbPath()}
+	q := url.Values{}
+	q.Set("_pragma", "busy_timeout(5000)")
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func jwtPath() string {
