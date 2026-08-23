@@ -20,7 +20,7 @@ Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.io) pro
 **Linux / macOS / WSL2:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/install.sh | bash
 ```
 
 The installer downloads the binary, sets up a session token (prompts for an
@@ -95,8 +95,8 @@ Poller + dashboard as a managed pair sharing one data directory:
 
 ```bash
 mkdir urwebdash && cd urwebdash
-curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/main/example.env -o .env
-curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/main/docker-compose.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/example.env -o .env
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/docker-compose.yml -o docker-compose.yml
 $EDITOR .env   # every line optional and commented
 docker compose up -d
 ```
@@ -155,7 +155,7 @@ go build -o stats_tracker .
 
 ```bash
 # update
-curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/install.sh | bash
 sudo systemctl restart urwebdash-run urwebdash-serve
 
 # uninstall
