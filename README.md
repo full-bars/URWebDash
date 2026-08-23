@@ -33,9 +33,11 @@ systemd services.
 docker run -d --name urwebdash \
   -p 127.0.0.1:3001:3001 \
   -v urwebdash-data:/data \
-  -e URNETWORK_AUTH_CODE=<paste your code from https://ur.io> \
+  -e URNETWORK_AUTH_CODE='your-auth-code' \
   ghcr.io/full-bars/urwebdash:latest stats_tracker serve 3001
 ```
+
+Replace `your-auth-code` with a real code from https://ur.io (keep the single quotes).
 
 Either way, the dashboard is at **http://127.0.0.1:3001**. It binds loopback
 only; for remote access see [Hosting options](#hosting-options).
