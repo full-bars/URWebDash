@@ -25,4 +25,4 @@ EXPOSE 3001
 # mount, then drops to the unprivileged user via su-exec.
 WORKDIR /data
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["stats_tracker", "run"]
+CMD ["stats_tracker", "serve"]

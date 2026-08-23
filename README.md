@@ -34,10 +34,14 @@ docker run -d --name urwebdash \
   -p 127.0.0.1:3001:3001 \
   -v urwebdash-data:/data \
   -e URNETWORK_AUTH_CODE='AUTH_CODE_HERE' \
-  ghcr.io/full-bars/urwebdash:latest stats_tracker serve 3001
+  ghcr.io/full-bars/urwebdash
 ```
 
 Replace `AUTH_CODE_HERE` with a real code from https://ur.io (keep the single quotes).
+
+This starts the dashboard only. To also poll for stats, add a second container
+with `stats_tracker run` as the command - or just use the compose stack below,
+which runs both.
 
 Either way, the dashboard is at **http://127.0.0.1:3001**. It binds loopback
 only; for remote access see [Hosting options](#hosting-options).
