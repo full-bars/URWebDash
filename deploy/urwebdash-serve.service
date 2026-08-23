@@ -1,0 +1,16 @@
+[Unit]
+Description=URWebDash web dashboard
+Documentation=https://github.com/full-bars/URWebDash
+After=network-online.target urwebdash-run.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/stats_tracker serve 3001
+Restart=on-failure
+RestartSec=30
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

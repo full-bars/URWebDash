@@ -1,55 +1,201 @@
 # URWebDash
 
-Wallet and payout stats dashboard for URnetwork providers. Polls the bringyour.com API, stores history in SQLite, and serves a dark-theme Chart.js UI.
+Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.network) providers. Polls the bringyour.com API, stores history in local SQLite, and serves a dark-theme Chart.js UI.
 
-## Features
+![dashboard screenshot](docs/screenshot.png)
 
-- **Data Stats** — Real-time paid/unpaid bytes tracking with hourly snapshots, charts, and transfer rate visualization
-- **Last 7 Days Usage Strip** — Per-day usage card strip computed from calendar-day buckets (DST-safe)
-- **Payout Stats** — Complete payment history with amounts, bytes, points earned per payment, and Solana transaction links
-- **Estimated Pending Payouts** — Pending payments show an estimated amount, derived from the booked payout minus the median recent settlement fee
-- **Dynamic Network Name** — Sidebar label is decoded from the JWT instead of hardcoded
-- **Discord Webhooks** — Automatic notifications when new payments appear or pending payments complete; notification state persists across restarts
-- **Auto-Refresh** — Dashboard updates every 30 seconds, payout stats refresh every 5 minutes
+**Features**
 
-## Quick Start
+- Paid/unpaid bytes tracking with hourly snapshots and transfer-rate charts
+- Last-7-days usage strip (calendar-day buckets, DST-safe)
+- Full payment history: amounts, points per payment, Solana tx links
+- Estimated amounts for pending payouts
+- Optional Discord notifications on new/completed payments
+- Auto-refresh: dashboard every 30s, payout stats every 5m
+
+---
+
+## Quick start (Linux / macOS)
+
+No Go toolchain needed:
 
 ```bash
-# Build
-go build -o stats_tracker .
-
-# Run polling daemon (fetches every 15min on quarter-hour marks)
-./stats_tracker run
-
-# Run HTTP server (default port 3001)
-./stats_tracker serve
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/main/install.sh | bash
 ```
 
-The polling daemon and HTTP server are separate processes. Run both for a full setup.
+That installs the latest prebuilt binary to `~/.local/bin/stats_tracker`.
+
+URWebDash reads your URnetwork JWT from `~/.urnetwork/jwt`:
+
+```bash
+ls -l ~/.urnetwork/jwt
+```
+
+- **Same machine as your URnetwork provider install?** The file is already there — done.
+- **Different machine?** Copy it over:
+  ```bash
+  mkdir -p ~/.urnetwork
+  scp your-provider-machine:.urnetwork/jwt ~/.urnetwork/jwt
+  ```
+
+Try it out:
+
+```bash
+~/.local/bin/stats_tracker run &     # polling daemon, fetches every 15 min
+~/.local/bin/stats_tracker serve     # dashboard on http://localhost:3001
+```
+
+Open **http://localhost:3001**.
+
+On a remote VPS, don't expose the port — use an SSH tunnel from your laptop instead:
+
+```bash
+ssh -L 3001:localhost:3001 you@your-server
+# then open http://localhost:3001 in your local browser
+```
+
+Working? Make it permanent: [Run as a service](#run-as-a-service-systemd).
+
+---
+
+## Run as a service (systemd)
+
+Two small units: one polls for stats, one serves the web UI.
+
+```bash
+sudo cp deploy/urwebdash-run.service deploy/urwebdash-serve.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now urwebdash-run.service urwebdash-serve.service
+```
+
+Check status and logs:
+
+```bash
+systemctl status urwebdash-run urwebdash-serve --no-pager
+journalctl -u urwebdash-serve -f
+```
+
+> The unit files assume the binary lives at `%h/.local/bin/stats_tracker` (`%h` = the service user's home). Running as root or another user? Edit the `ExecStart=` paths to match, e.g. `/usr/local/bin/stats_tracker`.
+
+---
+
+## Building from source
+
+Only needed if there's no binary for your platform or you want to hack on it.
+
+Requirements: **Go 1.26+** (no CGO required — pure-Go SQLite driver).
+
+```bash
+git clone https://github.com/full-bars/URWebDash.git
+cd URWebDash
+go build -o stats_tracker .
+```
+
+---
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `run` | Polling daemon — fetches `/account/stats` every 15m, stores in SQLite |
-| `serve [port]` | HTTP server — serves dashboard on port 3001 (default) |
-| `import <file>` | Import historical wallet-stats records from a JSON file. Accepts an array of records with fields `paid_bytes_provided`, `unpaid_bytes`, `created_at`, `updated_at` (optionally `user_id`, `network_name`), or a `{"content": "..."}` wrapper containing that same JSON as a string. |
+| `run` | Polling daemon — fetches `/account/stats` every 15m on quarter-hour marks, stores in SQLite |
+| `serve [port]` | HTTP server — dashboard on port 3001 (default) |
+| `import <file>` | Import historical wallet-stats records from a JSON export (array of records with `paid_bytes_provided`, `unpaid_bytes`, `created_at`, `updated_at`; also accepts a `{"content": "..."}` wrapper) |
 | `history` | Print all stored records to stdout |
-| `cleanup` | Delete off-schedule `wallet_stats` entries for today (keeps only the on-the-quarter-hour rows) |
-| `testwebhook` | Send a sample Discord notification to verify `DISCORD_WEBHOOK_URL` is working |
+| `cleanup` | Delete off-schedule `wallet_stats` entries for today (keeps quarter-hour rows) |
+| `testwebhook` | Send a sample Discord notification to verify `DISCORD_WEBHOOK_URL` |
 
-## Requirements
+---
 
-- Go 1.26+
-- JWT token at `~/.urnetwork/jwt` (from a URnetwork provider install)
-- No CGO required (uses `modernc.org/sqlite`)
+## Configuration
 
-## Environment
+All optional. Environment variables only.
 
 | Variable | Default | Description |
 |---|---|---|
-| `STATS_INTERVAL` | `15m` | Polling interval (min 1m) |
-| `JWT_PATH` | `~/.urnetwork/jwt` | Path to JWT token file |
-| `STATS_DB` | `~/.urnetwork/wallet_stats.db` | Path to the SQLite database |
-| `DISCORD_WEBHOOK_URL` | — | Discord webhook URL for payout notifications |
-| `PAYOUT_NOTIFY_STORE` | `~/.urnetwork/payout_notified.json` | Path to the payout-notification dedup store |
+| `STATS_INTERVAL` | `15m` | Polling interval (minimum 1m) |
+| `JWT_PATH` | `~/.urnetwork/jwt` | Path to the URnetwork JWT token file |
+| `STATS_DB` | `~/.urnetwork/wallet_stats.db` | SQLite database path |
+| `DISCORD_WEBHOOK_URL` | *(unset)* | Discord webhook URL for payout notifications |
+| `PAYOUT_NOTIFY_STORE` | `~/.urnetwork/payout_notified.json` | Notification dedup store (survives restarts) |
+
+To set them for the systemd services, add an override:
+
+```bash
+sudo systemctl edit urwebdash-run
+```
+
+```ini
+[Service]
+Environment=STATS_INTERVAL=5m
+Environment=STATS_DB=/var/lib/urwebdash/wallet_stats.db
+```
+
+then `sudo systemctl restart urwebdash-run`.
+
+---
+
+## Discord notifications
+
+1. In Discord: **Server Settings → Integrations → Webhooks → New Webhook**, pick a channel, copy the URL.
+2. Point the daemon at it and send yourself a test:
+
+   ```bash
+   export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."
+   ~/.local/bin/stats_tracker testwebhook
+   ```
+
+3. Add it to the service override (`sudo systemctl edit urwebdash-run`) as above and restart.
+
+You'll get a ping when a new payment appears and when a pending payment completes.
+
+---
+
+## Security notes
+
+- The dashboard has **no authentication**. Anyone who can reach the port can see your wallet and payout data.
+- Keep it bound behind a firewall / SSH tunnel, or put it behind a reverse proxy with auth (nginx + basic auth, Cloudflare Access, Tailscale, etc.).
+- Don't commit or share your JWT — it grants full access to your account API.
+
+---
+
+## Updating
+
+Prebuilt install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/main/install.sh | bash
+sudo systemctl restart urwebdash-run urwebdash-serve
+```
+
+Your SQLite data lives separately (`~/.urnetwork/wallet_stats.db`) and survives updates untouched.
+
+---
+
+## Uninstall
+
+```bash
+sudo systemctl disable --now urwebdash-run urwebdash-serve
+sudo rm /etc/systemd/system/urwebdash-{run,serve}.service
+rm -f ~/.local/bin/stats_tracker
+# optional: delete data
+rm -rf ~/.urnetwork/wallet_stats.db ~/.urnetwork/payout_notified.json
+```
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `read jwt: no such file or directory` | No JWT at `~/.urnetwork/jwt`. Copy one from your provider machine (see Quick start) or set `JWT_PATH`. |
+| Dashboard shows empty charts | Polling hasn't run yet — wait for the next quarter-hour mark, or lower `STATS_INTERVAL`. Check `journalctl -u urwebdash-run`. |
+| API errors after a while | Your JWT likely expired/was rotated. Re-copy a fresh `jwt` file and restart the services. |
+| Port 3001 already in use | Start with another port: `stats_tracker serve 3002` (and update the tunnel/unit file). |
+| No Discord notifications | Run `stats_tracker testwebhook` with `DISCORD_WEBHOOK_URL` set; check the dedup store at `PAYOUT_NOTIFY_STORE` if testing repeatedly. |
+| Duplicate/off-schedule rows today | Run `stats_tracker cleanup`. |
+
+---
+
+## License
+
+See repository. Contributions welcome — open an issue first for bigger changes.
