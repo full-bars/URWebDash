@@ -45,9 +45,8 @@ docker run -d --name urwebdash \
 
 Replace `AUTH_CODE_HERE` with a real code from https://ur.io (keep the single quotes).
 
-This starts the dashboard only. To also poll for stats, add a second container
-with `urwebdash run` as the command - or just use the compose stack below,
-which runs both.
+One container runs everything: stats polling in the background, dashboard in
+the foreground.
 
 Either way, the dashboard is at **http://127.0.0.1:3001**. It binds loopback
 only; for remote access see [Hosting options](#hosting-options).
@@ -97,7 +96,7 @@ dash.example.com {
 
 ## Docker Compose
 
-Poller + dashboard as a managed pair sharing one data directory:
+Same as `docker run`, but managed:
 
 ```bash
 mkdir urwebdash && cd urwebdash
@@ -113,6 +112,19 @@ JWT options (pick one):
 2. **Existing jwt file** - uncomment the `~/.urnetwork/jwt:/host-jwt:ro` mount; copied into the volume once, host file never written.
 
 All state lives in `./data`. Back up both `./data` and `.env` - neither alone is complete.
+
+### Port binding cheat sheet
+
+The `-p` / `ports:` mapping controls who can reach the dashboard:
+
+| Mapping | Reachable from |
+|---|---|
+| `127.0.0.1:3001:3001` *(default)* | this machine only |
+| `192.168.1.250:3001:3001` | devices on your LAN only |
+| `100.x.y.z:3001:3001` | your tailnet only |
+| `3001:3001` | all interfaces - LAN, tailnet; public too if the host has a public IP or a router port-forward |
+
+`0.0.0.0` inside the container is normal and expected - exposure is decided entirely by this mapping.
 
 ---
 

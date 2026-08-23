@@ -65,4 +65,17 @@ else
   exit 1
 fi
 
+# One container does both jobs: poller in the background, dashboard in the
+# foreground. Override with an explicit command if you want only one:
+#   docker run ... urwebdash run          # poller only (foreground)
+#   docker run ... urwebdash serve 3001   # dashboard only (foreground)
+if [ "$#" -eq 0 ] || [ "$*" = "urwebdash serve" ] || [ "$*" = "urwebdash serve 3001" ]; then
+  echo "[entrypoint] starting poller (background) + dashboard"
+  urwebdash run &
+  # Give the poller a moment to create/init the SQLite DB so serve does not
+  # race it on first boot (SQLITE_BUSY on a brand-new database file).
+  sleep 3
+  exec urwebdash serve 3001
+fi
+
 exec "$@"
