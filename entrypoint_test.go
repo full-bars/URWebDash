@@ -211,3 +211,34 @@ func TestExtractByJWT_RejectsMissing(t *testing.T) {
 	extractByJWT() // should os.Exit(1)
 	t.Fatal("extractByJWT should have exited")
 }
+
+func TestSyncEnvConfigToVolume(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
+
+	// webhook: env set, no file -> file written
+	t.Setenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/a/b")
+	syncEnvConfigToVolume()
+	wh := filepath.Join(tmpHome, ".urnetwork", "discord_webhook")
+	b, err := os.ReadFile(wh)
+	if err != nil || strings.TrimSpace(string(b)) != "https://discord.com/api/webhooks/a/b" {
+		t.Fatalf("webhook not persisted: %v %q", err, string(b))
+	}
+
+	// threshold: same behavior
+	t.Setenv("SPIKE_THRESHOLD", "500M")
+	syncEnvConfigToVolume()
+	thb, err := os.ReadFile(filepath.Join(tmpHome, ".urnetwork", "spike_threshold"))
+	if err != nil || strings.TrimSpace(string(thb)) != "500M" {
+		t.Fatalf("threshold not persisted: %v %q", err, string(thb))
+	}
+
+	// env unset later: file remains (persistence is the whole point)
+	os.Unsetenv("DISCORD_WEBHOOK_URL")
+	os.Unsetenv("SPIKE_THRESHOLD")
+	syncEnvConfigToVolume()
+	if _, err := os.Stat(wh); err != nil {
+		t.Fatal("webhook file should survive env removal")
+	}
+}

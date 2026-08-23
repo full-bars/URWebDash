@@ -424,6 +424,8 @@ func enrichPayoutEstimates(payments []payoutRecord) float64 {
 }
 
 func runPolling() {
+	syncEnvConfigToVolume()
+
 	token, err := readJWT()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
@@ -631,6 +633,8 @@ func serveHTTP(port string) {
 	if port == "" {
 		port = "3001"
 	}
+
+	syncEnvConfigToVolume()
 
 	token, err := readJWT()
 	if err != nil {
@@ -1104,6 +1108,38 @@ func statsInterval() time.Duration {
 		}
 	}
 	return def
+}
+
+// syncEnvConfigToVolume persists env-var configuration (DISCORD_WEBHOOK_URL,
+// SPIKE_THRESHOLD) to the .urnetwork directory so it survives container
+// recreation without repeating the env vars. Env wins on conflict; the file
+// is only written when the value differs.
+func syncEnvConfigToVolume() {
+	dir := filepath.Dir(jwtPath())
+	if dir == "" {
+		return
+	}
+	os.MkdirAll(dir, 0700)
+
+	if url := os.Getenv("DISCORD_WEBHOOK_URL"); url != "" {
+		path := filepath.Join(dir, "discord_webhook")
+		old, err := os.ReadFile(path)
+		if err != nil || strings.TrimSpace(string(old)) != strings.TrimSpace(url) {
+			if err := os.WriteFile(path, []byte(strings.TrimSpace(url)), 0600); err == nil {
+				fmt.Printf("[config] saved DISCORD_WEBHOOK_URL to %s\n", path)
+			}
+		}
+	}
+
+	if th := os.Getenv("SPIKE_THRESHOLD"); th != "" {
+		path := filepath.Join(dir, "spike_threshold")
+		old, err := os.ReadFile(path)
+		if err != nil || strings.TrimSpace(string(old)) != strings.TrimSpace(th) {
+			if err := os.WriteFile(path, []byte(strings.TrimSpace(th)), 0600); err == nil {
+				fmt.Printf("[config] saved SPIKE_THRESHOLD to %s\n", path)
+			}
+		}
+	}
 }
 
 // extractByJWT reads JSON on stdin and prints the by_jwt string field.
