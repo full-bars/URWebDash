@@ -1213,3 +1213,34 @@ func TestCheckTrafficSpike_SubThresholdDoesNotFire(t *testing.T) {
 		t.Fatalf("sub-threshold delta should not fire, server saw %d post(s)", srv.count())
 	}
 }
+
+func TestParseSize(t *testing.T) {
+	cases := map[string]int64{
+		"500MB":      500 * 1024 * 1024,
+		"500M":       500 * 1024 * 1024,
+		"500m":       500 * 1024 * 1024,
+		"0.5G":       512 * 1024 * 1024,
+		"0.5gb":      512 * 1024 * 1024,
+		"1.5GB":      1536 * 1024 * 1024,
+		"1GB":        1 << 30,
+		"250m":       250 * 1024 * 1024,
+		"1000000000": 1000000000,
+		"2 GiB":      2 << 30,
+		"1kib":       1024,
+	}
+	for in, want := range cases {
+		got, err := parseSize(in)
+		if err != nil {
+			t.Errorf("parseSize(%q): %v", in, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("parseSize(%q) = %d, want %d", in, got, want)
+		}
+	}
+	for _, bad := range []string{"", "garbage", "5x", "-3GB"} {
+		if _, err := parseSize(bad); err == nil {
+			t.Errorf("parseSize(%q): expected error", bad)
+		}
+	}
+}

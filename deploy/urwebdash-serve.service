@@ -1,0 +1,19 @@
+[Unit]
+Description=URWebDash web dashboard
+Documentation=https://github.com/full-bars/URWebDash
+After=network-online.target urwebdash-run.service
+Wants=network-online.target urwebdash-run.service
+
+[Service]
+Type=simple
+User=YOUR_USER
+Environment=HOST=127.0.0.1
+ExecStart=/home/YOUR_USER/.local/bin/stats_tracker serve 3001
+Restart=on-failure
+RestartSec=30
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,30 @@
+services:
+  run:
+    image: ghcr.io/full-bars/urwebdash:latest
+    container_name: urwebdash-run
+    command: ["stats_tracker", "run"]
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+      # optional: copy your host jwt in on first start instead of using URNETWORK_AUTH_CODE
+      # - ~/.urnetwork/jwt:/host-jwt:ro
+    env_file: .env   # see example.env
+
+  serve:
+    image: ghcr.io/full-bars/urwebdash:latest
+    container_name: urwebdash-serve
+    # Wait for the poller's entrypoint to place the JWT before serving,
+    # so first-boot auth-code exchange is not raced by two containers.
+    command: >
+      sh -c 'until [ -s /data/jwt ]; do echo "[serve] waiting for session token..."; sleep 2; done;
+             exec stats_tracker serve 3001'
+    restart: unless-stopped
+    depends_on:
+      - run
+    volumes:
+      - ./data:/data
+      # - ~/.urnetwork/jwt:/host-jwt:ro
+    env_file: .env
+    ports:
+      # loopback only; put a reverse proxy / tunnel in front for remote access
+      - "127.0.0.1:3001:3001"

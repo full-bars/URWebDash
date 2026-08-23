@@ -8,11 +8,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -122,6 +124,8 @@ func main() {
 		importJSON(flag.Arg(1))
 	case "history":
 		printHistory()
+	case "extract-by-jwt":
+		extractByJWT()
 	case "cleanup":
 		cleanupDB()
 	case "testwebhook":
@@ -150,6 +154,7 @@ func main() {
   stats_tracker import <file.json>     — import wallet stats history from a JSON export
   stats_tracker history                — print stored history
   stats_tracker cleanup                — delete off-schedule wallet_stats entries for today
+  stats_tracker extract-by-jwt         — read JSON on stdin, print its by_jwt value (installer helper)
   stats_tracker testwebhook           — send a test Discord notification`)
 	}
 }
@@ -646,8 +651,17 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/network", handleNetworkName(token))
 	mux.HandleFunc("/", handleIndex)
 
-	fmt.Printf("[serve] listening on :%s\n", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	host := os.Getenv("HOST")
+	if host == "" {
+		// Bind loopback by default. The dashboard is exposed only through the
+		// Cloudflare tunnel / local reverse proxy; binding all interfaces would
+		// serve wallet/payout data to anyone scanning the box's public IP.
+		host = "127.0.0.1"
+	}
+
+	addr := net.JoinHostPort(host, port)
+	fmt.Printf("[serve] listening on %s\n", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
 		fmt.Fprintf(os.Stderr, "serve error: %v\n", err)
 		os.Exit(1)
 	}
@@ -1088,6 +1102,77 @@ func statsInterval() time.Duration {
 	return def
 }
 
+// extractByJWT reads JSON on stdin and prints the by_jwt string field.
+// Used by install.sh / docker-entrypoint to parse the code-login API
+// response with a real JSON parser instead of sed guesswork.
+func extractByJWT() {
+	var resp struct {
+		ByJWT string `json:"by_jwt"`
+	}
+	if err := json.NewDecoder(os.Stdin).Decode(&resp); err != nil || resp.ByJWT == "" {
+		os.Exit(1)
+	}
+	fmt.Println(resp.ByJWT)
+}
+
+// spikeThreshold returns the per-window unpaid-bytes delta that counts as a
+// traffic spike. SPIKE_THRESHOLD accepts human sizes ("500MB", "0.5G",
+// "1.5gb", "250m", plain bytes); default 1GB.
+func spikeThreshold() int64 {
+	s := os.Getenv("SPIKE_THRESHOLD")
+	if s == "" {
+		home, _ := os.UserHomeDir()
+		b, err := os.ReadFile(filepath.Join(home, ".urnetwork", "spike_threshold"))
+		if err != nil {
+			return 1_000_000_000
+		}
+		s = strings.TrimSpace(string(b))
+	}
+	if s != "" {
+		if n, err := parseSize(s); err == nil && n > 0 {
+			return n
+		}
+		fmt.Printf("[webhook] could not parse SPIKE_THRESHOLD %q, using default 1GB\n", s)
+	}
+	return 1_000_000_000
+}
+
+// parseSize parses a human byte size: [number][unit], case-insensitive,
+// unit one of B/K/KB/KiB/M/MB/MiB/G/GB/GiB/T/TB/TiB (optional space).
+func parseSize(s string) (int64, error) {
+	t := strings.TrimSpace(strings.ToLower(s))
+	if t == "" {
+		return 0, fmt.Errorf("empty size")
+	}
+	i := 0
+	for i < len(t) && (t[i] >= '0' && t[i] <= '9' || t[i] == '.') {
+		i++
+	}
+	numStr := t[:i]
+	unit := strings.TrimSpace(t[i:])
+	num, err := strconv.ParseFloat(numStr, 64)
+	if err != nil || num < 0 {
+		return 0, fmt.Errorf("bad number in %q", s)
+	}
+
+	var mult float64
+	switch {
+	case unit == "" || unit == "b":
+		mult = 1
+	case unit == "k" || unit == "kb" || unit == "kib":
+		mult = 1024
+	case unit == "m" || unit == "mb" || unit == "mib":
+		mult = 1024 * 1024
+	case unit == "g" || unit == "gb" || unit == "gib":
+		mult = 1024 * 1024 * 1024
+	case unit == "t" || unit == "tb" || unit == "tib":
+		mult = 1024 * 1024 * 1024 * 1024
+	default:
+		return 0, fmt.Errorf("unknown size unit %q", unit)
+	}
+	return int64(num * mult), nil
+}
+
 func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time) {
 	var prevUnpaid sql.NullInt64
 	var prevAt sql.NullString
@@ -1114,8 +1199,13 @@ func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time) {
 			return
 		}
 	}
-	deltaBytes := int64(unpaidBytes) - prevUnpaid.Int64
-	if deltaBytes <= 1_000_000_000 {
+	// Compare unsigned to avoid int64 overflow if unpaidBytes ever
+	// exceeds MaxInt64 (would wrap negative and fire a bogus spike).
+	if prevUnpaid.Int64 >= 0 && uint64(prevUnpaid.Int64) > unpaidBytes {
+		return // counter went backwards: API correction, not a spike
+	}
+	var deltaBytes uint64 = unpaidBytes - uint64(prevUnpaid.Int64)
+	if deltaBytes <= uint64(spikeThreshold()) {
 		return
 	}
 	deltaGB := float64(deltaBytes) / 1e9
