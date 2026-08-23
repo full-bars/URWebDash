@@ -2,7 +2,7 @@
 
 Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.network) providers. Polls the bringyour.com API, stores history in local SQLite, and serves a dark-theme Chart.js UI.
 
-![dashboard screenshot](docs/screenshot.png)
+![dashboard screenshot](https://i.postimg.cc/d3wcVFsg/image.png)
 
 **Features**
 
@@ -72,6 +72,36 @@ journalctl -u urwebdash-serve -f
 ```
 
 > The unit files assume the binary lives at `/home/YOUR_USER/.local/bin/stats_tracker`. Edit `User=` and `ExecStart=` to match your setup, or just run the installer as root — it fills these in for you.
+
+---
+
+## Run with Docker
+
+Prebuilt multi-arch image (amd64 + arm64), published on release:
+
+```bash
+mkdir urwebdash && cd urwebdash
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/main/example.env -o .env
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/main/docker-compose.yml -o docker-compose.yml
+```
+
+Edit `.env` (every line is optional and commented) and pick **one** of these JWT options:
+
+1. **Auth code** — get one at https://ur.io, set `URNETWORK_AUTH_CODE` in `.env`. Exchanged for a session token on first start and saved to `./data/jwt`; you can clear the variable afterwards.
+2. **Existing jwt file** — uncomment the `~/.urnetwork/jwt:/host-jwt:ro` mount in `docker-compose.yml`. Copied into the data volume once; the host file is never written.
+
+Start both containers:
+
+```bash
+docker compose up -d
+docker compose logs -f   # watch the entrypoint do its thing
+```
+
+Dashboard on http://127.0.0.1:3001 (loopback only by default - edit the `ports:` mapping for anything else). All state lives in `./data`: database, session token, webhook config, notification dedup store. Back up that directory and you have backed up everything.
+
+To run only the poller or only the dashboard: `docker compose up -d run` / `docker compose up -d serve`.
+
+Environment variables are read from `.env` (compose) or set directly with `-e` (`docker run`). See [Configuration](#configuration) for the full list.
 
 ---
 
