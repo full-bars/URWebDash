@@ -109,7 +109,7 @@ Environment variables are read from `.env` (compose) or set directly with `-e` (
 
 Only needed if there's no binary for your platform or you want to hack on it.
 
-Requirements: **Go 1.26+** (no CGO required — pure-Go SQLite driver).
+Requirements: **Go 1.27+** (no CGO required — pure-Go SQLite driver).
 
 ```bash
 git clone https://github.com/full-bars/URWebDash.git
