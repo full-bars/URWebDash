@@ -97,6 +97,43 @@ else
   JWT_OK=0
 fi
 
+# --- Discord webhook setup (optional) -------------------------------------
+
+setup_webhook() {
+  local WH="$HOME/.urnetwork/discord_webhook"
+  if [ -s "$WH" ]; then
+    log "Found existing webhook at $WH"
+    return 0
+  fi
+
+  echo
+  echo "Optional: set up a Discord webhook for traffic-spike and payout alerts."
+  echo "In Discord: Server Settings -> Integrations -> Webhooks -> New Webhook, then copy the URL."
+  printf "Paste webhook URL (blank to skip): "
+  read -r WEBHOOK_URL
+  [ -z "${WEBHOOK_URL:-}" ] && { warn "Skipped webhook setup."; return 1; }
+  case "$WEBHOOK_URL" in
+    https://discord.com/api/webhooks/*|https://discordapp.com/api/webhooks/*) ;;
+    *) warn "That does not look like a Discord webhook URL - skipping."; return 1 ;;
+  esac
+
+  mkdir -p "$(dirname "$WH")"
+  printf '%s' "$WEBHOOK_URL" > "$WH"
+  chmod 600 "$WH"
+  unset WEBHOOK_URL
+  log "Webhook saved to $WH"
+
+  # Spike threshold (only asked once a webhook exists)
+  printf "Traffic-spike alert threshold (e.g. 500M, 0.5G, 2GB; blank for default 1GB): "
+  read -r SPIKE_IN
+  if [ -n "${SPIKE_IN:-}" ]; then
+    printf '%s' "$SPIKE_IN" > "$HOME/.urnetwork/spike_threshold"
+    log "Spike threshold saved to ~/.urnetwork/spike_threshold"
+  fi
+}
+
+setup_webhook && WEBHOOK_OK=1 || WEBHOOK_OK=0
+
 # --- Optional systemd install --------------------------------------------
 
 install_services() {
@@ -192,4 +229,7 @@ elif [ "$JWT_OK" = 1 ]; then
   echo "  Try it:    $INSTALL_DIR/$BIN_NAME run &"
   echo "             $INSTALL_DIR/$BIN_NAME serve"
   echo "  Then open: http://127.0.0.1:3001"
+fi
+if [ "$WEBHOOK_OK" = 1 ]; then
+  echo "  Test alerts: $INSTALL_DIR/$BIN_NAME testwebhook"
 fi

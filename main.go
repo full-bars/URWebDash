@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1098,6 +1099,64 @@ func statsInterval() time.Duration {
 	return def
 }
 
+// spikeThreshold returns the per-window unpaid-bytes delta that counts as a
+// traffic spike. SPIKE_THRESHOLD accepts human sizes ("500MB", "0.5G",
+// "1.5gb", "250m", plain bytes); default 1GB.
+func spikeThreshold() int64 {
+	s := os.Getenv("SPIKE_THRESHOLD")
+	if s == "" {
+		home, _ := os.UserHomeDir()
+		b, err := os.ReadFile(filepath.Join(home, ".urnetwork", "spike_threshold"))
+		if err != nil {
+			return 1_000_000_000
+		}
+		s = strings.TrimSpace(string(b))
+	}
+	if s != "" {
+		if n, err := parseSize(s); err == nil && n > 0 {
+			return n
+		}
+		fmt.Printf("[webhook] could not parse SPIKE_THRESHOLD %q, using default 1GB\n", s)
+	}
+	return 1_000_000_000
+}
+
+// parseSize parses a human byte size: [number][unit], case-insensitive,
+// unit one of B/K/KB/KiB/M/MB/MiB/G/GB/GiB/T/TB/TiB (optional space).
+func parseSize(s string) (int64, error) {
+	t := strings.TrimSpace(strings.ToLower(s))
+	if t == "" {
+		return 0, fmt.Errorf("empty size")
+	}
+	i := 0
+	for i < len(t) && (t[i] >= '0' && t[i] <= '9' || t[i] == '.') {
+		i++
+	}
+	numStr := t[:i]
+	unit := strings.TrimSpace(t[i:])
+	num, err := strconv.ParseFloat(numStr, 64)
+	if err != nil || num < 0 {
+		return 0, fmt.Errorf("bad number in %q", s)
+	}
+
+	var mult float64
+	switch {
+	case unit == "" || unit == "b":
+		mult = 1
+	case unit == "k" || unit == "kb" || unit == "kib":
+		mult = 1024
+	case unit == "m" || unit == "mb" || unit == "mib":
+		mult = 1024 * 1024
+	case unit == "g" || unit == "gb" || unit == "gib":
+		mult = 1024 * 1024 * 1024
+	case unit == "t" || unit == "tb" || unit == "tib":
+		mult = 1024 * 1024 * 1024 * 1024
+	default:
+		return 0, fmt.Errorf("unknown size unit %q", unit)
+	}
+	return int64(num * mult), nil
+}
+
 func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time) {
 	var prevUnpaid sql.NullInt64
 	var prevAt sql.NullString
@@ -1125,7 +1184,7 @@ func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time) {
 		}
 	}
 	deltaBytes := int64(unpaidBytes) - prevUnpaid.Int64
-	if deltaBytes <= 1_000_000_000 {
+	if deltaBytes <= spikeThreshold() {
 		return
 	}
 	deltaGB := float64(deltaBytes) / 1e9

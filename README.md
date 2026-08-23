@@ -111,7 +111,8 @@ All optional. Environment variables only.
 | `STATS_INTERVAL` | `15m` | Polling interval (minimum 1m) |
 | `JWT_PATH` | `~/.urnetwork/jwt` | Path to the URnetwork JWT token file |
 | `STATS_DB` | `~/.urnetwork/wallet_stats.db` | SQLite database path |
-| `DISCORD_WEBHOOK_URL` | *(unset)* | Discord webhook URL for payout notifications |
+| `DISCORD_WEBHOOK_URL` | *(unset)* | Discord webhook URL for payout notifications (or `~/.urnetwork/discord_webhook` file) |
+| `SPIKE_THRESHOLD` | `1GB` | Per-window unpaid-bytes delta that triggers a traffic-spike alert. Human sizes accepted: `500MB`, `500M`, `0.5G`, `1.5GB` |
 | `PAYOUT_NOTIFY_STORE` | `~/.urnetwork/payout_notified.json` | Notification dedup store (survives restarts) |
 
 To set them for the systemd services, add an override:
@@ -142,7 +143,9 @@ then `sudo systemctl restart urwebdash-run`.
 
 3. Add it to the service override (`sudo systemctl edit urwebdash-run`) as above and restart.
 
-You'll get a ping when a new payment appears and when a pending payment completes.
+You'll get a ping when a new payment appears, when a pending payment completes, and when traffic crosses your spike threshold within one polling window.
+
+The installer asks for the webhook URL (blank to skip) and an optional spike threshold, so this section is only for manual setups.
 
 ---
 
