@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -646,8 +647,17 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/network", handleNetworkName(token))
 	mux.HandleFunc("/", handleIndex)
 
-	fmt.Printf("[serve] listening on :%s\n", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	host := os.Getenv("HOST")
+	if host == "" {
+		// Bind loopback by default. The dashboard is exposed only through the
+		// Cloudflare tunnel / local reverse proxy; binding all interfaces would
+		// serve wallet/payout data to anyone scanning the box's public IP.
+		host = "127.0.0.1"
+	}
+
+	addr := net.JoinHostPort(host, port)
+	fmt.Printf("[serve] listening on %s\n", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
 		fmt.Fprintf(os.Stderr, "serve error: %v\n", err)
 		os.Exit(1)
 	}
