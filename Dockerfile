@@ -9,8 +9,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.Version=${VERSION}"
 
 # run stage
 FROM alpine:3.20
-RUN adduser -D -h /data urwebdash \
-    && apk add --no-cache ca-certificates wget
+RUN adduser -D -h /data -u 1000 urwebdash \
+    && apk add --no-cache ca-certificates wget su-exec
 COPY --from=build /out/stats_tracker /usr/local/bin/stats_tracker
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
@@ -21,7 +21,8 @@ ENV STATS_DB=/data/wallet_stats.db \
 VOLUME /data
 EXPOSE 3001
 
-USER urwebdash
+# Starts as root so the entrypoint can take ownership of a root-created bind
+# mount, then drops to the unprivileged user via su-exec.
 WORKDIR /data
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["stats_tracker", "run"]
