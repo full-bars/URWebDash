@@ -2,7 +2,7 @@ services:
   run:
     image: ghcr.io/full-bars/urwebdash:latest
     container_name: urwebdash-run
-    command: ["stats_tracker", "run"]
+    command: ["urwebdash", "run"]
     restart: unless-stopped
     volumes:
       - ./data:/data
@@ -17,7 +17,7 @@ services:
     # so first-boot auth-code exchange is not raced by two containers.
     command: >
       sh -c 'until [ -s /data/jwt ]; do echo "[serve] waiting for session token..."; sleep 2; done;
-             exec stats_tracker serve 3001'
+             exec urwebdash serve 3001'
     restart: unless-stopped
     depends_on:
       - run

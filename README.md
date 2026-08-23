@@ -23,13 +23,15 @@ Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.io) pro
 curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/install.sh | bash
 ```
 
-The installer downloads the binary, sets up a session token (prompts for an
-[auth code](https://ur.io) only if none exists), and offers to install the
-systemd services.
+The installer downloads the binary and runs `urwebdash setup`, which configures
+your session token (prompts for an [auth code](https://ur.io) only if none
+exists) and optional Discord alerts - all as your regular user, no sudo.
 
-Runs entirely as your user - no sudo in the pipe. For system-wide services,
-download the script first, then run it with sudo:
-`curl -fsSL <url> -o install.sh && sudo bash install.sh`.
+Want system-wide services? Afterwards run:
+
+```bash
+sudo urwebdash setup --install-services
+```
 
 **Docker:**
 
@@ -44,7 +46,7 @@ docker run -d --name urwebdash \
 Replace `AUTH_CODE_HERE` with a real code from https://ur.io (keep the single quotes).
 
 This starts the dashboard only. To also poll for stats, add a second container
-with `stats_tracker run` as the command - or just use the compose stack below,
+with `urwebdash run` as the command - or just use the compose stack below,
 which runs both.
 
 Either way, the dashboard is at **http://127.0.0.1:3001**. It binds loopback
@@ -140,9 +142,9 @@ All state lives in `./data`. Back up both `./data` and `.env` - neither alone is
 | `read jwt: no such file or directory` | No JWT at `~/.urnetwork/jwt`. Re-run the installer or copy one from your provider machine. |
 | Empty charts | Polling has not run yet - wait for the next quarter-hour or lower `STATS_INTERVAL`. |
 | API errors after a while | JWT expired/rotated. Get a fresh one and restart. |
-| Port already in use | `stats_tracker serve 3002` |
-| No Discord notifications | `stats_tracker testwebhook` with `DISCORD_WEBHOOK_URL` set. |
-| Duplicate rows today | `stats_tracker cleanup` |
+| Port already in use | `urwebdash serve 3002` |
+| No Discord notifications | `urwebdash testwebhook` with `DISCORD_WEBHOOK_URL` set. |
+| Duplicate rows today | `urwebdash cleanup` |
 
 ---
 
@@ -152,7 +154,7 @@ Go 1.27+, no CGO:
 
 ```bash
 git clone https://github.com/full-bars/URWebDash.git && cd URWebDash
-go build -o stats_tracker .
+go build -o urwebdash .
 ```
 
 ## Updating / Uninstall
@@ -165,7 +167,7 @@ sudo systemctl restart urwebdash-run urwebdash-serve
 # uninstall
 sudo systemctl disable --now urwebdash-run urwebdash-serve
 sudo rm /etc/systemd/system/urwebdash-{run,serve}.service
-rm -f ~/.local/bin/stats_tracker
+rm -f ~/.local/bin/urwebdash
 rm -rf ~/.urnetwork/wallet_stats.db ~/.urnetwork/payout_notified.json   # optional: data
 ```
 

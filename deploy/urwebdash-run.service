@@ -8,7 +8,7 @@ Wants=network-online.target
 Type=simple
 # Run as the installing user; change if you installed elsewhere.
 User=YOUR_USER
-ExecStart=/home/YOUR_USER/.local/bin/stats_tracker run
+ExecStart=/home/YOUR_USER/.local/bin/urwebdash run
 Restart=on-failure
 RestartSec=30
 

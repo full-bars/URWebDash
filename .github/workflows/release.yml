@@ -34,13 +34,13 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
-          go build -trimpath -ldflags "-s -w" -o stats_tracker .
-          tar -czf stats_tracker-${GOOS}-${GOARCH}.tar.gz stats_tracker
+          go build -trimpath -ldflags "-s -w" -o urwebdash .
+          tar -czf urwebdash-${GOOS}-${GOARCH}.tar.gz urwebdash
 
       - uses: actions/upload-artifact@v4
         with:
-          name: stats_tracker-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: stats_tracker-*.tar.gz
+          name: urwebdash-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: urwebdash-*.tar.gz
 
   release:
     needs: build
@@ -54,7 +54,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: stats_tracker-*.tar.gz
+          files: urwebdash-*.tar.gz
           generate_release_notes: true
 
   docker:

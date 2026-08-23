@@ -157,20 +157,19 @@ func TestSpikeThresholdFileFallback(t *testing.T) {
 	}
 }
 
-// TestInstallShWebhookValidation keeps the installer's webhook URL guard in
-// sync (install.sh is bash, so we grep for the case pattern).
-func TestInstallShWebhookValidation(t *testing.T) {
-	b, err := os.ReadFile("install.sh")
+// TestSetupWebhookValidation pins the Discord webhook prefix check in setup.go.
+func TestSetupWebhookValidation(t *testing.T) {
+	b, err := os.ReadFile("setup.go")
 	if err != nil {
-		t.Skip("install.sh not present")
+		t.Skip("setup.go not present")
 	}
 	s := string(b)
 	for _, need := range []string{
-		"https://discord.com/api/webhooks/",
-		"https://discordapp.com/api/webhooks/",
+		"discord.com/api/webhooks/",
+		"discordapp.com/api/webhooks/",
 	} {
 		if !strings.Contains(s, need) {
-			t.Errorf("install.sh webhook validation missing %q", need)
+			t.Errorf("setup webhook validation missing %q", need)
 		}
 	}
 }

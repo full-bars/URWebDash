@@ -8,7 +8,7 @@ Wants=network-online.target urwebdash-run.service
 Type=simple
 User=YOUR_USER
 Environment=HOST=127.0.0.1
-ExecStart=/home/YOUR_USER/.local/bin/stats_tracker serve 3001
+ExecStart=/home/YOUR_USER/.local/bin/urwebdash serve 3001
 Restart=on-failure
 RestartSec=30
 

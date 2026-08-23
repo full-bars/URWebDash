@@ -43,7 +43,7 @@ elif [ -n "${URNETWORK_AUTH_CODE:-}" ]; then
     rm -f "$BODY" "$RESP_FILE"
     echo "[entrypoint] auth code exchange failed" >&2; exit 1; }
 
-  BY_JWT="$(stats_tracker extract-by-jwt < "$RESP_FILE")"
+  BY_JWT="$(urwebdash extract-by-jwt < "$RESP_FILE")"
   rm -f "$BODY" "$RESP_FILE"
 
   # A JWT has three dot-separated segments; anything else is an error body.

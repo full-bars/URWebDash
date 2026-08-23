@@ -18,7 +18,7 @@ All notable changes. Format loosely follows Keep a Changelog.
 
 ### Changed
 
-- Docker image default command is now the dashboard (`serve`); the poller is explicit (`stats_tracker run`).
+- Docker image default command is now the dashboard (`serve`); the poller is explicit (`urwebdash run`).
 
 ### Fixed
 

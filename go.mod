@@ -1,4 +1,4 @@
-module stats_tracker
+module urwebdash
 
 go 1.27
 

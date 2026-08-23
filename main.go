@@ -126,6 +126,9 @@ func main() {
 		printHistory()
 	case "extract-by-jwt":
 		extractByJWT()
+	case "setup":
+		runSetup(flag.Args()[1:])
+		return
 	case "cleanup":
 		cleanupDB()
 	case "testwebhook":
@@ -149,13 +152,14 @@ func main() {
 		fmt.Println("Test notification sent successfully")
 	default:
 		fmt.Println(`Usage:
-  stats_tracker run                    — start polling daemon
-  stats_tracker serve [port]          — start HTTP server (default :3001)
-  stats_tracker import <file.json>     — import wallet stats history from a JSON export
-  stats_tracker history                — print stored history
-  stats_tracker cleanup                — delete off-schedule wallet_stats entries for today
-  stats_tracker extract-by-jwt         — read JSON on stdin, print its by_jwt value (installer helper)
-  stats_tracker testwebhook           — send a test Discord notification`)
+  urwebdash run                    — start polling daemon
+  urwebdash serve [port]          — start HTTP server (default :3001)
+  urwebdash import <file.json>     — import wallet stats history from a JSON export
+  urwebdash history                — print stored history
+  urwebdash cleanup                — delete off-schedule wallet_stats entries for today
+  urwebdash setup [--install-services] — configure token/webhook; --install-services installs systemd units (root)
+  urwebdash extract-by-jwt         — read JSON on stdin, print its by_jwt value (installer helper)
+  urwebdash testwebhook           — send a test Discord notification`)
 	}
 }
 
@@ -507,7 +511,7 @@ func runPolling() {
 
 func importJSON(path string) {
 	if path == "" {
-		fmt.Fprintln(os.Stderr, "usage: stats_tracker import <file.json>")
+		fmt.Fprintln(os.Stderr, "usage: urwebdash import <file.json>")
 		os.Exit(1)
 	}
 
