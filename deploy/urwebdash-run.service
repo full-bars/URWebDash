@@ -6,16 +6,18 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/stats_tracker run
+# Run as the installing user; change if you installed elsewhere.
+User=YOUR_USER
+ExecStart=/home/YOUR_USER/.local/bin/stats_tracker run
 Restart=on-failure
 RestartSec=30
 
 # Environment=STATS_INTERVAL=5m
 # Environment=DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
-# Environment=STATS_DB=%h/.urnetwork/wallet_stats.db
+# Environment=STATS_DB=/home/YOUR_USER/.urnetwork/wallet_stats.db
 
 NoNewPrivileges=true
 PrivateTmp=true
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

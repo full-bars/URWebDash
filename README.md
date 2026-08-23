@@ -47,12 +47,8 @@ Try it out:
 
 Open **http://localhost:3001**.
 
-On a remote VPS, don't expose the port — use an SSH tunnel from your laptop instead:
-
-```bash
-ssh -L 3001:localhost:3001 you@your-server
-# then open http://localhost:3001 in your local browser
-```
+The dashboard listens on `127.0.0.1` only (loopback). For remote access, put a
+reverse proxy or Cloudflare Tunnel in front rather than exposing the port.
 
 Working? Make it permanent: [Run as a service](#run-as-a-service-systemd).
 
@@ -75,7 +71,7 @@ systemctl status urwebdash-run urwebdash-serve --no-pager
 journalctl -u urwebdash-serve -f
 ```
 
-> The unit files assume the binary lives at `%h/.local/bin/stats_tracker` (`%h` = the service user's home). Running as root or another user? Edit the `ExecStart=` paths to match, e.g. `/usr/local/bin/stats_tracker`.
+> The unit files assume the binary lives at `/home/YOUR_USER/.local/bin/stats_tracker`. Edit `User=` and `ExecStart=` to match your setup, or just run the installer as root — it fills these in for you.
 
 ---
 
@@ -152,8 +148,8 @@ You'll get a ping when a new payment appears and when a pending payment complete
 
 ## Security notes
 
-- The dashboard has **no authentication**. Anyone who can reach the port can see your wallet and payout data.
-- Keep it bound behind a firewall / SSH tunnel, or put it behind a reverse proxy with auth (nginx + basic auth, Cloudflare Access, Tailscale, etc.).
+- The dashboard has **no built-in authentication**. It binds to `127.0.0.1` by default so only local processes can reach it; set `HOST=0.0.0.0` to change that (not recommended).
+- For remote access, use a reverse proxy with auth (nginx + basic auth, Cloudflare Access, Tailscale, etc.).
 - Don't commit or share your JWT — it grants full access to your account API.
 
 ---
