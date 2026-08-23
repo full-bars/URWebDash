@@ -124,6 +124,8 @@ func main() {
 		importJSON(flag.Arg(1))
 	case "history":
 		printHistory()
+	case "extract-by-jwt":
+		extractByJWT()
 	case "cleanup":
 		cleanupDB()
 	case "testwebhook":
@@ -152,6 +154,7 @@ func main() {
   stats_tracker import <file.json>     — import wallet stats history from a JSON export
   stats_tracker history                — print stored history
   stats_tracker cleanup                — delete off-schedule wallet_stats entries for today
+  stats_tracker extract-by-jwt         — read JSON on stdin, print its by_jwt value (installer helper)
   stats_tracker testwebhook           — send a test Discord notification`)
 	}
 }
@@ -1099,6 +1102,19 @@ func statsInterval() time.Duration {
 	return def
 }
 
+// extractByJWT reads JSON on stdin and prints the by_jwt string field.
+// Used by install.sh / docker-entrypoint to parse the code-login API
+// response with a real JSON parser instead of sed guesswork.
+func extractByJWT() {
+	var resp struct {
+		ByJWT string `json:"by_jwt"`
+	}
+	if err := json.NewDecoder(os.Stdin).Decode(&resp); err != nil || resp.ByJWT == "" {
+		os.Exit(1)
+	}
+	fmt.Println(resp.ByJWT)
+}
+
 // spikeThreshold returns the per-window unpaid-bytes delta that counts as a
 // traffic spike. SPIKE_THRESHOLD accepts human sizes ("500MB", "0.5G",
 // "1.5gb", "250m", plain bytes); default 1GB.
@@ -1183,8 +1199,13 @@ func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time) {
 			return
 		}
 	}
-	deltaBytes := int64(unpaidBytes) - prevUnpaid.Int64
-	if deltaBytes <= spikeThreshold() {
+	// Compare unsigned to avoid int64 overflow if unpaidBytes ever
+	// exceeds MaxInt64 (would wrap negative and fire a bogus spike).
+	if prevUnpaid.Int64 >= 0 && uint64(prevUnpaid.Int64) > unpaidBytes {
+		return // counter went backwards: API correction, not a spike
+	}
+	var deltaBytes uint64 = unpaidBytes - uint64(prevUnpaid.Int64)
+	if deltaBytes <= uint64(spikeThreshold()) {
 		return
 	}
 	deltaGB := float64(deltaBytes) / 1e9

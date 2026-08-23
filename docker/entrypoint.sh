@@ -6,13 +6,6 @@
 #   3. URNETWORK_AUTH_CODE env var, exchanged for a session token once
 set -eu
 
-# extract_json_string KEY  -> prints the value of "KEY": "..." from stdin.
-# Handles escaped quotes/backslashes in JWTs. No jq dependency.
-extract_json_string() {
-  sed -n 's/.*"'$1'"[[:space:]]*:[[:space:]]*"\(\([^"\\]\|\\.\)*\)".*/\1/p' \
-    | sed 's/\\\(.\)/\1/g'
-}
-
 # If running as root (default), take ownership of a possibly root-created bind
 # mount and drop privileges. PUID/PGID let users match their host account.
 if [ "$(id -u)" = "0" ]; then
@@ -29,22 +22,42 @@ elif [ -s /host-jwt ]; then
   chmod 600 "$JWT" 2>/dev/null || true
   echo "[entrypoint] copied host JWT from /host-jwt"
 elif [ -n "${URNETWORK_AUTH_CODE:-}" ]; then
+  # Sanity-check the code before use; also keeps malformed values out of the request.
+  case "$URNETWORK_AUTH_CODE" in
+    ''|*[!A-Za-z0-9._=+-]*)
+      echo "[entrypoint] URNETWORK_AUTH_CODE contains unexpected characters" >&2
+      exit 1 ;;
+  esac
+
   echo "[entrypoint] exchanging URNETWORK_AUTH_CODE for a session token..."
-  RESP="$(wget -qO- --no-hsts --header='Content-Type: application/json' \
-    --header='Accept: */*' \
-    --post-data="{\"auth_code\":\"$URNETWORK_AUTH_CODE\"}" \
-    https://api.bringyour.com/auth/code-login)" || {
+  # Body goes via a file so the auth code never appears in process args (ps).
+  BODY="$(mktemp)"
+  trap 'rm -f "$BODY"' EXIT
+  printf '{"auth_code":"%s"}' "$URNETWORK_AUTH_CODE" > "$BODY"
+
+  RESP_FILE="$(mktemp)"
+  wget -qO "$RESP_FILE" --no-hsts --timeout=20 --tries=2 \
+    --header='Content-Type: application/json' --header='Accept: */*' \
+    --post-file="$BODY" \
+    https://api.bringyour.com/auth/code-login </dev/null || {
+    rm -f "$BODY" "$RESP_FILE"
     echo "[entrypoint] auth code exchange failed" >&2; exit 1; }
-  BY_JWT="$(printf '%s' "$RESP" | extract_json_string by_jwt)"
-  if [ -z "$BY_JWT" ]; then
-    # never echo RESP: it may contain the auth code or account details
-    echo "[entrypoint] auth code rejected by the API" >&2
-    exit 1
-  fi
-  printf '%s' "$BY_JWT" > "$JWT"
-  chmod 600 "$JWT" 2>/dev/null || true
-  unset URNETWORK_AUTH_CODE
-  echo "[entrypoint] session token saved to $JWT"
+
+  BY_JWT="$(stats_tracker extract-by-jwt < "$RESP_FILE")"
+  rm -f "$BODY" "$RESP_FILE"
+
+  # A JWT has three dot-separated segments; anything else is an error body.
+  case "$BY_JWT" in
+    *.*.*)
+      printf '%s' "$BY_JWT" > "$JWT"
+      chmod 600 "$JWT" 2>/dev/null || true
+      unset URNETWORK_AUTH_CODE
+      echo "[entrypoint] session token saved to $JWT" ;;
+    *)
+      # never print BY_JWT/RESP: may contain account details
+      echo "[entrypoint] auth code rejected by the API" >&2
+      exit 1 ;;
+  esac
 else
   echo "[entrypoint] no JWT found."
   echo "  Mount your host jwt:      -v ~/.urnetwork/jwt:/host-jwt:ro"

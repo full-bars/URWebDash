@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -172,4 +173,42 @@ func TestInstallShWebhookValidation(t *testing.T) {
 			t.Errorf("install.sh webhook validation missing %q", need)
 		}
 	}
+}
+
+func TestExtractByJWT(t *testing.T) {
+	// valid response
+	input := `{"by_jwt":"aa.bb.cc","error":null}`
+	r, w, _ := os.Pipe()
+	oldStdin := os.Stdin
+	os.Stdin = r
+	w.WriteString(input)
+	w.Close()
+
+	tmp := *os.Stdout
+	devnull, _ := os.Open(os.DevNull)
+	os.Stdout = devnull
+	defer func() { os.Stdin = oldStdin; os.Stdout = &tmp; devnull.Close() }()
+
+	extractByJWT() // exits 1 on failure; reaching here means success
+}
+
+func TestExtractByJWT_RejectsMissing(t *testing.T) {
+	if os.Getenv("BE_CHILD") != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=TestExtractByJWT_RejectsMissing")
+		cmd.Env = append(os.Environ(), "BE_CHILD=1")
+		err := cmd.Run()
+		exitErr, ok := err.(*exec.ExitError)
+		if !ok || exitErr.ExitCode() == 0 {
+			t.Fatal("expected non-zero exit for missing by_jwt")
+		}
+		return
+	}
+	r, w, _ := os.Pipe()
+	oldStdin := os.Stdin
+	os.Stdin = r
+	w.WriteString(`{"error":{"message":"bad code"}}`)
+	w.Close()
+	defer func() { os.Stdin = oldStdin }()
+	extractByJWT() // should os.Exit(1)
+	t.Fatal("extractByJWT should have exited")
 }

@@ -9,7 +9,8 @@ BIN_NAME="stats_tracker"
 # Under sudo, install for the invoking user, not root - the systemd units
 # will run as that user and need paths in their home.
 if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-  TARGET_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+  TARGET_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)" || true
+  [ -n "$TARGET_HOME" ] || die "could not resolve home directory for $SUDO_USER"
 else
   TARGET_HOME="$HOME"
 fi
@@ -78,21 +79,27 @@ setup_jwt() {
   read -r AUTH_CODE
   [ -z "${AUTH_CODE:-}" ] && { warn "Skipped JWT setup."; return 1; }
 
-  log "Exchanging auth code for a session token..."
-  local RESP BY_JWT
-  RESP="$(curl -fsSL -X POST "$AUTH_API/auth/code-login" \
-    -H 'Content-Type: application/json' \
-    -H 'Accept: */*' \
-    -d "{\"auth_code\":\"$AUTH_CODE\"}" 2>/dev/null)" || die "request to $AUTH_API/auth/code-login failed"
+  case "$AUTH_CODE" in
+    *[!A-Za-z0-9._=+-]*)
+      die "auth code contains unexpected characters; copy it exactly as shown at https://ur.io" ;;
+  esac
 
-  # JSON string extractor tolerant of escaped characters and whitespace.
-  extract_json_string() {
-    sed -n 's/.*"'$1'"[[:space:]]*:[[:space:]]*"\(\([^"\\]\|\\.\)*\)".*/\1/p'
-  }
-  BY_JWT="$(printf '%s' "$RESP" | extract_json_string by_jwt)"
+  log "Exchanging auth code for a session token..."
+  # Body via stdin so the auth code never appears in process args (ps).
+  RESP_FILE="$(mktemp)"
+  trap 'rm -f "$RESP_FILE"' RETURN
+  printf '{"auth_code":"%s"}' "$AUTH_CODE" | \
+    curl -fsSL --max-time 30 -X POST "$AUTH_API/auth/code-login" \
+      -H 'Content-Type: application/json' -H 'Accept: */*' \
+      --data @- -o "$RESP_FILE" 2>/dev/null || {
+    rm -f "$RESP_FILE"; die "request to $AUTH_API/auth/code-login failed"; }
+
+  # Parse with the binary's real JSON parser (no sed guesswork).
+  BY_JWT="$("$INSTALL_DIR/$BIN_NAME" extract-by-jwt < "$RESP_FILE")"
+  rm -f "$RESP_FILE"
 
   if [ -z "$BY_JWT" ]; then
-    # do not print RESP: it may echo the auth code or account details
+    # do not print the response body: it may echo account details
     die "auth code rejected by the API. Double-check the code and try again."
   fi
 
@@ -113,6 +120,13 @@ fi
 # --- Discord webhook setup (optional) -------------------------------------
 
 setup_webhook() {
+  # Same stdin rule as setup_jwt: never read from a pipe (curl | bash would
+  # eat the script text as "input").
+  if [ ! -t 0 ]; then
+    warn "Non-interactive session: skipped webhook setup. Re-run in a terminal to configure alerts."
+    return 1
+  fi
+
   local WH="$(dirname "$JWT_PATH")/discord_webhook"
   if [ -s "$WH" ]; then
     log "Found existing webhook at $WH"
@@ -212,8 +226,15 @@ WantedBy=multi-user.target
 EOF
 
   systemctl daemon-reload
-  systemctl enable --now urwebdash-run.service urwebdash-serve.service
-  log "Services enabled: urwebdash-run (polling) + urwebdash-serve (dashboard on 127.0.0.1:3001)"
+  if [ "$JWT_OK" = 1 ]; then
+    systemctl enable --now urwebdash-run.service urwebdash-serve.service
+    log "Services enabled: urwebdash-run (polling) + urwebdash-serve (dashboard on 127.0.0.1:3001)"
+  else
+    # Without a JWT both units would crash-loop. Install but stay off.
+    systemctl enable urwebdash-run.service urwebdash-serve.service 2>/dev/null || true
+    warn "No JWT yet, so services are installed but not started."
+    warn "Add a token at $JWT_PATH then: sudo systemctl start urwebdash-run urwebdash-serve"
+  fi
 }
 
 echo

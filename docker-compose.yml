@@ -13,7 +13,11 @@ services:
   serve:
     image: ghcr.io/full-bars/urwebdash:latest
     container_name: urwebdash-serve
-    command: ["stats_tracker", "serve", "3001"]
+    # Wait for the poller's entrypoint to place the JWT before serving,
+    # so first-boot auth-code exchange is not raced by two containers.
+    command: >
+      sh -c 'until [ -s /data/jwt ]; do echo "[serve] waiting for session token..."; sleep 2; done;
+             exec stats_tracker serve 3001'
     restart: unless-stopped
     depends_on:
       - run
