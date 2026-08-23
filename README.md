@@ -1,6 +1,6 @@
 # URWebDash
 
-Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.network) providers. Polls the bringyour.com API, stores history in local SQLite, and serves a dark-theme Chart.js UI.
+Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.io) providers. Polls the bringyour.com API, stores history in local SQLite, and serves a dark-theme Chart.js UI.
 
 ![dashboard screenshot](https://i.postimg.cc/d3wcVFsg/image.png)
 
@@ -26,7 +26,21 @@ curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/main/install.sh
 Then see [Hosting options](#hosting-options) to expose it remotely (Tailscale,
 Cloudflare Tunnel, or Caddy reverse proxy).
 
-**Docker / Docker Compose** - best for keeping the app isolated from the host:
+**Docker (single container)** - fastest way to try it:
+
+```bash
+docker run -d --name urwebdash \
+  -p 127.0.0.1:3001:3001 \
+  -v urwebdash-data:/data \
+  -e URNETWORK_AUTH_CODE=<paste your code from https://ur.io> \
+  ghcr.io/full-bars/urwebdash:latest stats_tracker serve 3001
+```
+
+Then open http://127.0.0.1:3001. The auth code is exchanged once and the
+session token is saved in the volume; remove `-e URNETWORK_AUTH_CODE=...` on
+later runs.
+
+**Docker Compose** - poller + dashboard as a managed pair:
 
 ```bash
 mkdir urwebdash && cd urwebdash
