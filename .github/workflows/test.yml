@@ -21,6 +21,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - run: go vet ./...
       - run: test -z "$(gofmt -l .)" || (echo "unformatted files:"; gofmt -l .; exit 1)
       - run: go test -race -v -count=1 ./...
@@ -43,6 +44,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
         env:
           GOOS: ${{ matrix.goos }}
