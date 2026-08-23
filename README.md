@@ -27,6 +27,10 @@ The installer downloads the binary, sets up a session token (prompts for an
 [auth code](https://ur.io) only if none exists), and offers to install the
 systemd services.
 
+Runs entirely as your user - no sudo in the pipe. For system-wide services,
+download the script first, then run it with sudo:
+`curl -fsSL <url> -o install.sh && sudo bash install.sh`.
+
 **Docker:**
 
 ```bash

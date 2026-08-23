@@ -4,6 +4,7 @@
 set -euo pipefail
 
 REPO="full-bars/URWebDash"
+RAW_URL="https://raw.githubusercontent.com/$REPO/master/install.sh"
 BIN_NAME="stats_tracker"
 
 # Under sudo, install for the invoking user, not root - the systemd units
@@ -257,7 +258,9 @@ if [ "$(id -u)" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
   esac
 else
   SERVICES_INSTALLED=0
-  echo "To run as a service, re-run this script as root (or see deploy/*.service)."
+  echo "To run as a service without root, see deploy/*.service (user units + linger)."
+  echo "For system services, download the installer and run it with sudo:"
+  echo "  curl -fsSL $RAW_URL -o /tmp/urwebdash-install.sh && sudo bash /tmp/urwebdash-install.sh"
 fi
 
 # --- Summary -------------------------------------------------------------
