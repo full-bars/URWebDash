@@ -15,6 +15,174 @@ Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.network
 
 ---
 
+## Deployment: pick your platform
+
+**Linux / macOS (bare metal or VPS)** - one command, follow the prompts:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/main/install.sh | bash
+```
+
+Then see [Hosting options](#hosting-options) to expose it remotely (Tailscale,
+Cloudflare Tunnel, or Caddy reverse proxy).
+
+**Docker / Docker Compose** - best for keeping the app isolated from the host:
+
+```bash
+mkdir urwebdash && cd urwebdash
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/main/example.env -o .env
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/main/docker-compose.yml -o docker-compose.yml
+# edit .env with your auth code / webhook, then:
+docker compose up -d
+```
+
+Details in [Run with Docker](#run-with-docker).
+
+**Windows** - run under WSL2 for now:
+
+```powershell
+wsl --install -d Ubuntu
+# then follow the Linux steps inside that distro
+```
+
+Native Windows service support is on the roadmap.
+
+---
+
+## Hosting options
+
+The dashboard is unauthenticated by design. It binds loopback only. To reach
+it from outside your box, put one of these in front.
+
+### Option 1: Tailscale (simplest)
+
+Install Tailscale on the dashboard machine and on your laptop/phone:
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+```
+
+That is it. The dashboard is reachable at `http://<machine-name>:3001` from any
+device on your tailnet and unreachable from the public internet.
+
+For HTTPS plus a stable name, use Tailscale Serve:
+
+```bash
+sudo tailscale serve --bg 3001
+```
+
+Now `https://<machine-name>.<tailnet>.ts.net` works from anywhere on your tailnet.
+
+### Option 2: Cloudflare Tunnel
+
+Best when you want a public hostname without opening ports or managing TLS.
+Requires a domain on Cloudflare.
+
+```bash
+# install cloudflared, then authenticate:
+cloudflared tunnel login
+cloudflared tunnel create urwebdash
+cloudflared tunnel route dns urwebdash dash.example.com
+```
+
+Point the tunnel at the local port:
+
+```bash
+cloudflared tunnel run --url http://localhost:3001 urwebdash
+```
+
+For production, write a config file so it survives reboots:
+
+```yaml
+# ~/.cloudflared/config.yml
+tunnel: <tunnel-id>
+credentials-file: /home/YOU/.cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: dash.example.com
+    service: http://localhost:3001
+  - service: http_status:404
+```
+
+Then run as a service: `sudo cloudflared service install`.
+
+**Locking it down:** anyone with the URL gets in unless you add auth. Two ways:
+
+- **Cloudflare Access** (recommended): in the Cloudflare Zero Trust dashboard,
+  create an Access application for `dash.example.com` requiring email OTP or
+  SSO. No code changes needed here.
+- **Caddy basic auth**: see option 3 below.
+
+### Option 3: Caddy + DDNS + basic auth
+
+For a VPS with a dynamic DNS hostname (DuckDNS, afraid.org, etc.).
+
+**1. Generate a bcrypt password hash.** Caddy needs bcrypt, not the MD5-style
+htpasswd hash:
+
+```bash
+# if you have caddy installed:
+caddy hash-password
+# paste your password twice; it prints something like:
+# $2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5qqR7hx4IjWJPDhjvG
+```
+
+No caddy yet? Use Python:
+
+```bash
+python3 -c "import bcrypt; print(bcrypt.hashpw(input('password: ').encode(), bcrypt.gensalt()).decode())"
+# pip install bcrypt first if needed
+```
+
+Or htpasswd from apache2-utils (`-B` forces bcrypt):
+
+```bash
+htpasswd -nB admin
+```
+
+**2. Caddyfile** at `/etc/caddy/Caddyfile`:
+
+```caddy
+dash.example.com {
+    # ask browser for user/password before proxying
+    basic_auth {
+        admin $2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5qqR7hx4IjWJPDhjvG
+    }
+    reverse_proxy localhost:3001
+}
+```
+
+Replace the hash with yours. Reload: `sudo systemctl reload caddy`.
+
+**3. Skip auth from home (optional).** If your home connection has a stable IP,
+you can bypass the password prompt there while keeping it everywhere else:
+
+```caddy
+dash.example.com {
+    @trusted remote_ip 203.0.113.7
+
+    handle @trusted {
+        reverse_proxy localhost:3001
+    }
+
+    handle {
+        basic_auth {
+            admin $2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5qqR7hx4IjWJPDhjvG
+        }
+        reverse_proxy localhost:3001
+    }
+}
+```
+
+Home IP changes? Your DDNS updater already handles the hostname; update the
+`remote_ip` line when your ISP moves you, or drop the bypass entirely.
+
+**4. DNS.** If your hostname is dynamic, run a DDNS updater (most providers
+ship one, e.g. `ddclient` for DuckDNS) so the A record tracks your IP. With a
+static VPS IP this step is unnecessary.
+
+---
+
 ## Quick start (Linux / macOS)
 
 No Go toolchain needed:
