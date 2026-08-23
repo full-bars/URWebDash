@@ -62,9 +62,9 @@ setup_jwt() {
 
   echo
   echo "No URnetwork JWT found at $JWT_PATH."
-  echo "You can create an auth code at: https://ur.network/auth"
-  echo "(It is a short code shown after you sign in - entering it here exchanges"
-  echo " it for a session token that URWebDash stores locally.)"
+  echo "You can get an auth code at: https://ur.io"
+  echo "(Sign in, generate the code, then enter it here - it gets exchanged for a"
+  echo " session token that URWebDash stores locally.)"
   printf "Enter auth code (blank to skip): "
   read -r AUTH_CODE
   [ -z "${AUTH_CODE:-}" ] && { warn "Skipped JWT setup."; return 1; }
