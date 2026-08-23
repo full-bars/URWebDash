@@ -6,6 +6,13 @@
 #   3. URNETWORK_AUTH_CODE env var, exchanged for a session token once
 set -eu
 
+# extract_json_string KEY  -> prints the value of "KEY": "..." from stdin.
+# Handles escaped quotes/backslashes in JWTs. No jq dependency.
+extract_json_string() {
+  sed -n 's/.*"'$1'"[[:space:]]*:[[:space:]]*"\(\([^"\\]\|\\.\)*\)".*/\1/p' \
+    | sed 's/\\\(.\)/\1/g'
+}
+
 # If running as root (default), take ownership of a possibly root-created bind
 # mount and drop privileges. PUID/PGID let users match their host account.
 if [ "$(id -u)" = "0" ]; then
@@ -28,10 +35,15 @@ elif [ -n "${URNETWORK_AUTH_CODE:-}" ]; then
     --post-data="{\"auth_code\":\"$URNETWORK_AUTH_CODE\"}" \
     https://api.bringyour.com/auth/code-login)" || {
     echo "[entrypoint] auth code exchange failed" >&2; exit 1; }
-  BY_JWT="$(printf '%s' "$RESP" | sed -n 's/.*"by_jwt":"\([^"]*\)".*/\1/p')"
-  [ -n "$BY_JWT" ] || { echo "[entrypoint] auth code rejected: $RESP" >&2; exit 1; }
+  BY_JWT="$(printf '%s' "$RESP" | extract_json_string by_jwt)"
+  if [ -z "$BY_JWT" ]; then
+    # never echo RESP: it may contain the auth code or account details
+    echo "[entrypoint] auth code rejected by the API" >&2
+    exit 1
+  fi
   printf '%s' "$BY_JWT" > "$JWT"
   chmod 600 "$JWT" 2>/dev/null || true
+  unset URNETWORK_AUTH_CODE
   echo "[entrypoint] session token saved to $JWT"
 else
   echo "[entrypoint] no JWT found."

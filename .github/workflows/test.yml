@@ -10,6 +10,9 @@ concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -23,6 +26,8 @@ jobs:
       - run: go test -race -v -count=1 ./...
       # release-parity build check
       - run: go build -trimpath -ldflags "-s -w" -o /dev/null .
+        env:
+          CGO_ENABLED: "0"
 
   cross-compile:
     runs-on: ubuntu-latest

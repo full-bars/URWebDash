@@ -71,7 +71,7 @@ systemctl status urwebdash-run urwebdash-serve --no-pager
 journalctl -u urwebdash-serve -f
 ```
 
-> The unit files assume the binary lives at `/home/YOUR_USER/.local/bin/stats_tracker`. Edit `User=` and `ExecStart=` to match your setup, or just run the installer as root — it fills these in for you.
+> The unit files assume the binary lives at `/home/YOUR_USER/.local/bin/stats_tracker`. Edit `User=` and `ExecStart=` to match your setup. Easiest path: run the installer as root (`sudo bash install.sh`) - it fills in the account paths and enables both units for you.
 
 ---
 
@@ -97,7 +97,11 @@ docker compose up -d
 docker compose logs -f   # watch the entrypoint do its thing
 ```
 
-Dashboard on http://127.0.0.1:3001 (loopback only by default - edit the `ports:` mapping for anything else). All state lives in `./data`: database, session token, webhook config, notification dedup store. Back up that directory and you have backed up everything.
+Dashboard on http://127.0.0.1:3001 (loopback only by default - edit the `ports:` mapping for anything else). All state lives in `./data`: database, session token, webhook config, notification dedup store.
+
+Two housekeeping notes:
+- Once the first start succeeds, remove `URNETWORK_AUTH_CODE` from `.env` - it has done its job and keeping it around is needless risk.
+- Back up **both** `./data` and `.env`: `.env` holds your configuration (webhook URL etc.) while `./data` holds state. Neither alone is a full backup.
 
 To run only the poller or only the dashboard: `docker compose up -d run` / `docker compose up -d serve`.
 
@@ -181,8 +185,9 @@ The installer asks for the webhook URL (blank to skip) and an optional spike thr
 
 ## Security notes
 
-- The dashboard has **no built-in authentication**. It binds to `127.0.0.1` by default so only local processes can reach it; set `HOST=0.0.0.0` to change that (not recommended).
-- For remote access, use a reverse proxy with auth (nginx + basic auth, Cloudflare Access, Tailscale, etc.).
+- The dashboard has **no built-in authentication**. Outside Docker it binds to `127.0.0.1` so only local processes reach it; keep it that way unless you have a reason.
+- Inside Docker, `HOST=0.0.0.0` in the container is expected and safe - exposure is controlled by the `ports:` mapping (compose defaults to loopback-only) or an explicit `-p` flag.
+- For remote access, use authenticated remote access: reverse proxy with basic auth, Cloudflare Access, or Tailscale. See [Hosting options](#hosting-options).
 - Don't commit or share your JWT — it grants full access to your account API.
 
 ---

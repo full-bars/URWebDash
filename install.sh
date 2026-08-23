@@ -5,8 +5,17 @@ set -euo pipefail
 
 REPO="full-bars/URWebDash"
 BIN_NAME="stats_tracker"
-INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
-JWT_PATH="${JWT_PATH:-$HOME/.urnetwork/jwt}"
+
+# Under sudo, install for the invoking user, not root - the systemd units
+# will run as that user and need paths in their home.
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+  TARGET_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+else
+  TARGET_HOME="$HOME"
+fi
+
+INSTALL_DIR="${INSTALL_DIR:-$TARGET_HOME/.local/bin}"
+JWT_PATH="${JWT_PATH:-$TARGET_HOME/.urnetwork/jwt}"
 AUTH_API="https://api.bringyour.com"
 
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
@@ -70,17 +79,21 @@ setup_jwt() {
   [ -z "${AUTH_CODE:-}" ] && { warn "Skipped JWT setup."; return 1; }
 
   log "Exchanging auth code for a session token..."
-  local RESP BY_JWT ERRMSG
+  local RESP BY_JWT
   RESP="$(curl -fsSL -X POST "$AUTH_API/auth/code-login" \
     -H 'Content-Type: application/json' \
     -H 'Accept: */*' \
     -d "{\"auth_code\":\"$AUTH_CODE\"}" 2>/dev/null)" || die "request to $AUTH_API/auth/code-login failed"
 
-  BY_JWT="$(printf '%s' "$RESP" | sed -n 's/.*"by_jwt":"\([^"]*\)".*/\1/p')"
-  ERRMSG="$(printf '%s' "$RESP" | sed -n 's/.*"message":"\([^"]*\)".*/\1/p')"
+  # JSON string extractor tolerant of escaped characters and whitespace.
+  extract_json_string() {
+    sed -n 's/.*"'$1'"[[:space:]]*:[[:space:]]*"\(\([^"\\]\|\\.\)*\)".*/\1/p'
+  }
+  BY_JWT="$(printf '%s' "$RESP" | extract_json_string by_jwt)"
 
   if [ -z "$BY_JWT" ]; then
-    die "auth code rejected${ERRMSG:+: $ERRMSG}"
+    # do not print RESP: it may echo the auth code or account details
+    die "auth code rejected by the API. Double-check the code and try again."
   fi
 
   mkdir -p "$(dirname "$JWT_PATH")"
@@ -100,7 +113,7 @@ fi
 # --- Discord webhook setup (optional) -------------------------------------
 
 setup_webhook() {
-  local WH="$HOME/.urnetwork/discord_webhook"
+  local WH="$(dirname "$JWT_PATH")/discord_webhook"
   if [ -s "$WH" ]; then
     log "Found existing webhook at $WH"
     return 0
@@ -127,12 +140,16 @@ setup_webhook() {
   printf "Traffic-spike alert threshold (e.g. 500M, 0.5G, 2GB; blank for default 1GB): "
   read -r SPIKE_IN
   if [ -n "${SPIKE_IN:-}" ]; then
-    printf '%s' "$SPIKE_IN" > "$HOME/.urnetwork/spike_threshold"
-    log "Spike threshold saved to ~/.urnetwork/spike_threshold"
+    printf '%s' "$SPIKE_IN" > "$(dirname "$WH")/spike_threshold"
+    log "Spike threshold saved to $(dirname "$WH")/spike_threshold"
   fi
 }
 
-setup_webhook && WEBHOOK_OK=1 || WEBHOOK_OK=0
+if setup_webhook; then
+  WEBHOOK_OK=1
+else
+  WEBHOOK_OK=0
+fi
 
 # --- Optional systemd install --------------------------------------------
 
@@ -140,10 +157,14 @@ install_services() {
   command -v systemctl >/dev/null 2>&1 || return 1
   [ "$(id -u)" -eq 0 ] || return 1
 
-  local SERVICE_USER="${SUDO_USER:-root}"
-  local USER_HOME
-  USER_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
-  [ -n "$USER_HOME" ] || USER_HOME=/root
+  # Same account the binary/JWT paths were derived for at the top of script.
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    SERVICE_USER="$SUDO_USER"
+    USER_HOME="$TARGET_HOME"
+  else
+    SERVICE_USER="root"
+    USER_HOME="/root"
+  fi
 
   log "Installing systemd services (user: $SERVICE_USER)"
 
