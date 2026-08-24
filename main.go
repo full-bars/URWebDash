@@ -491,6 +491,10 @@ func runPolling() {
 		checkTrafficSpike(db, stats.UnpaidBytes, now)
 	}
 
+	// Immediate first poll so the dashboard has data right away; afterwards
+	// stay aligned to quarter-hour marks.
+	update()
+
 	// Align to next quarter-hour boundary
 	now := time.Now()
 	_, min, _ := now.Clock()
@@ -669,6 +673,11 @@ func serveHTTP(port string) {
 
 	addr := net.JoinHostPort(host, port)
 	fmt.Printf("[serve] listening on %s\n", addr)
+	if host == "127.0.0.1" || host == "localhost" {
+		fmt.Println("\n>>> Dashboard: http://127.0.0.1:3001  (press Ctrl+C to stop)")
+	} else {
+		fmt.Printf("\n>>> Dashboard: http://%s:%s  (press Ctrl+C to stop)\n\n", host, port)
+	}
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		fmt.Fprintf(os.Stderr, "serve error: %v\n", err)
 		os.Exit(1)

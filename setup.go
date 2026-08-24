@@ -36,17 +36,19 @@ func runSetup(args []string) {
 	setupToken()
 	setupWebhook()
 
-	fmt.Println("\n[setup] complete - starting URWebDash...")
-	fmt.Println("(polling runs in the background; press Ctrl+C to stop both)")
+	fmt.Println("\n[setup] complete - starting URWebDash in this terminal.")
+	fmt.Println("Press Ctrl+C to stop; the dashboard URL will print below.")
 
 	binPath, _ := os.Executable()
 	if resolved, err := filepath.EvalSymlinks(binPath); err == nil {
 		binPath = resolved
 	}
-	fmt.Printf("\nOptional: install system-wide services (runs at boot):\n")
-	fmt.Printf("  sudo %s setup --install-services\n", binPath)
 
 	runBoth()
+
+	// only reached if serve stopped
+	fmt.Println("\nStopped. To run at boot instead of manually:")
+	fmt.Printf("  sudo %s setup --install-services\n", binPath)
 }
 
 // ensurePathEntry makes sure ~/.local/bin is on PATH for future shells by
