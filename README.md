@@ -28,6 +28,7 @@ your session token (prompts for an [auth code](https://ur.io) only if none
 exists) and optional Discord alerts - all as your regular user, no sudo.
 
 **Update later:** re-run the same install command. Data survives.
+
 **Uninstall:**
 
 ```bash
