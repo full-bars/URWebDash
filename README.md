@@ -27,6 +27,15 @@ The installer downloads the binary and runs `urwebdash setup`, which configures
 your session token (prompts for an [auth code](https://ur.io) only if none
 exists) and optional Discord alerts - all as your regular user, no sudo.
 
+**Update later:** re-run the same install command. Data survives.
+**Uninstall:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/uninstall.sh | bash
+```
+
+Asks before deleting data; never touches your URnetwork JWT.
+
 Want system-wide services? Afterwards run:
 
 ```bash
