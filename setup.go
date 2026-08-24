@@ -43,21 +43,31 @@ func fatal(format string, a ...interface{}) {
 	os.Exit(1)
 }
 
-func stdinIsTTY() bool {
-	fi, err := os.Stdin.Stat()
-	if err != nil {
-		return false
+// promptTTY returns a reader attached to the controlling terminal.
+// Under `curl | bash`, stdin is the pipe - but /dev/tty still reaches the
+// user's keyboard, so prompts keep working. Returns nil if truly headless.
+func promptReader() *bufio.Reader {
+	if fi, err := os.Stdin.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+		return bufio.NewReader(os.Stdin)
 	}
-	return fi.Mode()&os.ModeCharDevice != 0
+	if tty, err := os.Open("/dev/tty"); err == nil {
+		return bufio.NewReader(tty)
+	}
+	return nil
 }
 
 func prompt(label string) string {
-	fmt.Print(label)
-	sc := bufio.NewScanner(os.Stdin)
-	if !sc.Scan() {
+	r := promptReader()
+	if r == nil {
+		fmt.Printf("%s(skipped: no terminal available)\n", label)
 		return ""
 	}
-	return strings.TrimSpace(sc.Text())
+	fmt.Print(label)
+	line, err := r.ReadString('\n')
+	if err != nil && line == "" {
+		return ""
+	}
+	return strings.TrimSpace(line)
 }
 
 // setupToken ensures the JWT file exists, exchanging an auth code if needed.
@@ -69,21 +79,16 @@ func setupToken() {
 	}
 
 	code := os.Getenv("URNETWORK_AUTH_CODE")
-	interactive := stdinIsTTY()
 
 	if code == "" {
-		if !interactive {
-			fmt.Println(`[setup] no session token and not interactive. Either:
-  a) copy one from your provider machine:
-       mkdir -p ~/.urnetwork && scp host:.urnetwork/jwt ` + path + `
-  b) re-run in a terminal to enter an auth code from https://ur.io`)
-			os.Exit(1)
-		}
 		fmt.Println("No URnetwork token found at " + path)
-		fmt.Println("Get an auth code at https://ur.io, then paste it here.")
+		fmt.Println("You can get an auth code at https://ur.io")
 		code = prompt("auth code (blank to skip): ")
 		if code == "" {
-			fmt.Println("[setup] skipped token setup; the dashboard needs one to start.")
+			fmt.Println("[setup] skipped token setup. Add one later either:")
+			fmt.Println("  a) copy from your provider machine:")
+			fmt.Println("       mkdir -p ~/.urnetwork && scp host:.urnetwork/jwt " + path)
+			fmt.Println("  b) run: urwebdash setup   # and paste an auth code")
 			os.Exit(1)
 		}
 	}
@@ -138,10 +143,6 @@ func writeTokenFile(path, tok string) error {
 
 // setupWebhook asks for the Discord webhook and spike threshold interactively.
 func setupWebhook() {
-	if !stdinIsTTY() {
-		fmt.Println("[setup] non-interactive: skipped webhook config")
-		return
-	}
 	dir := filepath.Dir(jwtPath())
 	whPath := filepath.Join(dir, "discord_webhook")
 	if b, err := os.ReadFile(whPath); err == nil && len(strings.TrimSpace(string(b))) > 0 {
