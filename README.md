@@ -171,19 +171,25 @@ go build -o urwebdash .
 
 ## Updating / Uninstall
 
-```bash
-# update
-curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/install.sh | bash
-sudo systemctl restart urwebdash-run urwebdash-serve
+Update (binary + services):
 
-# uninstall
-sudo systemctl disable --now urwebdash-run urwebdash-serve
-sudo rm /etc/systemd/system/urwebdash-{run,serve}.service
-rm -f ~/.local/bin/urwebdash
-rm -rf ~/.urnetwork/wallet_stats.db ~/.urnetwork/payout_notified.json   # optional: data
+```bash
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/install.sh | bash
+sudo systemctl restart urwebdash-run urwebdash-serve   # if using services
 ```
 
 Data survives updates untouched.
+
+Uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/uninstall.sh | bash
+```
+
+Asks before deleting data; the URnetwork JWT is left alone even then. Docker
+users: `docker rm -f urwebdash` (add `-v urwebdash-data` to also drop the data).
+
+---
 
 ## License
 
