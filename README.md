@@ -132,7 +132,7 @@ Port binding controls exposure (`0.0.0.0` inside the container is normal):
 | Mapping | Reachable from |
 |---|---|
 | `127.0.0.1:3001:3001` *(default)* | this machine only |
-| `192.168.1.250:3001:3001` | devices on your LAN only |
+| `192.168.0.100:3001:3001` | devices on your LAN only |
 | `100.x.y.z:3001:3001` | your tailnet only |
 | `3001:3001` | all interfaces, public too if the host has a public IP or port-forward |
 
