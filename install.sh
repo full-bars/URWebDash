@@ -35,5 +35,12 @@ tar -xzf "$TMP/$ASSET" -C "$TMP"
 install -m 0755 "$TMP/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
 log "Installed to $INSTALL_DIR/$BIN_NAME"
 
+# Remove the legacy binary name from <=v0.0.8 installs automatically.
+LEGACY="$INSTALL_DIR/stats_tracker"
+if [ -e "$LEGACY" ]; then
+  rm -f "$LEGACY"
+  log "Removed legacy binary $LEGACY (renamed to urwebdash)"
+fi
+
 # Configuration runs as your user; only the optional systemd step needs sudo.
 exec "$INSTALL_DIR/$BIN_NAME" setup
