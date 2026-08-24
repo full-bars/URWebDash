@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // setup implements `urwebdash setup`. Two modes:
@@ -30,12 +31,109 @@ func runSetup(args []string) {
 		return
 	}
 
+	ensurePathEntry()
+	ensurePathEntry()
 	setupToken()
 	setupWebhook()
-	fmt.Println("\nSetup complete. Start it with:")
-	fmt.Println("  urwebdash run &      # polling daemon")
-	fmt.Println("  urwebdash serve      # dashboard on http://127.0.0.1:3001")
-	fmt.Println("\nFor system services (root): sudo urwebdash setup --install-services")
+
+	fmt.Println("\n[setup] complete - starting URWebDash...")
+	fmt.Println("(polling runs in the background; press Ctrl+C to stop both)")
+
+	binPath, _ := os.Executable()
+	if resolved, err := filepath.EvalSymlinks(binPath); err == nil {
+		binPath = resolved
+	}
+	fmt.Printf("\nOptional: install system-wide services (runs at boot):\n")
+	fmt.Printf("  sudo %s setup --install-services\n", binPath)
+
+	runBoth()
+}
+
+// ensurePathEntry makes sure ~/.local/bin is on PATH for future shells by
+// appending an export line to the user's shell config. Idempotent: skips if
+// the line is already present. Also fixes the CURRENT process env.
+func ensurePathEntry() {
+	binDir := os.Getenv("HOME") + "/.local/bin"
+	if binDir == "/.local/bin" {
+		return // no HOME
+	}
+
+	// current process
+	pathEnv := os.Getenv("PATH")
+	if !strings.Contains(pathEnv, binDir) {
+		os.Setenv("PATH", pathEnv+":"+binDir)
+	}
+
+	home := os.Getenv("HOME")
+	if home == "" {
+		return
+	}
+
+	// candidate rc files by login shell; fall back to common set
+	shell := os.Getenv("SHELL")
+	var candidates []string
+	switch {
+	case strings.Contains(shell, "zsh"):
+		candidates = []string{".zshrc", ".zprofile"}
+	case strings.Contains(shell, "fish"):
+		candidates = []string{".config/fish/config.fish"}
+	default: // bash and unknown
+		candidates = []string{".bashrc", ".profile"}
+	}
+
+	for _, rc := range candidates {
+		path := filepath.Join(home, filepath.Base(rc))
+		if rc == ".config/fish/config.fish" {
+			path = filepath.Join(home, ".config/fish/config.fish")
+		}
+		if b, err := os.ReadFile(path); err == nil &&
+			strings.Contains(string(b), ".local/bin") {
+			continue // already configured in this rc
+		}
+		line := "export PATH=$HOME/.local/bin:$PATH\n"
+		if strings.Contains(rc, "fish") {
+			line = "set -gx PATH $HOME/.local/bin $PATH\n"
+		}
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			continue
+		}
+		f.WriteString("\n# added by urwebdash setup\n" + line)
+		f.Close()
+		fmt.Printf("[setup] added ~/.local/bin to PATH via %s\n", path)
+		return // one rc is enough
+	}
+}
+
+// runBoth starts the poller in the background and serves the dashboard in
+// the foreground until interrupted. Used by `setup` so a fresh install just
+// works with no extra commands.
+func runBoth() {
+	bin, err := os.Executable()
+	if err != nil {
+		fatal("resolve executable: %v", err)
+	}
+
+	poller := exec.Command(bin, "run")
+	poller.Stdout = os.Stdout
+	poller.Stderr = os.Stderr
+	if err := poller.Start(); err != nil {
+		fatal("start poller: %v", err)
+	}
+
+	serve := exec.Command(bin, "serve")
+	serve.Stdout = os.Stdout
+	serve.Stderr = os.Stderr
+	serve.Stdin = os.Stdin
+	if err := serve.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "dashboard exited: %v\n", err)
+	}
+	// dashboard stopped: take the poller down too so nothing is orphaned
+	if poller.Process != nil {
+		poller.Process.Signal(syscall.SIGTERM)
+		poller.Wait()
+	}
+	fmt.Println("[setup] stopped.")
 }
 
 func fatal(format string, a ...interface{}) {
@@ -100,7 +198,18 @@ func setupToken() {
 	if err := writeTokenFile(path, tok); err != nil {
 		fatal("write %s: %v", path, err)
 	}
+
+	// Clear the auth code from the terminal so it does not linger in
+	// scrollback or shell history.
+	if r := promptReader(); r != nil {
+		clearLine()
+	}
 	fmt.Printf("[setup] session token saved to %s\n", path)
+}
+
+// clearLine erases the current terminal line (best effort, POSIX terminals).
+func clearLine() {
+	fmt.Print("\033[2K\r")
 }
 
 func exchangeAuthCode(code string) (string, error) {

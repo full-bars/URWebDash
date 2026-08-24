@@ -37,11 +37,13 @@ curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/uninstal
 
 Asks before deleting data; never touches your URnetwork JWT.
 
-Want system-wide services? Afterwards run:
+Want system-wide services? Afterwards run (setup prints this exact command):
 
 ```bash
-sudo urwebdash setup --install-services
+sudo ~/.local/bin/urwebdash setup --install-services
 ```
+
+(`sudo` does not see `~/.local/bin`, so use the full path.)
 
 **Docker:**
 
