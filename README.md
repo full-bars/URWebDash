@@ -27,17 +27,8 @@ The installer downloads the binary and runs `urwebdash setup` as your regular us
 2. Optionally asks for a Discord webhook URL and a traffic spike threshold.
 3. Auto-starts the poller and dashboard, and adds `~/.local/bin` to your PATH in your shell rc.
 
-When it finishes, open **http://127.0.0.1:3001**. The dashboard binds loopback only; for remote access see [Hosting options](#hosting-options).
+When it finishes it starts the dashboard and prints the URL. The first poll happens immediately, so charts populate right away. The dashboard binds loopback only; for remote access see [Hosting options](#hosting-options).
 
-### System services
-
-To run the poller and dashboard as systemd services instead of your user session:
-
-```bash
-sudo ~/.local/bin/urwebdash setup --install-services
-```
-
-Use the full path: sudo does not see `~/.local/bin`.
 
 ### Updating
 
@@ -50,6 +41,23 @@ curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/uninstal
 ```
 
 It asks before deleting data and never touches your URnetwork JWT.
+
+## System services
+
+By default `urwebdash setup` runs the poller and dashboard directly under your user session. To run them as systemd services instead, so they survive reboots and restart on failure:
+
+```bash
+sudo ~/.local/bin/urwebdash setup --install-services
+```
+
+Use the full path. Sudo does not see `~/.local/bin`.
+
+This installs two units, `urwebdash-run.service` (poller) and `urwebdash-serve.service` (dashboard), managed the normal way:
+
+```bash
+sudo systemctl status urwebdash-run urwebdash-serve
+sudo systemctl restart urwebdash-run urwebdash-serve
+```
 
 ## Hosting options
 
@@ -160,7 +168,7 @@ Troubleshooting:
 | Symptom | Fix |
 |---|---|
 | `read jwt: no such file or directory` | No JWT at `~/.urnetwork/jwt`. Re-run the installer or copy one from your provider machine. |
-| Empty charts | Polling has not run yet. Wait for the next quarter-hour or lower `STATS_INTERVAL`. |
+| Empty charts | The poller fetches immediately on start. If still empty, wait for the next quarter-hour or lower `STATS_INTERVAL`. |
 | API errors after a while | JWT expired or rotated. Get a fresh one and restart. |
 | Port already in use | `urwebdash serve 3002` |
 | No Discord notifications | Run `urwebdash testwebhook` with `DISCORD_WEBHOOK_URL` set. |
