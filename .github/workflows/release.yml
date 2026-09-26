@@ -33,8 +33,9 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
+          VERSION: ${{ github.ref_name }}
         run: |
-          go build -trimpath -ldflags "-s -w" -o urwebdash .
+          go build -trimpath -ldflags "-s -w -X main.Version=${VERSION}" -o urwebdash .
           tar -czf urwebdash-${GOOS}-${GOARCH}.tar.gz urwebdash
 
       - uses: actions/upload-artifact@v4
