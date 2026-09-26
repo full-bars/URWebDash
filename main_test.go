@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1168,7 +1169,7 @@ func TestCheckTrafficSpike_GapGuardSkipsOldRow(t *testing.T) {
 	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1313080594146,'2026-08-22T06:00:00Z','2026-08-22T06:00:00Z')")
 
 	out := captureStdout(t, func() {
-		checkTrafficSpike(db, 1313080594146, time.Date(2026, 8, 22, 6, 0, 0, 0, time.UTC))
+		checkTrafficSpike(db, 1313080594146, time.Date(2026, 8, 22, 6, 0, 0, 0, time.UTC), "2026-08-22T06:00:00Z")
 	})
 	if srv.count() != 0 {
 		t.Fatalf("gap guard should skip backfill, server saw %d post(s)", srv.count())
@@ -1189,7 +1190,7 @@ func TestCheckTrafficSpike_RecentWindowFires(t *testing.T) {
 	// newest row 10 min after the previous -> recent window.
 	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,19000000000,'2026-08-22T05:55:00Z','2026-08-22T05:55:00Z')")
 
-	checkTrafficSpike(db, 19000000000, time.Date(2026, 8, 22, 5, 55, 0, 0, time.UTC))
+	checkTrafficSpike(db, 19000000000, time.Date(2026, 8, 22, 5, 55, 0, 0, time.UTC), "2026-08-22T05:55:00Z")
 	for i := 0; i < 50 && srv.count() == 0; i++ {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -1208,7 +1209,7 @@ func TestCheckTrafficSpike_SubThresholdDoesNotFire(t *testing.T) {
 	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1000000000,'2026-08-22T05:45:00Z','2026-08-22T05:45:00Z')")
 	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1500000000,'2026-08-22T05:55:00Z','2026-08-22T05:55:00Z')")
 
-	checkTrafficSpike(db, 1500000000, time.Date(2026, 8, 22, 5, 55, 0, 0, time.UTC))
+	checkTrafficSpike(db, 1500000000, time.Date(2026, 8, 22, 5, 55, 0, 0, time.UTC), "2026-08-22T05:55:00Z")
 	if srv.count() != 0 {
 		t.Fatalf("sub-threshold delta should not fire, server saw %d post(s)", srv.count())
 	}
@@ -1477,10 +1478,12 @@ func TestMigrateLegacyState(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// dashboard-owned files (legacy default location)
+	// dashboard-owned config files (legacy default location)
 	write(legacy, "discord_webhook")
 	write(legacy, "spike_threshold")
 	write(legacy, "payout_notified.json")
+	// a fake non-SQLite wallet_stats.db — must be LEFT in legacy by the merge
+	// (it is not a mergeable DB; a real one would be merged, not moved)
 	write(legacy, "wallet_stats.db")
 	// provider files (must NEVER move)
 	write(legacy, "jwt")
@@ -1494,13 +1497,17 @@ func TestMigrateLegacyState(t *testing.T) {
 
 	migrateLegacyState()
 
-	for _, f := range []string{"spike_threshold", "payout_notified.json", "wallet_stats.db"} {
+	for _, f := range []string{"spike_threshold", "payout_notified.json"} {
 		if _, err := os.Stat(filepath.Join(st, f)); err != nil {
 			t.Errorf("%s was not migrated to state dir", f)
 		}
 		if _, err := os.Stat(filepath.Join(legacy, f)); err == nil {
 			t.Errorf("%s still present in legacy dir after migration", f)
 		}
+	}
+	// wallet_stats.db is merged, not moved; a fake non-DB stays in legacy.
+	if _, err := os.Stat(filepath.Join(legacy, "wallet_stats.db")); err != nil {
+		t.Error("wallet_stats.db should remain in legacy dir (not merged: not a real DB)")
 	}
 	if got, _ := os.ReadFile(filepath.Join(st, "discord_webhook")); string(got) != "kept-target" {
 		t.Errorf("pre-existing target was clobbered (want kept-target, got %q)", got)
@@ -1518,27 +1525,173 @@ func TestMigrateLegacyState(t *testing.T) {
 	}
 }
 
-func TestMigrateLegacyStateRespectsStatsDB(t *testing.T) {
+func TestMigrateLegacyStateSalvagesStatsDBWhenSet(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("URWEBDASH_HOME", "")
-	t.Setenv("STATS_DB", "/custom/stats.db")
+	t.Setenv("STATS_DB", filepath.Join(home, ".urwebdash", "wallet_stats.db"))
 
+	st := filepath.Join(home, ".urwebdash")
 	legacy := filepath.Join(home, ".urnetwork")
 	os.MkdirAll(legacy, 0700)
-	os.WriteFile(filepath.Join(legacy, "wallet_stats.db"), []byte("db"), 0600)
 	os.WriteFile(filepath.Join(legacy, "discord_webhook"), []byte("x"), 0600)
+
+	// Build a real legacy DB with history.
+	legacyDB := filepath.Join(legacy, "wallet_stats.db")
+	writeTestDB(t, legacyDB, []row{
+		{ts: "2026-09-01T00:00:00Z", paid: 1000, unpaid: 2000},
+		{ts: "2026-09-01T00:15:00Z", paid: 1100, unpaid: 2100},
+		{ts: "2026-09-01T00:30:00Z", paid: 1200, unpaid: 2200},
+	})
+
+	// The upgraded poller already wrote some rows into the new DB, one of
+	// which overlaps a legacy timestamp (verifies OR IGNORE dedupe).
+	newDBPath := filepath.Join(st, "wallet_stats.db")
+	os.MkdirAll(st, 0700)
+	writeTestDB(t, newDBPath, []row{
+		{ts: "2026-09-01T00:30:00Z", paid: 99999, unpaid: 88888}, // overlap — must keep existing
+		{ts: "2026-09-01T00:45:00Z", paid: 1300, unpaid: 2300},   // fresh, must survive
+	})
 
 	migrateLegacyState()
 
+	merged := readTestDB(t, newDBPath)
+	if len(merged) != 4 {
+		t.Fatalf("expected 4 merged rows (3 legacy + 1 fresh, 1 overlap deduped), got %d: %v", len(merged), merged)
+	}
+	want := map[string]int64{
+		"2026-09-01T00:00:00Z": 1000,  // from legacy
+		"2026-09-01T00:15:00Z": 1100,  // from legacy
+		"2026-09-01T00:30:00Z": 99999, // overlap → kept the NEWER existing value
+		"2026-09-01T00:45:00Z": 1300,  // fresh polled row survives
+	}
+	for _, r := range merged {
+		if want[r.ts] != r.paid {
+			t.Errorf("row %s paid=%d, want %d (merge picked wrong value)", r.ts, r.paid, want[r.ts])
+		}
+	}
+	// Legacy DB must be left intact (it is the backup / source of truth).
+	if fi, err := os.Stat(legacyDB); err != nil || fi.Size() == 0 {
+		t.Errorf("legacy DB should remain in place after merge, err=%v", err)
+	}
+	// Provider files still untouched (nothing in this flow creates jwt).
+	if _, err := os.Stat(filepath.Join(legacy, "jwt")); err == nil {
+		t.Error("jwt was unexpectedly created in legacy dir")
+	}
+}
+
+func TestMigrateLegacyStateDockerLegacyRoot(t *testing.T) {
+	// Docker pre-v0.0.14 root: /data, with state dir /data/.urwebdash and
+	// the legacy DB directly at /data/wallet_stats.db (mirrors old Dockerfile
+	// STATS_DB=/data/wallet_stats.db).
+	data := t.TempDir()
+	t.Setenv("URWEBDASH_HOME", filepath.Join(data, ".urwebdash"))
+	t.Setenv("STATS_DB", filepath.Join(data, ".urwebdash", "wallet_stats.db"))
+
+	legacyRoot := filepath.Dir(filepath.Join(data, ".urwebdash")) // == data
+	legacyDB := filepath.Join(legacyRoot, "wallet_stats.db")
+	writeTestDB(t, legacyDB, []row{
+		{ts: "2026-08-01T00:00:00Z", paid: 500, unpaid: 600},
+	})
+
+	// New (empty) DB created by the already-running v0.0.14/15 poller.
+	newDBPath := filepath.Join(data, ".urwebdash", "wallet_stats.db")
+	os.MkdirAll(filepath.Dir(newDBPath), 0700)
+	writeTestDB(t, newDBPath, []row{
+		{ts: "2026-09-01T00:00:00Z", paid: 700, unpaid: 800},
+	})
+
+	migrateLegacyState()
+
+	merged := readTestDB(t, newDBPath)
+	if len(merged) != 2 {
+		t.Fatalf("expected 2 rows after docker legacy merge, got %d: %v", len(merged), merged)
+	}
+}
+
+// row is a minimal wallet_stats fixture.
+type row struct {
+	ts           string
+	paid, unpaid int64
+}
+
+func TestSalvageSkipsPermanentlyUnmergeableCandidate(t *testing.T) {
+	// A non-dashboard SQLite file at a legacy path (no wallet_stats table) is
+	// permanently unmergeable: it must not block the sentinel (else the scan
+	// repeats every boot), and must not error out the salvage.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("URWEBDASH_HOME", "")
+	t.Setenv("STATS_DB", filepath.Join(home, ".urwebdash", "wallet_stats.db"))
+
 	st := filepath.Join(home, ".urwebdash")
-	if _, err := os.Stat(filepath.Join(st, "discord_webhook")); err != nil {
-		t.Error("discord_webhook should still migrate even when STATS_DB is set")
+	os.MkdirAll(st, 0700)
+	// A real dashboard DB at the new path with one fresh row.
+	writeTestDB(t, filepath.Join(st, "wallet_stats.db"), []row{{ts: "2026-09-01T00:00:00Z", paid: 1, unpaid: 2}})
+	// A legacy DB at the Docker root that has no wallet_stats table.
+	legacy := filepath.Join(home, "wallet_stats.db")
+	legacyDB, err := sql.Open("sqlite", legacy)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(st, "wallet_stats.db")); err == nil {
-		t.Error("wallet_stats.db must NOT auto-migrate when STATS_DB is set (operator-managed)")
+	legacyDB.Exec(`CREATE TABLE some_other_thing (id INTEGER)`)
+	legacyDB.Close()
+
+	migrateLegacyState()
+
+	if _, err := os.Stat(filepath.Join(st, ".wallet_stats_salvaged")); err != nil {
+		t.Fatalf("sentinel should be written even when a candidate is permanently unmergeable: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(legacy, "wallet_stats.db")); err != nil {
-		t.Error("wallet_stats.db should remain in legacy dir when STATS_DB is set")
+}
+
+func writeTestDB(t *testing.T, path string, rows []row) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS wallet_stats (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL DEFAULT '',
+		network_name TEXT NOT NULL DEFAULT '',
+		paid_bytes INTEGER NOT NULL DEFAULT 0,
+		unpaid_bytes INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL UNIQUE,
+		updated_at TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if _, err := db.Exec(`INSERT OR IGNORE INTO wallet_stats(user_id, network_name, paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?,?,?,?,?,?)`, "", "", r.paid, r.unpaid, r.ts, r.ts); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+type testRow struct {
+	ts   string
+	paid int64
+}
+
+func readTestDB(t *testing.T, path string) []testRow {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT paid_bytes, created_at FROM wallet_stats ORDER BY created_at`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []testRow
+	for rows.Next() {
+		var r testRow
+		if err := rows.Scan(&r.paid, &r.ts); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, r)
+	}
+	return out
 }

@@ -5,9 +5,11 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"net"
 	"net/http"
@@ -179,24 +181,29 @@ func stateDir() string {
 }
 
 // migrateLegacyState moves dashboard-owned files found in the legacy
-// locations (the old ~/.urnetwork default, or an intermediate
-// stateDir()/.urnetwork layout) into the dedicated state dir. Only known
-// dashboard files are moved; provider files (jwt, .client_jwts*, proxy*,
-// provider_state*, ...) are never touched. Idempotent — only moves when the
-// target is absent, so upgrades and re-runs are safe. The stats DB is only
-// auto-migrated when STATS_DB is left unset (an explicit STATS_DB is the
-// operator's choice and stays put).
+// locations (the old ~/.urnetwork default, an intermediate
+// stateDir()/.urnetwork layout, and the pre-v0.0.14 Docker root — the parent
+// of stateDir, e.g. /data when stateDir is /data/.urwebdash) into the
+// dedicated state dir. Only known dashboard files are moved; provider files
+// (jwt, .client_jwts*, proxy*, provider_state*, ...) are never touched.
+// Idempotent — only moves when the target is absent, so upgrades and re-runs
+// are safe.
+//
+// The stats DB is not moved here. It is MERGED by salvageLegacyStatsDB, which
+// works even when STATS_DB is set explicitly (always true in Docker) and
+// preserves any rows the upgraded poller has already written into the new DB.
 func migrateLegacyState() {
 	st := stateDir()
 	if err := os.MkdirAll(st, 0700); err != nil {
 		return
 	}
 	home, _ := os.UserHomeDir()
-	candidates := []string{filepath.Join(home, ".urnetwork"), filepath.Join(st, ".urnetwork")}
-	files := []string{"discord_webhook", "spike_threshold", "payout_notified.json"}
-	if os.Getenv("STATS_DB") == "" {
-		files = append(files, "wallet_stats.db", "wallet_stats.db-shm", "wallet_stats.db-wal")
+	candidates := []string{
+		filepath.Join(home, ".urnetwork"),
+		filepath.Join(st, ".urnetwork"),
+		filepath.Dir(st), // Docker pre-v0.0.14 root (e.g. /data)
 	}
+	files := []string{"discord_webhook", "spike_threshold", "payout_notified.json"}
 	for _, src := range candidates {
 		for _, f := range files {
 			sp := filepath.Join(src, f)
@@ -212,6 +219,191 @@ func migrateLegacyState() {
 			}
 		}
 	}
+	salvageLegacyStatsDB(home, st)
+}
+
+// salvageLegacyStatsDB merges wallet_stats history from any legacy DB into the
+// live stats DB. It is the safety net for the v0.0.14 "dedicated state dir"
+// change, which relocated STATS_DB (e.g. /data/wallet_stats.db ->
+// /data/.urwebdash/wallet_stats.db in Docker) but never migrated the actual
+// file — so an upgraded install that had polled for a while still held its
+// history in the old location, apparently "wiped".
+//
+// A merge is used instead of a move because the new DB may already contain
+// rows written by the upgraded poller; INSERT OR IGNORE on the UNIQUE
+// created_at column unions both sets and keeps the newer data. It is
+// idempotent (re-runs insert nothing new) and never touches provider files.
+func salvageLegacyStatsDB(home, st string) {
+	// Sentinel: once a legacy DB has been folded in, don't rescan it on every
+	// boot — the old file stays as a backup, but re-merging it each startup is
+	// wasted work (thousands of rows × both run+serve processes).
+	sentinel := filepath.Join(st, ".wallet_stats_salvaged")
+	if _, err := os.Stat(sentinel); err == nil {
+		return
+	}
+	target := filepath.Clean(dbPath())
+	legacy := []string{
+		filepath.Join(home, ".urnetwork", "wallet_stats.db"),
+		filepath.Join(st, ".urnetwork", "wallet_stats.db"),
+		filepath.Join(filepath.Dir(st), "wallet_stats.db"), // Docker pre-v0.0.14
+	}
+	// Skip target setup entirely when there is no legacy candidate to read.
+	var targetFI os.FileInfo
+	targetFI, _ = os.Stat(target)
+	hasCandidate := false
+	for _, p := range legacy {
+		if filepath.Clean(p) == target {
+			continue
+		}
+		fi, err := os.Stat(p)
+		if err != nil {
+			// Only a missing file (or directory) means "not a candidate."
+			// A permission/I-O error means there MAY be legacy history we
+			// cannot read — surface it so the merge loop logs and retries.
+			if !errors.Is(err, fs.ErrNotExist) {
+				fmt.Printf("[config] salvage candidate %s stat error: %v\n", p, err)
+				hasCandidate = true
+			}
+			continue
+		}
+		if fi.IsDir() {
+			continue
+		}
+		if targetFI != nil && os.SameFile(fi, targetFI) {
+			continue // legacy path aliases the target via symlink — self-merge guard
+		}
+		hasCandidate = true
+		break
+	}
+	if !hasCandidate {
+		return
+	}
+
+	dst, err := openDB()
+	if err != nil {
+		fmt.Printf("[config] salvage skipped: open target db: %v\n", err)
+		return
+	}
+	defer dst.Close()
+	recovered, failed := 0, 0
+	for _, p := range legacy {
+		if filepath.Clean(p) == target {
+			continue
+		}
+		fi, err := os.Stat(p)
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				fmt.Printf("[config] salvage %s stat error: %v\n", p, err)
+				failed++ // unknown state — do not write the sentinel
+			}
+			continue
+		}
+		if fi.IsDir() {
+			continue
+		}
+		if targetFI != nil && os.SameFile(fi, targetFI) {
+			continue
+		}
+		n, err := mergeLegacyStats(p, dst)
+		if err != nil {
+			fmt.Printf("[config] salvage %s skipped: %v\n", p, err)
+			if !errors.Is(err, errLegacyStatsNotMergeable) {
+				failed++ // retryable — do not write the sentinel yet
+			}
+			continue
+		}
+		if n > 0 {
+			recovered += n
+			fmt.Printf("[config] recovered %d stats rows from legacy db %s\n", n, p)
+		}
+	}
+	// Write the sentinel only when nothing retryable is left: a permanently
+	// unmergeable candidate (no wallet_stats table) or an empty legacy DB is
+	// not going to change, but a transient failure must be retried next boot.
+	if failed == 0 {
+		if err := os.WriteFile(sentinel, []byte(time.Now().UTC().Format(time.RFC3339)), 0600); err != nil {
+			fmt.Printf("[config] salvage done but could not write sentinel %v: %v\n", sentinel, err)
+		}
+	}
+}
+
+var errLegacyStatsNotMergeable = errors.New("legacy stats database is not mergeable (no wallet_stats table)")
+
+// mergeLegacyStats reads wallet_stats rows from the legacy read-only DB and
+// inserts them into dst, ignoring any whose created_at already exists there.
+// Returns the number of rows actually inserted. Rows are read in created_at
+// order so that AUTOINCREMENT ids stay roughly chronological, and the source
+// is opened with an absolute path (a relative one would break the file: URI,
+// which parses the first path segment as an authority). The source is never
+// modified (mode=ro); only the target is written, transactionally.
+func mergeLegacyStats(path string, dst *sql.DB) (int, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return 0, err
+	}
+	dsn := (&url.URL{Scheme: "file", Path: abs, RawQuery: "mode=ro"}).String()
+	src, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return 0, err
+	}
+	defer src.Close()
+
+	var hasTable int
+	if err := src.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='wallet_stats'`).Scan(&hasTable); err != nil {
+		return 0, err
+	}
+	if hasTable == 0 {
+		return 0, errLegacyStatsNotMergeable
+	}
+	var total int
+	if err := src.QueryRow(`SELECT COUNT(*) FROM wallet_stats`).Scan(&total); err != nil {
+		return 0, err
+	}
+	if total == 0 {
+		return 0, nil
+	}
+
+	tx, err := dst.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() // no-op after a successful Commit
+
+	stmt, err := tx.Prepare(`INSERT INTO wallet_stats(user_id, network_name, paid_bytes, unpaid_bytes, created_at, updated_at)
+		SELECT ?,?,?,?,?,?
+		WHERE NOT EXISTS (SELECT 1 FROM wallet_stats WHERE created_at = ?)`)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+
+	rows, err := src.Query(`SELECT user_id, network_name, paid_bytes, unpaid_bytes, created_at, updated_at FROM wallet_stats ORDER BY created_at ASC`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	merged := 0
+	for rows.Next() {
+		var uid, name, ca, ua string
+		var pb, ub int64
+		if err := rows.Scan(&uid, &name, &pb, &ub, &ca, &ua); err != nil {
+			return 0, err
+		}
+		res, err := stmt.Exec(uid, name, pb, ub, ca, ua, ca)
+		if err != nil {
+			return 0, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			merged++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return merged, nil
 }
 
 func dbPath() string {
@@ -538,7 +730,7 @@ func runPolling() {
 		}
 		fmt.Printf("[stats] stored: paid=%d unpaid=%d\n", stats.PaidBytes, stats.UnpaidBytes)
 
-		checkTrafficSpike(db, stats.UnpaidBytes, now)
+		checkTrafficSpike(db, stats.UnpaidBytes, now, nowStr)
 	}
 
 	// Immediate first poll so the dashboard has data right away; afterwards
@@ -919,7 +1111,7 @@ func handleRefresh(token string, db *sql.DB) http.HandlerFunc {
 					jsonError(w, err.Error())
 					return
 				}
-				checkTrafficSpike(db, stats.UnpaidBytes, now)
+				checkTrafficSpike(db, stats.UnpaidBytes, now, windowStart.Format(time.RFC3339))
 			}
 		}
 
@@ -1273,11 +1465,12 @@ func parseSize(s string) (int64, error) {
 	return int64(num * mult), nil
 }
 
-func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time) {
+func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time, currentAt string) {
 	var prevUnpaid sql.NullInt64
 	var prevAt sql.NullString
 	db.QueryRow(
-		"SELECT unpaid_bytes, created_at FROM wallet_stats ORDER BY id DESC LIMIT 1 OFFSET 1",
+		"SELECT unpaid_bytes, created_at FROM wallet_stats WHERE created_at <= ? ORDER BY created_at DESC LIMIT 1 OFFSET 1",
+		currentAt,
 	).Scan(&prevUnpaid, &prevAt)
 	if !prevUnpaid.Valid {
 		return
