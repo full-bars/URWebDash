@@ -1373,3 +1373,93 @@ func TestHandleWebhookClearReportsEffectiveState(t *testing.T) {
 		}
 	})
 }
+
+func TestHandleSpikeThreshold(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	get := func() map[string]interface{} {
+		req := httptest.NewRequest("GET", "/api/spike-threshold", nil)
+		rec := httptest.NewRecorder()
+		handleSpikeThreshold(rec, req)
+		var got map[string]interface{}
+		_ = json.Unmarshal(rec.Body.Bytes(), &got)
+		return got
+	}
+	post := func(gb float64) map[string]interface{} {
+		req := httptest.NewRequest("POST", "/api/spike-threshold", strings.NewReader(fmt.Sprintf(`{"threshold_gb":%v}`, gb)))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		handleSpikeThreshold(rec, req)
+		var got map[string]interface{}
+		_ = json.Unmarshal(rec.Body.Bytes(), &got)
+		return got
+	}
+	gbv := func(got map[string]interface{}) float64 { return got["threshold_gb"].(float64) }
+
+	t.Run("default is 1.0 GB", func(t *testing.T) {
+		t.Setenv("SPIKE_THRESHOLD", "")
+		got := get()
+		if v := gbv(got); v < 0.999999 || v > 1.000001 {
+			t.Errorf("threshold_gb = %v, want ~1.0", v)
+		}
+		if got["configured"] != false {
+			t.Errorf("configured = %v, want false", got["configured"])
+		}
+	})
+
+	t.Run("save then get round-trips exactly", func(t *testing.T) {
+		t.Setenv("SPIKE_THRESHOLD", "")
+		post(1.5)
+		b, err := os.ReadFile(filepath.Join(home, ".urnetwork", "spike_threshold"))
+		if err != nil {
+			t.Fatalf("read saved file: %v", err)
+		}
+		if s := strings.TrimSpace(string(b)); s != "1500000000" {
+			t.Errorf("saved file = %q, want 1500000000 (1.5e9 bytes)", s)
+		}
+		got := get()
+		if got["configured"] != true {
+			t.Errorf("configured = %v, want true", got["configured"])
+		}
+		if got["source"] != "file" {
+			t.Errorf("source = %v, want file", got["source"])
+		}
+		if v := gbv(got); v < 1.4999 || v > 1.5001 {
+			t.Errorf("threshold_gb = %v, want ~1.5", v)
+		}
+	})
+
+	t.Run("env var wins and reports source env", func(t *testing.T) {
+		t.Setenv("SPIKE_THRESHOLD", "2GB")
+		got := get()
+		if got["source"] != "env" {
+			t.Errorf("source = %v, want env", got["source"])
+		}
+		want := float64(2*1024*1024*1024) / 1e9 // 2 GiB as decimal GB
+		if v := gbv(got); v < want-1e-6 || v > want+1e-6 {
+			t.Errorf("threshold_gb = %v, want %v", v, want)
+		}
+	})
+
+	t.Run("negative and out-of-range rejected", func(t *testing.T) {
+		t.Setenv("SPIKE_THRESHOLD", "")
+		if got := post(-1); got["error"] == nil {
+			t.Error("expected error for negative threshold")
+		}
+		if got := post(1e15); got["error"] == nil {
+			t.Error("expected error for out-of-range threshold")
+		}
+	})
+
+	t.Run("CSRF rejects non-json content-type", func(t *testing.T) {
+		t.Setenv("SPIKE_THRESHOLD", "")
+		req := httptest.NewRequest("POST", "/api/spike-threshold", strings.NewReader(`{"threshold_gb":2}`))
+		req.Header.Set("Content-Type", "text/plain")
+		rec := httptest.NewRecorder()
+		handleSpikeThreshold(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", rec.Code)
+		}
+	})
+}

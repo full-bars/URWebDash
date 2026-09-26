@@ -266,6 +266,21 @@
         Use <b>Send Test</b> to verify — it posts a sample message to the URL in the box (or to the configured one if the box is empty). Alerts are also sent when notifications fire from the poller.
       </div>
     </div>
+
+    <div class="webhook-panel" style="margin-top:16px">
+      <div class="field-label">Traffic spike alert threshold</div>
+      <p class="webhook-note" style="margin-top:4px">Alert when the unpaid-bytes delta in one polling window exceeds this amount.</p>
+      <div id="spike-env-warning" class="webhook-warning">
+        ⚠️ The <b>SPIKE_THRESHOLD</b> environment variable is set and takes precedence. The value you save below is used once the env var is removed.
+      </div>
+      <div style="margin-top:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <input type="number" id="spike-threshold" step="0.1" min="0.1" value="1.0"
+          style="width:110px;padding:10px 12px;border-radius:8px;border:1px solid #374151;background:#111827;color:#e5e7eb;font-size:14px;font-family:'SF Mono','Fira Code','Cascadia Code',monospace" />
+        <span style="color:#9ca3af;font-size:13px">GB</span>
+        <button class="btn primary" id="spike-save-btn" onclick="saveSpikeThreshold(this)">💾 Save threshold</button>
+        <span id="spike-current" style="color:#6b7280;font-size:12px">Loading…</span>
+      </div>
+    </div>
   </div>
 </main>
 
@@ -356,7 +371,7 @@ function switchSection(section) {
   const target = document.getElementById('section-' + section);
   if (target) target.classList.add('active');
   if (section === 'payout' && !payoutLoaded) loadPayouts();
-  if (section === 'webhook') loadWebhookConfig();
+  if (section === 'webhook') { loadWebhookConfig(); loadSpikeThreshold(); }
   return false;
 }
 
@@ -976,6 +991,52 @@ async function clearWebhook(btn) {
     await loadWebhookConfig();
   } catch (e) {
     showToast('Failed to clear: ' + e.message, 'error');
+  } finally {
+    setWebhookBusy(btn, false, label);
+  }
+}
+
+async function loadSpikeThreshold() {
+  const cur = document.getElementById('spike-current');
+  const warn = document.getElementById('spike-env-warning');
+  const input = document.getElementById('spike-threshold');
+  if (!cur) return;
+  try {
+    const res = await fetch(API + '/api/spike-threshold');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (data.threshold_gb != null) input.value = Number(data.threshold_gb).toFixed(1);
+    cur.textContent = data.configured
+      ? 'Current: ' + Number(data.threshold_gb).toFixed(1) + ' GB (' + (data.source === 'env' ? 'from env' : 'saved') + ')'
+      : 'Current: default 1.0 GB';
+    warn.style.display = data.source === 'env' ? 'block' : 'none';
+  } catch (e) {
+    cur.textContent = 'Error loading threshold: ' + e.message;
+  }
+}
+
+async function saveSpikeThreshold(btn) {
+  const input = document.getElementById('spike-threshold');
+  const val = parseFloat(input.value);
+  if (!(val > 0)) {
+    showToast('Enter a threshold greater than 0', 'error');
+    input.focus();
+    return;
+  }
+  const label = btn.innerHTML;
+  setWebhookBusy(btn, true, 'Saving');
+  try {
+    const res = await fetch(API + '/api/spike-threshold', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threshold_gb: val })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    showToast('Threshold saved (' + val.toFixed(1) + ' GB)', 'success');
+    await loadSpikeThreshold();
+  } catch (e) {
+    showToast('Failed to save threshold: ' + e.message, 'error');
   } finally {
     setWebhookBusy(btn, false, label);
   }

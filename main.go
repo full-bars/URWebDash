@@ -664,6 +664,7 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/network", handleNetworkName(token))
 	mux.HandleFunc("/api/webhook", handleWebhook)
 	mux.HandleFunc("/api/webhook-test", handleWebhookTest)
+	mux.HandleFunc("/api/spike-threshold", handleSpikeThreshold)
 	mux.HandleFunc("/", handleIndex)
 
 	host := os.Getenv("HOST")
@@ -1524,6 +1525,69 @@ func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "status": status})
+}
+
+// spikeThresholdPath is the file where a threshold saved from the dashboard
+// is stored (0600). It is the same path spikeThreshold() reads.
+func spikeThresholdPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".urnetwork", "spike_threshold")
+}
+
+// handleSpikeThreshold powers the dashboard's traffic-spike threshold field:
+// GET returns the effective threshold in GB and its source, POST saves a new
+// GB value as a plain-byte count (so it round-trips exactly). A
+// SPIKE_THRESHOLD env var wins until removed, mirroring the webhook config.
+func handleSpikeThreshold(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case "GET":
+		env := os.Getenv("SPIKE_THRESHOLD")
+		fileURL, ferr := os.ReadFile(spikeThresholdPath())
+		source := ""
+		switch {
+		case env != "":
+			source = "env"
+		case ferr == nil && strings.TrimSpace(string(fileURL)) != "":
+			source = "file"
+		}
+		bytes := spikeThreshold() // respects env, file, default 1GB
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"threshold_gb": float64(bytes) / 1e9,
+			"source":       source,
+			"configured":   source != "",
+		})
+	case "POST":
+		if !webhookCSRFCheck(w, r) {
+			return
+		}
+		var req struct {
+			ThresholdGB float64 `json:"threshold_gb"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&req); err != nil {
+			jsonError(w, "invalid request body")
+			return
+		}
+		// Reject <=0, non-finite (NaN/Inf from JSON 1e999), and absurd values.
+		if req.ThresholdGB <= 0 || req.ThresholdGB != req.ThresholdGB || req.ThresholdGB > 1e6 {
+			jsonError(w, "threshold must be a positive GB value")
+			return
+		}
+		bytes := int64(req.ThresholdGB*1e9 + 0.5)
+		path := spikeThresholdPath()
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			jsonError(w, err.Error())
+			return
+		}
+		if err := os.WriteFile(path, []byte(strconv.FormatInt(bytes, 10)), 0600); err != nil {
+			jsonError(w, err.Error())
+			return
+		}
+		fmt.Printf("[webhook] spike threshold saved to %s (%.2f GB)\n", path, req.ThresholdGB)
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "configured": true, "threshold_gb": req.ThresholdGB})
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {

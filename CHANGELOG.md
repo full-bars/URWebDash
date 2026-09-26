@@ -2,6 +2,12 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## Unreleased
+
+### Added
+
+- Dashboard traffic-spike threshold editor: set the spike alert threshold in GB from the Webhook section (decimal stepper, default 1.0). Saves to `~/.urnetwork/spike_threshold` (0600) and takes effect immediately; a `SPIKE_THRESHOLD` env var still wins until removed.
+
 ## v0.0.12 - 2026-09-25
 
 ### Added
