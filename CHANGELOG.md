@@ -4,6 +4,12 @@ All notable changes. Format loosely follows Keep a Changelog.
 
 ## Unreleased
 
+### Fixed
+
+- Dashboard content now fills the available window width on wide/ultrawide displays. The main column was capped at 1280px, which left a large empty gutter on the right at 1440px and wider. The webhook panel cap was raised from 720px to 900px.
+
+## v0.0.14 - 2026-09-25
+
 ### Changed
 
 - Dashboard state moved to a dedicated `~/.urwebdash` directory (webhook, spike threshold, payout store, sqlite db) — no longer written into the provider's `~/.urnetwork`. The provider JWT is still read read-only from `~/.urnetwork/jwt`.
