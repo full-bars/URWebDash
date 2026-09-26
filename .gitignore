@@ -3,3 +3,6 @@
 *.db-wal
 *.db-journal
 urwebdash
+
+# local session-handoff notes (not a deliverable)
+progress.md
