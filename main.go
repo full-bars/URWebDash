@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -661,6 +662,8 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/refresh-payout", handleRefreshPayout(token))
 	mux.HandleFunc("/api/status", handleStatus)
 	mux.HandleFunc("/api/network", handleNetworkName(token))
+	mux.HandleFunc("/api/webhook", handleWebhook)
+	mux.HandleFunc("/api/webhook-test", handleWebhookTest)
 	mux.HandleFunc("/", handleIndex)
 
 	host := os.Getenv("HOST")
@@ -1276,18 +1279,87 @@ func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time) {
 	))
 }
 
-func discordWebhookURL() string {
-	if url := os.Getenv("DISCORD_WEBHOOK_URL"); url != "" {
-		return url
-	}
+// discordWebhookPath is the file where a URL saved from the dashboard is
+// stored (0600). It is the same path discordWebhookURL() reads, so a URL
+// saved from the UI takes effect on the next notification without a restart.
+func discordWebhookPath() string {
 	home, _ := os.UserHomeDir()
-	b, err := os.ReadFile(filepath.Join(home, ".urnetwork", "discord_webhook"))
+	return filepath.Join(home, ".urnetwork", "discord_webhook")
+}
+
+// discordWebhookFileURL returns the URL saved from the dashboard (empty
+// string when none is stored).
+func discordWebhookFileURL() string {
+	b, err := os.ReadFile(discordWebhookPath())
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
 }
 
+// discordWebhookURL resolves the effective webhook URL: the
+// DISCORD_WEBHOOK_URL env var wins when set, otherwise the URL saved from
+// the dashboard is used.
+func discordWebhookURL() string {
+	if url := os.Getenv("DISCORD_WEBHOOK_URL"); url != "" {
+		return url
+	}
+	return discordWebhookFileURL()
+}
+
+// isDiscordWebhookURL accepts the official webhook hosts. Only used for the
+// API/UI input validation; the poller and testwebhook command never validate
+// (tests point the env var at httptest servers).
+func isDiscordWebhookURL(u string) bool {
+	for _, prefix := range []string{
+		"https://discord.com/api/webhooks/",
+		"https://discordapp.com/api/webhooks/",
+		"https://ptb.discord.com/api/webhooks/",
+		"https://canary.discord.com/api/webhooks/",
+	} {
+		if strings.HasPrefix(u, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// maskWebhookURL hides the secret token (the segment after the webhook id).
+func maskWebhookURL(u string) string {
+	i := strings.LastIndex(u, "/")
+	if i == -1 {
+		return u
+	}
+	tail := u[i+1:]
+	if len(tail) > 4 {
+		tail = tail[:4] + "…"
+	}
+	return u[:i+1] + tail
+}
+
+// sendDiscordWebhook posts a message and reports the HTTP status / error
+// synchronously so callers can surface the result. It uses the shared
+// 15s-timeout httpClient: a stalled upstream must not hang the caller
+// (handleWebhookTest calls this synchronously inside a request handler).
+// On transport failure the returned error may embed the full webhook URL
+// (with its secret token), so API handlers must not echo it to clients.
+func sendDiscordWebhook(url, content string) (int, error) {
+	body, _ := json.Marshal(map[string]string{"content": content})
+	resp, err := httpClient.Post(url, "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode > 299 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return resp.StatusCode, fmt.Errorf("discord returned %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return resp.StatusCode, nil
+}
+
+// sendDiscordNotification posts content to the resolved webhook URL
+// asynchronously so a slow Discord round-trip never blocks the poller. It
+// logs and gives up when no URL is configured.
 func sendDiscordNotification(content string) {
 	url := discordWebhookURL()
 	if url == "" {
@@ -1295,18 +1367,163 @@ func sendDiscordNotification(content string) {
 		return
 	}
 	go func() {
-		body, _ := json.Marshal(map[string]string{"content": content})
-		resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
-		if err != nil {
-			fmt.Printf("[webhook] POST error: %v\n", err)
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode > 299 {
-			b, _ := io.ReadAll(resp.Body)
-			fmt.Printf("[webhook] %d: %s\n", resp.StatusCode, string(b))
+		if _, err := sendDiscordWebhook(url, content); err != nil {
+			fmt.Printf("[webhook] %v\n", err)
 		}
 	}()
+}
+
+// webhookCSRFCheck rejects cross-site write requests before any webhook
+// state is touched or any message is sent. The dashboard client always
+// posts with Content-Type application/json, so other media types (and a
+// missing Content-Type) are refused; browsers attach an Origin header to
+// POSTs, and a foreign Origin is refused. Requests without an Origin
+// header (curl, scripts, tests) pass — the check only exists to stop
+// browser-driven CSRF.
+func webhookCSRFCheck(w http.ResponseWriter, r *http.Request) bool {
+	reject := func(msg string) {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	}
+	ct := r.Header.Get("Content-Type")
+	if mt, _, err := mime.ParseMediaType(ct); ct == "" || err != nil || mt != "application/json" {
+		reject("Content-Type must be application/json")
+		return false
+	}
+	if origin := r.Header.Get("Origin"); origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil || u.Host != r.Host {
+			reject("cross-origin request rejected")
+			return false
+		}
+	}
+	return true
+}
+
+// handleWebhook powers the dashboard webhook section: GET returns the
+// configured state (URL masked), POST saves a new URL or clears it with an
+// empty string. DISCORD_WEBHOOK_URL env var wins if set. POSTs go through
+// webhookCSRFCheck first so a cross-site request cannot replace or clear
+// the saved URL.
+func handleWebhook(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case "GET":
+		envURL := strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK_URL"))
+		fileURL := discordWebhookFileURL()
+		effective := envURL
+		if effective == "" {
+			effective = fileURL
+		}
+		source := ""
+		switch {
+		case envURL != "":
+			source = "env"
+		case fileURL != "":
+			source = "file"
+		}
+		resp := map[string]interface{}{
+			"configured": effective != "",
+			"source":     source,
+		}
+		if effective != "" {
+			resp["url_masked"] = maskWebhookURL(effective)
+		}
+		json.NewEncoder(w).Encode(resp)
+	case "POST":
+		if !webhookCSRFCheck(w, r) {
+			return
+		}
+		var req struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+			jsonError(w, "invalid request body")
+			return
+		}
+		url := strings.TrimSpace(req.URL)
+		if url == "" {
+			// Blank clears the stored URL (a DISCORD_WEBHOOK_URL env var, if
+			// set, still applies until removed from the environment).
+			if err := os.Remove(discordWebhookPath()); err != nil && !os.IsNotExist(err) {
+				jsonError(w, err.Error())
+				return
+			}
+			fmt.Println("[webhook] stored URL cleared")
+			resp := map[string]interface{}{"ok": true, "configured": false}
+			if envURL := strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK_URL")); envURL != "" {
+				// Only the saved file was removed; a DISCORD_WEBHOOK_URL env
+				// var still applies, so report the effective live state.
+				resp["configured"] = true
+				resp["source"] = "env"
+			}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		if !isDiscordWebhookURL(url) {
+			jsonError(w, "URL must start with https://discord.com/api/webhooks/")
+			return
+		}
+		path := discordWebhookPath()
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			jsonError(w, err.Error())
+			return
+		}
+		if err := os.WriteFile(path, []byte(url), 0600); err != nil {
+			jsonError(w, err.Error())
+			return
+		}
+		fmt.Printf("[webhook] URL saved to %s\n", path)
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "configured": true})
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
+}
+
+// handleWebhookTest sends a sample notification. Optional body {"url": "..."}
+// tests the given URL (e.g. what is in the input box before saving);
+// without a body it tests the configured URL. The request goes through
+// webhookCSRFCheck first, and transport errors are returned as a generic
+// message so the webhook's secret token (which can appear inside a
+// transport error) is never echoed to the client.
+func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	if !webhookCSRFCheck(w, r) {
+		return
+	}
+	url := discordWebhookURL()
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err == nil && strings.TrimSpace(req.URL) != "" {
+		url = strings.TrimSpace(req.URL)
+	}
+	if url == "" {
+		jsonError(w, "no webhook URL configured")
+		return
+	}
+	if !isDiscordWebhookURL(url) {
+		jsonError(w, "URL must start with https://discord.com/api/webhooks/")
+		return
+	}
+	content := "✅ **URWebDash test notification**\nWebhook is working. Payout and traffic-spike alerts will arrive here."
+	status, err := sendDiscordWebhook(url, content)
+	if err != nil {
+		if status == 0 {
+			// Transport-level failure: the error can embed the full webhook
+			// URL (with its secret token), so return a generic message.
+			jsonError(w, "webhook request failed")
+			return
+		}
+		// Non-success HTTP response: surface Discord's actual response body.
+		jsonError(w, err.Error())
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "status": status})
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {

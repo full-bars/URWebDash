@@ -10,7 +10,7 @@ Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.io) pro
 - Last-7-days usage strip (calendar-day buckets, DST-safe)
 - Full payment history: amounts, points per payment, Solana tx links
 - Estimated amounts for pending payouts
-- Optional Discord notifications on new/completed payments and traffic spikes
+- Optional Discord notifications on new/completed payments and traffic spikes — configured from the dashboard's 🔔 Webhook section or the `DISCORD_WEBHOOK_URL` env var
 - Auto-refresh: dashboard every 30s, payout stats every 5m
 
 ## Install
@@ -24,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/install.
 The installer downloads the binary and runs `urwebdash setup` as your regular user (no sudo). Setup:
 
 1. Prompts for an [auth code](https://ur.io), but only if you have no session token yet.
-2. Optionally asks for a Discord webhook URL and a traffic spike threshold.
+2. Optionally asks for a Discord webhook URL and a traffic spike threshold. You can also add or change the webhook later in the dashboard under 🔔 Webhook.
 3. Auto-starts the poller and dashboard, and adds `~/.local/bin` to your PATH in your shell rc.
 
 When it finishes it starts the dashboard and prints the URL. The first poll happens immediately, so charts populate right away. The dashboard binds loopback only; for remote access see [Hosting options](#hosting-options).
@@ -110,6 +110,8 @@ docker run -d --name urwebdash \
 
 Replace `AUTH_CODE_HERE` with a real code from https://ur.io (keep the single quotes). The code is exchanged once on first start, then removable from the container config.
 
+The Discord webhook can be set in `.env` (`DISCORD_WEBHOOK_URL`) or configured later in the dashboard's 🔔 Webhook section — the URL is saved to `/data/.urnetwork/discord_webhook` and persists in the volume across container recreation. If both are set, the env var wins.
+
 For Compose instead of plain `docker run`:
 
 ```bash
@@ -158,7 +160,7 @@ Environment variables:
 | `STATS_INTERVAL` | `15m` | Polling interval, minimum 1m |
 | `JWT_PATH` | `~/.urnetwork/jwt` | URnetwork session token file |
 | `STATS_DB` | `~/.urnetwork/wallet_stats.db` | SQLite database path |
-| `DISCORD_WEBHOOK_URL` | *(unset)* | Webhook for alerts, or `~/.urnetwork/discord_webhook` file. Get one: Server Settings -> Integrations -> Webhooks |
+| `DISCORD_WEBHOOK_URL` | *(unset)* | Webhook for alerts, or `~/.urnetwork/discord_webhook` file (Docker: `/data/.urnetwork/discord_webhook`). Get one: Server Settings -> Integrations -> Webhooks. Also configurable in the dashboard under 🔔 Webhook; the env var wins if both are set |
 | `SPIKE_THRESHOLD` | `1GB` | Per-window traffic delta that triggers an alert. Accepts `500M`, `0.5G`, `1.5GB`, plain bytes |
 | `PAYOUT_NOTIFY_STORE` | `~/.urnetwork/payout_notified.json` | Notification dedup store |
 | `HOST` | `127.0.0.1` | Listen address. Inside Docker set `0.0.0.0`; exposure is controlled by the port mapping |
@@ -171,7 +173,7 @@ Troubleshooting:
 | Empty charts | The poller fetches immediately on start. If still empty, wait for the next quarter-hour or lower `STATS_INTERVAL`. |
 | API errors after a while | JWT expired or rotated. Get a fresh one and restart. |
 | Port already in use | `urwebdash serve 3002` |
-| No Discord notifications | Run `urwebdash testwebhook` with `DISCORD_WEBHOOK_URL` set. |
+| No Discord notifications | Run `urwebdash testwebhook`, or open the dashboard's 🔔 Webhook section and click 📣 Send Test — it reports Discord's actual response. |
 | Duplicate rows today | `urwebdash cleanup` |
 
 ## Building from source

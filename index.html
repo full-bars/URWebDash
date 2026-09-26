@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
   <title>Wallet Stats - URnetwork</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   <style>
@@ -88,6 +89,15 @@
     ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
     .loading-row td { text-align: center; padding: 32px; color: #6b7280; }
+    .webhook-panel { background: #1f2937; border: 1px solid #374151; border-radius: 10px; padding: 18px 20px; max-width: 720px; }
+    .webhook-panel .field-label { font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; }
+    .webhook-panel input[type="url"] { width: 100%; margin: 8px 0 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid #374151; background: #111827; color: #e5e7eb; font-size: 13px; font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; }
+    .webhook-panel input[type="url"]:focus { outline: none; border-color: #10b981; }
+    .webhook-panel input[type="url"]::placeholder { color: #4b5563; }
+    .webhook-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .webhook-note { color: #6b7280; font-size: 12px; line-height: 1.7; margin-top: 16px; }
+    .webhook-note code { background: #111827; border: 1px solid #374151; border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+    .webhook-warning { background: #78350f; border: 1px solid #f59e0b; color: #fcd34d; border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.5; margin-top: 12px; display: none; }
   </style>
 </head>
 <body>
@@ -100,6 +110,7 @@
   <div class="nav-links">
     <a href="#" class="active" data-section="wallet" onclick="return switchSection('wallet')">📊 Data Stats</a>
     <a href="#" data-section="payout" onclick="return switchSection('payout')">💰 Payout Stats</a>
+    <a href="#" data-section="webhook" onclick="return switchSection('webhook')">🔔 Webhook</a>
   </div>
   <div class="nav-footer" id="svc-status">—</div>
 </nav>
@@ -224,6 +235,38 @@
       <p>No payout data available. Try refreshing.</p>
     </div>
   </div>
+
+  <!-- Webhook Section -->
+  <div id="section-webhook" class="section">
+    <div class="header">
+      <h2>🔔 Discord Webhook</h2>
+      <p>Get Discord alerts for completed payouts and traffic spikes</p>
+      <div class="sub">Saved to <code>~/.urnetwork/discord_webhook</code> — no restart needed</div>
+    </div>
+
+    <div class="webhook-panel">
+      <div class="field-label">Status</div>
+      <div id="webhook-status" style="margin-top:4px;font-size:14px;font-weight:600">Loading…</div>
+      <div id="webhook-env-warning" class="webhook-warning">
+        ⚠️ The <b>DISCORD_WEBHOOK_URL</b> environment variable is set and takes precedence over the URL saved here. Alerts currently go to the env-var URL. The URL you save below will be used once the env var is removed.
+      </div>
+
+      <div style="margin-top:16px">
+        <label class="field-label" for="webhook-url">Webhook URL</label>
+        <input type="url" id="webhook-url" placeholder="https://discord.com/api/webhooks/…" spellcheck="false" autocomplete="off" />
+        <div class="webhook-actions">
+          <button class="btn primary" id="webhook-save-btn" onclick="saveWebhook(this)">💾 Save</button>
+          <button class="btn" id="webhook-test-btn" onclick="testWebhook(this)">📣 Send Test</button>
+          <button class="btn danger" id="webhook-clear-btn" onclick="clearWebhook(this)">🗑️ Clear</button>
+        </div>
+      </div>
+
+      <div class="webhook-note">
+        <b>How to get the URL:</b> in Discord, open <b>Server Settings → Integrations → Webhooks → New Webhook</b>, choose the channel for alerts, then <b>Copy Webhook URL</b> and paste it above.<br>
+        Use <b>Send Test</b> to verify — it posts a sample message to the URL in the box (or to the configured one if the box is empty). Alerts are also sent when notifications fire from the poller.
+      </div>
+    </div>
+  </div>
 </main>
 
 <div style="position:fixed;bottom:8px;right:8px;font-size:10px;color:#374151" id="js-status">JS: loading…</div>
@@ -313,6 +356,7 @@ function switchSection(section) {
   const target = document.getElementById('section-' + section);
   if (target) target.classList.add('active');
   if (section === 'payout' && !payoutLoaded) loadPayouts();
+  if (section === 'webhook') loadWebhookConfig();
   return false;
 }
 
@@ -808,6 +852,132 @@ async function refreshPayouts() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '🔄 Refresh';
+  }
+}
+
+// ---- Webhook section ----
+
+function setWebhookBusy(btn, busy, label) {
+  btn.disabled = busy;
+  btn.innerHTML = busy ? '<span class="spinner"></span> ' + label + '…' : label;
+}
+
+function updateWebhookStatus(data) {
+  const el = document.getElementById('webhook-status');
+  const warn = document.getElementById('webhook-env-warning');
+  if (!el) return;
+  if (data.configured) {
+    el.textContent = '';
+    const ok = document.createElement('span');
+    ok.className = 'text-green';
+    ok.textContent = '✅ Configured';
+    el.appendChild(ok);
+    if (data.url_masked) {
+      const masked = document.createElement('span');
+      masked.className = 'text-gray text-mono';
+      masked.style.fontWeight = '400';
+      masked.textContent = ' · ' + data.url_masked;
+      el.appendChild(masked);
+    }
+  } else {
+    el.className = 'text-yellow';
+    el.textContent = '❌ Not configured — paste your webhook URL below';
+  }
+  warn.style.display = data.source === 'env' ? 'block' : 'none';
+}
+
+async function loadWebhookConfig() {
+  const el = document.getElementById('webhook-status');
+  try {
+    const res = await fetch(API + '/api/webhook');
+    const data = await res.json();
+    updateWebhookStatus(data);
+  } catch (e) {
+    el.className = 'text-yellow';
+    el.textContent = 'Error loading webhook config: ' + e.message;
+  }
+}
+
+async function saveWebhook(btn) {
+  const input = document.getElementById('webhook-url');
+  const url = input.value.trim();
+  if (!url) {
+    showToast('Paste a webhook URL first', 'error');
+    input.focus();
+    return;
+  }
+  // Must match isDiscordWebhookURL() in main.go exactly (Go is the source
+  // of truth).
+  const prefixes = [
+    'https://discord.com/api/webhooks/',
+    'https://discordapp.com/api/webhooks/',
+    'https://ptb.discord.com/api/webhooks/',
+    'https://canary.discord.com/api/webhooks/'
+  ];
+  if (!prefixes.some((p) => url.startsWith(p))) {
+    showToast('URL must start with https://discord.com/api/webhooks/', 'error');
+    input.focus();
+    return;
+  }
+  const label = btn.innerHTML;
+  setWebhookBusy(btn, true, 'Saving');
+  try {
+    const res = await fetch(API + '/api/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    input.value = '';
+    showToast('Webhook URL saved', 'success');
+    await loadWebhookConfig();
+  } catch (e) {
+    showToast('Failed to save: ' + e.message, 'error');
+  } finally {
+    setWebhookBusy(btn, false, label);
+  }
+}
+
+async function testWebhook(btn) {
+  const url = document.getElementById('webhook-url').value.trim();
+  const label = btn.innerHTML;
+  setWebhookBusy(btn, true, 'Sending');
+  try {
+    const res = await fetch(API + '/api/webhook-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    showToast('Test notification sent — check Discord', 'success');
+  } catch (e) {
+    showToast('Test failed: ' + e.message, 'error');
+  } finally {
+    setWebhookBusy(btn, false, label);
+  }
+}
+
+async function clearWebhook(btn) {
+  if (!confirm('Remove the saved webhook URL? Alerts will stop.')) return;
+  const label = btn.innerHTML;
+  setWebhookBusy(btn, true, 'Clearing');
+  try {
+    const res = await fetch(API + '/api/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: '' })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    document.getElementById('webhook-url').value = '';
+    showToast('Webhook URL cleared', 'success');
+    await loadWebhookConfig();
+  } catch (e) {
+    showToast('Failed to clear: ' + e.message, 'error');
+  } finally {
+    setWebhookBusy(btn, false, label);
   }
 }
 

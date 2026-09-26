@@ -1,3 +1,14 @@
+# v0.0.10 (unreleased)
+
+### Features
+
+- **Webhook Management UI** - New "🔔 Webhook" dashboard section for Discord alert configuration without touching env vars or files. Shows the configured state with a masked URL (`…/webhooks/<id>/57zA…` — GET responses only ever return the masked URL, and failed test sends report transport errors without echoing it), an input for the webhook URL, and Save / Send Test / Clear actions. Note the Save/Test flow does send the pasted URL to the local server. Saves to `~/.urnetwork/discord_webhook` (0600; Docker: `/data/.urnetwork/discord_webhook`, persisted in the volume) and takes effect on the next notification without a restart. Backed by `GET`/`POST /api/webhook` and `POST /api/webhook-test`; the test button sends a sample message and surfaces Discord's real response (e.g. `404 Unknown Webhook` for a deleted webhook).
+- **Env/Save Precedence Made Visible** - If `DISCORD_WEBHOOK_URL` is set in the environment it still wins over the URL saved from the UI; the section shows an amber warning explaining this, so a "saved but alerts go elsewhere" situation is diagnosable from the dashboard.
+
+### Fixes
+
+- None in this change; existing poller/dedup behavior untouched (notification posting refactored around a synchronous helper with identical semantics).
+
 # v0.0.4
 
 ### Features

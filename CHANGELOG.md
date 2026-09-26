@@ -2,6 +2,18 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## Unreleased
+
+### Added
+
+- Dashboard webhook management: new "🔔 Webhook" section where you can view the configured state (URL shown masked), paste a Discord webhook URL, save it, send a test notification, or clear it. Saves to `~/.urnetwork/discord_webhook` (Docker: `/data/.urnetwork/discord_webhook`, persisted in the volume) and takes effect immediately — no restart.
+- API endpoints backing the section: `GET`/`POST /api/webhook` (responses mask the secret token) and `POST /api/webhook-test` (returns Discord's actual response or success; tests the URL in the input box before saving).
+
+### Changed
+
+- `DISCORD_WEBHOOK_URL` env var still takes precedence over the saved URL when set; the dashboard shows a warning so the overlap is visible.
+- `urwebdash testwebhook` output unchanged; notification posting refactored around a shared helper (no behavior change).
+
 ## v0.0.7 - 2026-08-23
 
 ### Security
