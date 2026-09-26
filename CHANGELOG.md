@@ -4,6 +4,18 @@ All notable changes. Format loosely follows Keep a Changelog.
 
 ## Unreleased
 
+## v0.0.16 - 2026-09-26
+
+### Fixed
+
+- Auto-salvage of lost dashboard history after the v0.0.14 state-dir move. That release relocated the stats database from `/data/wallet_stats.db` to `/data/.urwebdash/wallet_stats.db` in Docker (and `~/.urnetwork` → `~/.urwebdash` natively) but never moved the actual database file, so upgraded installs that had polled for a while kept reading a fresh empty DB at the new path and their history appeared "gone" (the file was still at the old path, untouched). On startup the dashboard now finds legacy DBs in the old locations and merges their rows into the live DB (deduplicated on the unique `created_at`, so it is a true union), preserving any fresh rows the upgraded poller already wrote. Idempotent via a sentinel so it only runs once; provider files are never touched. A completed merge is logged as `[config] recovered N stats rows`.
+
+### Changed
+
+- Traffic spike detection now orders the "previous row" lookup by `created_at` rather than `id`, so backfilled historical rows can't be mistaken for the most recent poll window.
+
+## v0.0.15 - 2026-09-26
+
 ### Fixed
 
 - Dashboard content now fills the available window width on wide/ultrawide displays. The main column was capped at 1280px, which left a large empty gutter on the right at 1440px and wider. The webhook panel cap was raised from 720px to 900px.
