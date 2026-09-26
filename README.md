@@ -110,7 +110,7 @@ docker run -d --name urwebdash \
 
 Replace `AUTH_CODE_HERE` with a real code from https://ur.io (keep the single quotes). The code is exchanged once on first start, then removable from the container config.
 
-The Discord webhook can be set in `.env` (`DISCORD_WEBHOOK_URL`) or configured later in the dashboard's 🔔 Webhook section — the URL is saved to `/data/.urnetwork/discord_webhook` and persists in the volume across container recreation. If both are set, the env var wins.
+The Discord webhook can be set in `.env` (`DISCORD_WEBHOOK_URL`) or configured later in the dashboard's 🔔 Webhook section — the URL is saved to `/data/.urwebdash/discord_webhook` and persists in the volume across container recreation. If both are set, the env var wins.
 
 For Compose instead of plain `docker run`:
 
@@ -159,10 +159,10 @@ Environment variables:
 |---|---|---|
 | `STATS_INTERVAL` | `15m` | Polling interval, minimum 1m |
 | `JWT_PATH` | `~/.urnetwork/jwt` | URnetwork session token file |
-| `STATS_DB` | `~/.urnetwork/wallet_stats.db` | SQLite database path |
-| `DISCORD_WEBHOOK_URL` | *(unset)* | Webhook for alerts, or `~/.urnetwork/discord_webhook` file (Docker: `/data/.urnetwork/discord_webhook`). Get one: Server Settings -> Integrations -> Webhooks. Also configurable in the dashboard under 🔔 Webhook; the env var wins if both are set |
+| `STATS_DB` | `~/.urwebdash/wallet_stats.db` | SQLite database path |
+| `DISCORD_WEBHOOK_URL` | *(unset)* | Webhook for alerts, or `~/.urwebdash/discord_webhook` file (Docker: `/data/.urwebdash/discord_webhook`). Get one: Server Settings -> Integrations -> Webhooks. Also configurable in the dashboard under 🔔 Webhook; the env var wins if both are set |
 | `SPIKE_THRESHOLD` | `1GB` | Per-window traffic delta that triggers an alert. Accepts `500M`, `0.5G`, `1.5GB`, plain bytes |
-| `PAYOUT_NOTIFY_STORE` | `~/.urnetwork/payout_notified.json` | Notification dedup store |
+| `PAYOUT_NOTIFY_STORE` | `~/.urwebdash/payout_notified.json` | Notification dedup store |
 | `HOST` | `127.0.0.1` | Listen address. Inside Docker set `0.0.0.0`; exposure is controlled by the port mapping |
 
 Troubleshooting:

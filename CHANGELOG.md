@@ -4,6 +4,15 @@ All notable changes. Format loosely follows Keep a Changelog.
 
 ## Unreleased
 
+### Changed
+
+- Dashboard state moved to a dedicated `~/.urwebdash` directory (webhook, spike threshold, payout store, sqlite db) — no longer written into the provider's `~/.urnetwork`. The provider JWT is still read read-only from `~/.urnetwork/jwt`.
+- First run of v0.0.14 auto-migrates existing dashboard files out of `~/.urnetwork` into `~/.urwebdash` (provider files are never touched).
+- Docker: dashboard state now under `/data/.urwebdash` (was `/data/.urnetwork`), persisted in the same volume.
+- New `URWEBDASH_HOME` env var overrides the state directory.
+
+## v0.0.13 - 2026-09-25
+
 ### Added
 
 - Dashboard traffic-spike threshold editor: set the spike alert threshold in GB from the Webhook section (decimal stepper, default 1.0). Saves to `~/.urnetwork/spike_threshold` (0600) and takes effect immediately; a `SPIKE_THRESHOLD` env var still wins until removed.

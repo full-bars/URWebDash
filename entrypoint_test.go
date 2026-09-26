@@ -130,14 +130,14 @@ func TestParseSize_RegressionCoversDockerDocs(t *testing.T) {
 }
 
 // TestSpikeThresholdFileFallback covers reading SPIKE_THRESHOLD from the
-// ~/.urnetwork/spike_threshold file when the env var is unset.
+// ~/.urwebdash/spike_threshold file when the env var is unset.
 func TestSpikeThresholdFileFallback(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)        // linux
 	t.Setenv("USERPROFILE", tmpHome) // windows
 	t.Setenv("SPIKE_THRESHOLD", "")
 
-	dir := filepath.Join(tmpHome, ".urnetwork")
+	dir := filepath.Join(tmpHome, ".urwebdash")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestSyncEnvConfigToVolume(t *testing.T) {
 	// webhook: env set, no file -> file written
 	t.Setenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/a/b")
 	syncEnvConfigToVolume()
-	wh := filepath.Join(tmpHome, ".urnetwork", "discord_webhook")
+	wh := filepath.Join(tmpHome, ".urwebdash", "discord_webhook")
 	b, err := os.ReadFile(wh)
 	if err != nil || strings.TrimSpace(string(b)) != "https://discord.com/api/webhooks/a/b" {
 		t.Fatalf("webhook not persisted: %v %q", err, string(b))
@@ -229,7 +229,7 @@ func TestSyncEnvConfigToVolume(t *testing.T) {
 	// threshold: same behavior
 	t.Setenv("SPIKE_THRESHOLD", "500M")
 	syncEnvConfigToVolume()
-	thb, err := os.ReadFile(filepath.Join(tmpHome, ".urnetwork", "spike_threshold"))
+	thb, err := os.ReadFile(filepath.Join(tmpHome, ".urwebdash", "spike_threshold"))
 	if err != nil || strings.TrimSpace(string(thb)) != "500M" {
 		t.Fatalf("threshold not persisted: %v %q", err, string(thb))
 	}

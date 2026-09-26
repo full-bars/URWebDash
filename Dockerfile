@@ -14,9 +14,9 @@ RUN adduser -D -h /data -u 1000 urwebdash \
 COPY --from=build /out/urwebdash /usr/local/bin/urwebdash
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-ENV STATS_DB=/data/wallet_stats.db \
+ENV STATS_DB=/data/.urwebdash/wallet_stats.db \
     JWT_PATH=/data/jwt \
-    PAYOUT_NOTIFY_STORE=/data/payout_notified.json \
+    PAYOUT_NOTIFY_STORE=/data/.urwebdash/payout_notified.json \
     HOST=0.0.0.0
 VOLUME /data
 EXPOSE 3001

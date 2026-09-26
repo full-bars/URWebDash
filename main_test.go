@@ -31,7 +31,7 @@ func TestPathDefaults(t *testing.T) {
 	os.Unsetenv("STATS_DB")
 	os.Unsetenv("JWT_PATH")
 	home, _ := os.UserHomeDir()
-	wantDB := filepath.Join(home, ".urnetwork", "wallet_stats.db")
+	wantDB := filepath.Join(home, ".urwebdash", "wallet_stats.db")
 	if p := dbPath(); p != wantDB {
 		t.Fatalf("dbPath() = %q, want %q", p, wantDB)
 	}
@@ -1324,7 +1324,7 @@ func TestIsDiscordWebhookURL(t *testing.T) {
 func TestHandleWebhookClearReportsEffectiveState(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	saved := filepath.Join(home, ".urnetwork", "discord_webhook")
+	saved := filepath.Join(home, ".urwebdash", "discord_webhook")
 	savedURL := "https://discord.com/api/webhooks/1/saved-token"
 
 	doClear := func() map[string]interface{} {
@@ -1411,7 +1411,7 @@ func TestHandleSpikeThreshold(t *testing.T) {
 	t.Run("save then get round-trips exactly", func(t *testing.T) {
 		t.Setenv("SPIKE_THRESHOLD", "")
 		post(1.5)
-		b, err := os.ReadFile(filepath.Join(home, ".urnetwork", "spike_threshold"))
+		b, err := os.ReadFile(filepath.Join(home, ".urwebdash", "spike_threshold"))
 		if err != nil {
 			t.Fatalf("read saved file: %v", err)
 		}
@@ -1462,4 +1462,83 @@ func TestHandleSpikeThreshold(t *testing.T) {
 			t.Errorf("status = %d, want 403", rec.Code)
 		}
 	})
+}
+
+func TestMigrateLegacyState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("URWEBDASH_HOME", "")
+	t.Setenv("STATS_DB", "")
+
+	legacy := filepath.Join(home, ".urnetwork")
+	os.MkdirAll(legacy, 0700)
+	write := func(dir, name string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// dashboard-owned files (legacy default location)
+	write(legacy, "discord_webhook")
+	write(legacy, "spike_threshold")
+	write(legacy, "payout_notified.json")
+	write(legacy, "wallet_stats.db")
+	// provider files (must NEVER move)
+	write(legacy, "jwt")
+	write(legacy, ".client_jwts.json")
+	write(legacy, "proxy.state")
+	write(legacy, "provider_state.json")
+	// pre-seeded target should win over the legacy source
+	st := filepath.Join(home, ".urwebdash")
+	os.MkdirAll(st, 0700)
+	os.WriteFile(filepath.Join(st, "discord_webhook"), []byte("kept-target"), 0600)
+
+	migrateLegacyState()
+
+	for _, f := range []string{"spike_threshold", "payout_notified.json", "wallet_stats.db"} {
+		if _, err := os.Stat(filepath.Join(st, f)); err != nil {
+			t.Errorf("%s was not migrated to state dir", f)
+		}
+		if _, err := os.Stat(filepath.Join(legacy, f)); err == nil {
+			t.Errorf("%s still present in legacy dir after migration", f)
+		}
+	}
+	if got, _ := os.ReadFile(filepath.Join(st, "discord_webhook")); string(got) != "kept-target" {
+		t.Errorf("pre-existing target was clobbered (want kept-target, got %q)", got)
+	}
+	for _, f := range []string{"jwt", ".client_jwts.json", "proxy.state", "provider_state.json"} {
+		if _, err := os.Stat(filepath.Join(legacy, f)); err != nil {
+			t.Errorf("provider file %s was moved — must never be touched", f)
+		}
+	}
+
+	// idempotent second run leaves everything intact
+	migrateLegacyState()
+	if got, _ := os.ReadFile(filepath.Join(st, "discord_webhook")); string(got) != "kept-target" {
+		t.Errorf("idempotency failed: target clobbered on rerun (%q)", got)
+	}
+}
+
+func TestMigrateLegacyStateRespectsStatsDB(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("URWEBDASH_HOME", "")
+	t.Setenv("STATS_DB", "/custom/stats.db")
+
+	legacy := filepath.Join(home, ".urnetwork")
+	os.MkdirAll(legacy, 0700)
+	os.WriteFile(filepath.Join(legacy, "wallet_stats.db"), []byte("db"), 0600)
+	os.WriteFile(filepath.Join(legacy, "discord_webhook"), []byte("x"), 0600)
+
+	migrateLegacyState()
+
+	st := filepath.Join(home, ".urwebdash")
+	if _, err := os.Stat(filepath.Join(st, "discord_webhook")); err != nil {
+		t.Error("discord_webhook should still migrate even when STATS_DB is set")
+	}
+	if _, err := os.Stat(filepath.Join(st, "wallet_stats.db")); err == nil {
+		t.Error("wallet_stats.db must NOT auto-migrate when STATS_DB is set (operator-managed)")
+	}
+	if _, err := os.Stat(filepath.Join(legacy, "wallet_stats.db")); err != nil {
+		t.Error("wallet_stats.db should remain in legacy dir when STATS_DB is set")
+	}
 }

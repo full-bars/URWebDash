@@ -116,6 +116,8 @@ func main() {
 	flag.Parse()
 	cmd := flag.Arg(0)
 
+	migrateLegacyState()
+
 	switch cmd {
 	case "run":
 		runPolling()
@@ -164,12 +166,59 @@ func main() {
 	}
 }
 
+// stateDir returns the dedicated directory for URWebDash's own writable
+// state (webhook, threshold, payout store, sqlite db). Defaults to
+// $HOME/.urwebdash; override with URWEBDASH_HOME. Kept separate from the
+// provider's ~/.urnetwork so the dashboard never writes into provider state.
+func stateDir() string {
+	if d := os.Getenv("URWEBDASH_HOME"); d != "" {
+		return d
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".urwebdash")
+}
+
+// migrateLegacyState moves dashboard-owned files found in the legacy
+// locations (the old ~/.urnetwork default, or an intermediate
+// stateDir()/.urnetwork layout) into the dedicated state dir. Only known
+// dashboard files are moved; provider files (jwt, .client_jwts*, proxy*,
+// provider_state*, ...) are never touched. Idempotent — only moves when the
+// target is absent, so upgrades and re-runs are safe. The stats DB is only
+// auto-migrated when STATS_DB is left unset (an explicit STATS_DB is the
+// operator's choice and stays put).
+func migrateLegacyState() {
+	st := stateDir()
+	if err := os.MkdirAll(st, 0700); err != nil {
+		return
+	}
+	home, _ := os.UserHomeDir()
+	candidates := []string{filepath.Join(home, ".urnetwork"), filepath.Join(st, ".urnetwork")}
+	files := []string{"discord_webhook", "spike_threshold", "payout_notified.json"}
+	if os.Getenv("STATS_DB") == "" {
+		files = append(files, "wallet_stats.db", "wallet_stats.db-shm", "wallet_stats.db-wal")
+	}
+	for _, src := range candidates {
+		for _, f := range files {
+			sp := filepath.Join(src, f)
+			tp := filepath.Join(st, f)
+			if fi, err := os.Lstat(sp); err != nil || fi.IsDir() {
+				continue
+			}
+			if _, err := os.Lstat(tp); err == nil {
+				continue // target already present — keep it
+			}
+			if err := os.Rename(sp, tp); err == nil {
+				fmt.Printf("[config] migrated %s -> %s\n", sp, tp)
+			}
+		}
+	}
+}
+
 func dbPath() string {
 	if p := os.Getenv("STATS_DB"); p != "" {
 		return p
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".urnetwork", "wallet_stats.db")
+	return filepath.Join(stateDir(), "wallet_stats.db")
 }
 
 func dbDSN() string {
@@ -960,8 +1009,7 @@ func notifyStoreFile() string {
 		notifyStorePath = p
 		return p
 	}
-	home, _ := os.UserHomeDir()
-	notifyStorePath = filepath.Join(home, ".urnetwork", "payout_notified.json")
+	notifyStorePath = filepath.Join(stateDir(), "payout_notified.json")
 	return notifyStorePath
 }
 
@@ -1124,11 +1172,11 @@ func statsInterval() time.Duration {
 }
 
 // syncEnvConfigToVolume persists env-var configuration (DISCORD_WEBHOOK_URL,
-// SPIKE_THRESHOLD) to the .urnetwork directory so it survives container
+// SPIKE_THRESHOLD) to the dedicated state directory so it survives container
 // recreation without repeating the env vars. Env wins on conflict; the file
 // is only written when the value differs.
 func syncEnvConfigToVolume() {
-	dir := filepath.Dir(jwtPath())
+	dir := stateDir()
 	if dir == "" {
 		return
 	}
@@ -1174,8 +1222,7 @@ func extractByJWT() {
 func spikeThreshold() int64 {
 	s := os.Getenv("SPIKE_THRESHOLD")
 	if s == "" {
-		home, _ := os.UserHomeDir()
-		b, err := os.ReadFile(filepath.Join(home, ".urnetwork", "spike_threshold"))
+		b, err := os.ReadFile(filepath.Join(stateDir(), "spike_threshold"))
 		if err != nil {
 			return 1_000_000_000
 		}
@@ -1284,8 +1331,7 @@ func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time) {
 // stored (0600). It is the same path discordWebhookURL() reads, so a URL
 // saved from the UI takes effect on the next notification without a restart.
 func discordWebhookPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".urnetwork", "discord_webhook")
+	return filepath.Join(stateDir(), "discord_webhook")
 }
 
 // discordWebhookFileURL returns the URL saved from the dashboard (empty
@@ -1364,7 +1410,7 @@ func sendDiscordWebhook(url, content string) (int, error) {
 func sendDiscordNotification(content string) {
 	url := discordWebhookURL()
 	if url == "" {
-		fmt.Println("[webhook] DISCORD_WEBHOOK_URL not set and no ~/.urnetwork/discord_webhook file")
+		fmt.Println("[webhook] DISCORD_WEBHOOK_URL not set and no webhook file in state dir")
 		return
 	}
 	go func() {
@@ -1530,8 +1576,7 @@ func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 // spikeThresholdPath is the file where a threshold saved from the dashboard
 // is stored (0600). It is the same path spikeThreshold() reads.
 func spikeThresholdPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".urnetwork", "spike_threshold")
+	return filepath.Join(stateDir(), "spike_threshold")
 }
 
 // handleSpikeThreshold powers the dashboard's traffic-spike threshold field:

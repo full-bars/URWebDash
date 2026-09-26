@@ -254,7 +254,7 @@ func writeTokenFile(path, tok string) error {
 
 // setupWebhook asks for the Discord webhook and spike threshold interactively.
 func setupWebhook() {
-	dir := filepath.Dir(jwtPath())
+	dir := stateDir()
 	whPath := filepath.Join(dir, "discord_webhook")
 	if b, err := os.ReadFile(whPath); err == nil && len(strings.TrimSpace(string(b))) > 0 {
 		fmt.Printf("[setup] webhook already configured (%s)\n", whPath)
