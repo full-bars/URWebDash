@@ -687,16 +687,17 @@ func runPolling() {
 
 	update := func() {
 		now := time.Now().UTC()
-		_, min, _ := now.Clock()
-		if min%15 != 0 {
-			return
-		}
 
-		windowStart := now.Truncate(15 * time.Minute)
+		// Record at most one sample per interval window. Do NOT gate on the
+		// wall-clock minute: a fixed tick phase can land a moment before the
+		// boundary, and a silent skip there then repeats on every later tick
+		// with the same phase — a poller that stays up but never polls again
+		// until it is restarted.
+		windowStart, windowEnd := pollWindow(now, interval)
 		var existingID int64
 		db.QueryRow("SELECT id FROM wallet_stats WHERE created_at >= ? AND created_at < ? LIMIT 1",
 			windowStart.Format(time.RFC3339),
-			windowStart.Add(15*time.Minute).Format(time.RFC3339),
+			windowEnd.Format(time.RFC3339),
 		).Scan(&existingID)
 		if existingID != 0 {
 			return
@@ -728,31 +729,26 @@ func runPolling() {
 			fmt.Printf("[stats] insert error: %v\n", err)
 			return
 		}
-		fmt.Printf("[stats] stored: paid=%d unpaid=%d\n", stats.PaidBytes, stats.UnpaidBytes)
+		fmt.Printf("[stats] stored: paid=%d unpaid=%d window=%s\n", stats.PaidBytes, stats.UnpaidBytes, windowStart.Format(time.RFC3339))
 
 		checkTrafficSpike(db, stats.UnpaidBytes, now, nowStr)
 	}
 
-	// Immediate first poll so the dashboard has data right away; afterwards
-	// stay aligned to quarter-hour marks.
+	// Immediate first poll so the dashboard has data right away.
 	update()
 
-	// Align to next quarter-hour boundary
-	now := time.Now()
-	_, min, _ := now.Clock()
-	nextQ := ((min / 15) + 1) * 15
-	firstTick := now.Truncate(time.Hour).Add(time.Duration(nextQ) * time.Minute)
-	if firstTick.Before(now) {
-		firstTick = firstTick.Add(interval)
-	}
-	sleepDur := firstTick.Sub(now)
-	fmt.Printf("[stats] next poll at %s (in %v)\n", firstTick.Format("15:04:05"), sleepDur.Round(time.Second))
-	time.Sleep(sleepDur)
-	update()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for range ticker.C {
+	// Poll loop. Sleep to the next interval boundary and RECOMPUTE the boundary
+	// every iteration rather than driving a fixed-phase ticker, so a clock
+	// adjustment (e.g. the NTP sync that runs right after boot) is absorbed on
+	// the next pass instead of leaving the poll phase permanently off-grid.
+	for {
+		_, next := pollWindow(time.Now().UTC(), interval)
+		sleepDur := time.Until(next)
+		if sleepDur < 0 {
+			sleepDur = 0
+		}
+		fmt.Printf("[stats] next poll at %s (in %v)\n", next.Format("15:04:05"), sleepDur.Round(time.Second))
+		time.Sleep(sleepDur)
 		update()
 	}
 }
@@ -1349,6 +1345,15 @@ func jsonError(w http.ResponseWriter, msg string) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"error": msg,
 	})
+}
+
+// pollWindow returns the [start, end) sampling window that t falls in. A sample
+// is keyed on the window rather than on the wall-clock minute at the instant a
+// tick fires, so a tick that lands a moment before the boundary — or is shifted
+// by a clock step — still maps to exactly one window instead of being dropped.
+func pollWindow(t time.Time, interval time.Duration) (start, end time.Time) {
+	start = t.UTC().Truncate(interval)
+	return start, start.Add(interval)
 }
 
 // statsInterval returns the polling cadence from STATS_INTERVAL (default 15m,

@@ -1215,6 +1215,36 @@ func TestCheckTrafficSpike_SubThresholdDoesNotFire(t *testing.T) {
 	}
 }
 
+// pollWindow must bucket a tick into exactly one window regardless of which
+// side of the boundary it lands on: a tick a moment BEFORE the boundary stays
+// in the prior window (so it dedupes and the loop re-aligns), and a tick a
+// moment after is the new window. This is what makes the poller self-heal after
+// a clock adjustment instead of silently skipping forever.
+func TestPollWindow(t *testing.T) {
+	iv := 15 * time.Minute
+	cases := []struct {
+		name      string
+		at        time.Time
+		wantStart string
+		wantEnd   string
+	}{
+		{"exact boundary", time.Date(2026, 10, 6, 19, 45, 0, 0, time.UTC), "2026-10-06T19:45:00Z", "2026-10-06T20:00:00Z"},
+		{"just before boundary stays in prior window", time.Date(2026, 10, 6, 19, 44, 59, 500_000_000, time.UTC), "2026-10-06T19:30:00Z", "2026-10-06T19:45:00Z"},
+		{"just after boundary is the new window", time.Date(2026, 10, 6, 19, 45, 1, 0, time.UTC), "2026-10-06T19:45:00Z", "2026-10-06T20:00:00Z"},
+		{"mid window", time.Date(2026, 10, 6, 19, 52, 30, 0, time.UTC), "2026-10-06T19:45:00Z", "2026-10-06T20:00:00Z"},
+		{"non-utc input converts to utc window", time.Date(2026, 10, 6, 19, 46, 0, 0, time.FixedZone("x", -5*3600)), "2026-10-07T00:45:00Z", "2026-10-07T01:00:00Z"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotStart, gotEnd := pollWindow(tc.at, iv)
+			if gotStart.Format(time.RFC3339) != tc.wantStart || gotEnd.Format(time.RFC3339) != tc.wantEnd {
+				t.Errorf("pollWindow(%s) = [%s,%s), want [%s,%s)",
+					tc.at, gotStart.Format(time.RFC3339), gotEnd.Format(time.RFC3339), tc.wantStart, tc.wantEnd)
+			}
+		})
+	}
+}
+
 func TestParseSize(t *testing.T) {
 	cases := map[string]int64{
 		"500MB":      500 * 1024 * 1024,
