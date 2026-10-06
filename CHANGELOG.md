@@ -4,6 +4,11 @@ All notable changes. Format loosely follows Keep a Changelog.
 
 ## Unreleased
 
+### Fixed
+
+- Poller could stop recording samples entirely after a reboot. The loop only stored a row when the wall-clock minute was exactly a quarter hour, so a tick that landed a moment before the boundary (a clock adjustment right after boot is enough) was dropped silently — and because the ticker kept the same off-phase, every later poll was dropped too while the process stayed up and healthy. Samples are now keyed on the interval window instead of the wall-clock minute, each sample is stamped at its window boundary, and the boundary is recomputed every iteration (with a catch-up poll if a fetch spans a boundary) so the poller self-heals instead of stalling until it is restarted.
+- `cleanupDB` and manual `/api/refresh` now use the same interval-window model as the poller, so neither drops a valid sample nor duplicates a window.
+
 ## v0.0.16 - 2026-09-26
 
 ### Fixed

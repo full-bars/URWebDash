@@ -685,21 +685,23 @@ func runPolling() {
 
 	fmt.Printf("[stats] polling every %s | db=%s\n", interval, dbPath())
 
-	update := func() {
+	update := func() time.Time {
 		now := time.Now().UTC()
-		_, min, _ := now.Clock()
-		if min%15 != 0 {
-			return
-		}
 
-		windowStart := now.Truncate(15 * time.Minute)
+		// Record at most one sample per interval window. Do NOT gate on the
+		// wall-clock minute: a fixed tick phase can land a moment before the
+		// boundary, and a silent skip there then repeats on every later tick
+		// with the same phase — a poller that stays up but never polls again
+		// until it is restarted. Return the window this call targeted so the
+		// loop can tell whether a boundary slid past during the fetch.
+		windowStart, windowEnd := pollWindow(now, interval)
 		var existingID int64
 		db.QueryRow("SELECT id FROM wallet_stats WHERE created_at >= ? AND created_at < ? LIMIT 1",
 			windowStart.Format(time.RFC3339),
-			windowStart.Add(15*time.Minute).Format(time.RFC3339),
+			windowEnd.Format(time.RFC3339),
 		).Scan(&existingID)
 		if existingID != 0 {
-			return
+			return windowStart
 		}
 
 		var stats *walletStats
@@ -716,44 +718,51 @@ func runPolling() {
 		}
 		if err != nil {
 			fmt.Printf("[stats] all 3 attempts failed for window %s\n", windowStart.Format("15:04"))
-			return
+			return windowStart
 		}
 
-		nowStr := now.Format(time.RFC3339)
+		// Stamp the row at the WINDOW boundary, not the poll instant. That
+		// keeps every valid sample on the interval grid (cleanupDB and manual
+		// refresh rely on it) and makes two boxes polling the same account write
+		// identical timestamps, so a backup -> primary merge dedupes on
+		// created_at cleanly.
+		windowStr := windowStart.Format(time.RFC3339)
 		_, err = db.Exec(
 			"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
-			int64(stats.PaidBytes), int64(stats.UnpaidBytes), nowStr, nowStr,
+			int64(stats.PaidBytes), int64(stats.UnpaidBytes), windowStr, now.Format(time.RFC3339),
 		)
 		if err != nil {
 			fmt.Printf("[stats] insert error: %v\n", err)
-			return
+			return windowStart
 		}
-		fmt.Printf("[stats] stored: paid=%d unpaid=%d\n", stats.PaidBytes, stats.UnpaidBytes)
+		fmt.Printf("[stats] stored: paid=%d unpaid=%d window=%s\n", stats.PaidBytes, stats.UnpaidBytes, windowStr)
 
-		checkTrafficSpike(db, stats.UnpaidBytes, now, nowStr)
+		checkTrafficSpike(db, stats.UnpaidBytes, now, windowStr)
+		return windowStart
 	}
 
-	// Immediate first poll so the dashboard has data right away; afterwards
-	// stay aligned to quarter-hour marks.
+	// Immediate first poll so the dashboard has data right away.
 	update()
 
-	// Align to next quarter-hour boundary
-	now := time.Now()
-	_, min, _ := now.Clock()
-	nextQ := ((min / 15) + 1) * 15
-	firstTick := now.Truncate(time.Hour).Add(time.Duration(nextQ) * time.Minute)
-	if firstTick.Before(now) {
-		firstTick = firstTick.Add(interval)
-	}
-	sleepDur := firstTick.Sub(now)
-	fmt.Printf("[stats] next poll at %s (in %v)\n", firstTick.Format("15:04:05"), sleepDur.Round(time.Second))
-	time.Sleep(sleepDur)
-	update()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for range ticker.C {
-		update()
+	// Poll loop. Record the current window, then sleep until the next one
+	// starts and record that, repeating. The boundary is recomputed every
+	// iteration so a clock adjustment (e.g. the NTP sync right after boot) is
+	// absorbed on the next pass instead of leaving the phase permanently
+	// off-grid. If a fetch overlaps a boundary — the window it was recording
+	// ended mid-call — the now-current window is recorded immediately so a
+	// window is never skipped.
+	for {
+		recorded := update()
+		if curStart, _ := pollWindow(time.Now().UTC(), interval); curStart.After(recorded) {
+			update() // a boundary passed while fetching; catch the new window
+		}
+		_, next := pollWindow(time.Now().UTC(), interval)
+		sleepDur := time.Until(next)
+		if sleepDur < 0 {
+			sleepDur = 0
+		}
+		fmt.Printf("[stats] next poll at %s (in %v)\n", next.Format("15:04:05"), sleepDur.Round(time.Second))
+		time.Sleep(sleepDur)
 	}
 }
 
@@ -859,11 +868,23 @@ func cleanupDB() {
 	}
 	defer db.Close()
 
+	// Rows are now stamped AT a window boundary of statsInterval() (see
+	// runPolling/handleRefresh), so every valid sample lives on the interval
+	// grid. Delete today's rows that are NOT on that grid (strays from imports/
+	// edits) while preserving every valid window sample. The grid test is
+	// epoch-aligned (epoch seconds % interval seconds == 0), which matches
+	// pollWindow's Truncate exactly for any interval.
+	ivSec := int64(statsInterval().Seconds())
+	if ivSec < 1 {
+		ivSec = 1
+	}
+
 	today := time.Now().UTC().Format("2006-01-02")
 	res, err := db.Exec(
-		"DELETE FROM wallet_stats WHERE created_at >= ? AND created_at < ? AND (CAST(strftime('%M', created_at) AS INTEGER) % 15 != 0 OR CAST(strftime('%S', created_at) AS INTEGER) > 5)",
+		"DELETE FROM wallet_stats WHERE created_at >= ? AND created_at < ? AND (CAST(strftime('%s', created_at) AS INTEGER) % ? != 0)",
 		today+"T00:00:00Z",
 		today+"T24:00:00Z",
+		ivSec,
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cleanup: %v\n", err)
@@ -1093,26 +1114,27 @@ func handleRefresh(token string, db *sql.DB) http.HandlerFunc {
 		}
 
 		now := time.Now().UTC()
-		_, min, sec := now.Clock()
-		if min%15 == 0 && sec < 5 {
-			windowStart := now.Truncate(1 * time.Hour).Add(time.Duration(min) * time.Minute)
-			var existingID int64
-			db.QueryRow("SELECT id FROM wallet_stats WHERE created_at >= ? AND created_at < ? ORDER BY created_at ASC LIMIT 1",
-				windowStart.Format(time.RFC3339),
-				windowStart.Add(time.Minute).Format(time.RFC3339),
-			).Scan(&existingID)
 
-			if existingID == 0 {
-				_, err = db.Exec(
-					"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
-					int64(stats.PaidBytes), int64(stats.UnpaidBytes), windowStart.Format(time.RFC3339), now.Format(time.RFC3339),
-				)
-				if err != nil {
-					jsonError(w, err.Error())
-					return
-				}
-				checkTrafficSpike(db, stats.UnpaidBytes, now, windowStart.Format(time.RFC3339))
+		// Record the CURRENT window regardless of the wall-clock minute, and
+		// dedupe against the FULL window (not a one-minute slice). A manual
+		// refresh between boundaries must not drop the sample or double it.
+		windowStart, windowEnd := pollWindow(now, statsInterval())
+		var existingID int64
+		db.QueryRow("SELECT id FROM wallet_stats WHERE created_at >= ? AND created_at < ? ORDER BY created_at ASC LIMIT 1",
+			windowStart.Format(time.RFC3339),
+			windowEnd.Format(time.RFC3339),
+		).Scan(&existingID)
+
+		if existingID == 0 {
+			_, err = db.Exec(
+				"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
+				int64(stats.PaidBytes), int64(stats.UnpaidBytes), windowStart.Format(time.RFC3339), now.Format(time.RFC3339),
+			)
+			if err != nil {
+				jsonError(w, err.Error())
+				return
 			}
+			checkTrafficSpike(db, stats.UnpaidBytes, now, windowStart.Format(time.RFC3339))
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1349,6 +1371,15 @@ func jsonError(w http.ResponseWriter, msg string) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"error": msg,
 	})
+}
+
+// pollWindow returns the [start, end) sampling window that t falls in. A sample
+// is keyed on the window rather than on the wall-clock minute at the instant a
+// tick fires, so a tick that lands a moment before the boundary — or is shifted
+// by a clock step — still maps to exactly one window instead of being dropped.
+func pollWindow(t time.Time, interval time.Duration) (start, end time.Time) {
+	start = t.UTC().Truncate(interval)
+	return start, start.Add(interval)
 }
 
 // statsInterval returns the polling cadence from STATS_INTERVAL (default 15m,

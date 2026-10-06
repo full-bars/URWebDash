@@ -1215,6 +1215,150 @@ func TestCheckTrafficSpike_SubThresholdDoesNotFire(t *testing.T) {
 	}
 }
 
+// pollWindow must bucket a tick into exactly one window regardless of which
+// side of the boundary it lands on: a tick a moment BEFORE the boundary stays
+// in the prior window (so it dedupes and the loop re-aligns), and a tick a
+// moment after is the new window. This is what makes the poller self-heal after
+// a clock adjustment instead of silently skipping forever.
+func TestPollWindow(t *testing.T) {
+	iv := 15 * time.Minute
+	cases := []struct {
+		name      string
+		at        time.Time
+		wantStart string
+		wantEnd   string
+	}{
+		{"exact boundary", time.Date(2026, 10, 6, 19, 45, 0, 0, time.UTC), "2026-10-06T19:45:00Z", "2026-10-06T20:00:00Z"},
+		{"just before boundary stays in prior window", time.Date(2026, 10, 6, 19, 44, 59, 500_000_000, time.UTC), "2026-10-06T19:30:00Z", "2026-10-06T19:45:00Z"},
+		{"just after boundary is the new window", time.Date(2026, 10, 6, 19, 45, 1, 0, time.UTC), "2026-10-06T19:45:00Z", "2026-10-06T20:00:00Z"},
+		{"mid window", time.Date(2026, 10, 6, 19, 52, 30, 0, time.UTC), "2026-10-06T19:45:00Z", "2026-10-06T20:00:00Z"},
+		{"non-utc input converts to utc window", time.Date(2026, 10, 6, 19, 46, 0, 0, time.FixedZone("x", -5*3600)), "2026-10-07T00:45:00Z", "2026-10-07T01:00:00Z"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotStart, gotEnd := pollWindow(tc.at, iv)
+			if gotStart.Format(time.RFC3339) != tc.wantStart || gotEnd.Format(time.RFC3339) != tc.wantEnd {
+				t.Errorf("pollWindow(%s) = [%s,%s), want [%s,%s)",
+					tc.at, gotStart.Format(time.RFC3339), gotEnd.Format(time.RFC3339), tc.wantStart, tc.wantEnd)
+			}
+		})
+	}
+}
+
+// cleanupDB must preserve every valid window sample (stamped at a boundary of
+// statsInterval()) and delete only rows that are NOT on the interval grid.
+func TestPollWindow_CustomCadences(t *testing.T) {
+	intervals := []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, time.Hour}
+	sample := time.Date(2026, 10, 6, 14, 23, 45, 0, time.UTC)
+	for _, iv := range intervals {
+		start, end := pollWindow(sample, iv)
+		if end.Sub(start) != iv {
+			t.Errorf("%s: window width = %v, want %v", iv, end.Sub(start), iv)
+		}
+		if sample.Before(start) || !sample.Before(end) {
+			t.Errorf("%s: sample %v is not within [%v, %v)", iv, sample, start, end)
+		}
+	}
+}
+
+func TestCleanupDBKeepsWindowSamples(t *testing.T) {
+	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "test.db"))
+	t.Setenv("STATS_INTERVAL", "")
+	db, err := openDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	today := time.Now().UTC().Format("2006-01-02")
+	boundary := []string{
+		today + "T04:30:00Z", // valid window sample
+		today + "T04:45:00Z", // valid window sample
+	}
+	offGrid := []string{
+		today + "T04:50:57Z", // off-boundary seconds -> delete
+		today + "T04:45:01Z", // off-boundary seconds -> delete
+	}
+	for _, ts := range append(append([]string{}, boundary...), offGrid...) {
+		if _, err := db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(1,1,?,?)", ts, ts); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	captureStdout(t, cleanupDB)
+
+	remains := map[string]bool{}
+	rows, _ := db.Query("SELECT created_at FROM wallet_stats ORDER BY created_at")
+	for rows.Next() {
+		var c string
+		rows.Scan(&c)
+		remains[c] = true
+	}
+	rows.Close()
+
+	for _, ts := range boundary {
+		if !remains[ts] {
+			t.Errorf("cleanupDB deleted a valid window sample %s", ts)
+		}
+	}
+	for _, ts := range offGrid {
+		if remains[ts] {
+			t.Errorf("cleanupDB kept an off-grid row %s", ts)
+		}
+	}
+}
+
+// A manual refresh must record the CURRENT window no matter the wall-clock
+// minute, and a second refresh in the same window must NOT duplicate it.
+func TestHandleRefreshRecordsCurrentWindowAndDedupes(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"paid_bytes_provided":555,"unpaid_bytes_provided":777,"error":null}`)
+	}))
+	defer ts.Close()
+	orig := httpClient.Transport
+	defer func() { httpClient.Transport = orig }()
+	httpClient.Transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		req.URL.Scheme = "http"
+		req.URL.Host = ts.Listener.Addr().String()
+		return ts.Client().Transport.RoundTrip(req)
+	})
+
+	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "test.db"))
+	t.Setenv("STATS_INTERVAL", "")
+	db, err := openDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	call := func() *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		handleRefresh("jwt", db)(w, httptest.NewRequest("POST", "/api/refresh", nil))
+		return w
+	}
+	if w := call(); w.Code != 200 {
+		t.Fatalf("first refresh status = %d, want 200", w.Code)
+	}
+	if w := call(); w.Code != 200 {
+		t.Fatalf("second refresh status = %d, want 200", w.Code)
+	}
+
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM wallet_stats").Scan(&count)
+	if count != 1 {
+		t.Fatalf("refresh dedupe failed: count = %d, want 1", count)
+	}
+	var createdAt string
+	db.QueryRow("SELECT created_at FROM wallet_stats LIMIT 1").Scan(&createdAt)
+	tm, perr := time.Parse(time.RFC3339, createdAt)
+	if perr != nil {
+		t.Fatalf("created_at %q not RFC3339: %v", createdAt, perr)
+	}
+	if tm.Second() != 0 || tm.Minute()%15 != 0 {
+		t.Fatalf("refresh wrote a non-boundary created_at %q", createdAt)
+	}
+}
+
 func TestParseSize(t *testing.T) {
 	cases := map[string]int64{
 		"500MB":      500 * 1024 * 1024,
