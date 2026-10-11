@@ -7,6 +7,7 @@ All notable changes. Format loosely follows Keep a Changelog.
 ### Fixed
 
 - Traffic spike alerts no longer miss bursts in windows where a payment settles. The delta was computed on unpaid bytes alone; when a settlement moved bytes from unpaid to paid mid-window, unpaid went backwards and the backwards-counter guard silently skipped a genuine burst (e.g. 2026-10-11 14:45 UTC: unpaid -34.76 GB, paid +42.41 GB, real traffic +7.65 GB, no alert). The delta is now computed on paid+unpaid, which is monotonic across settlements. The backwards guard remains for genuine API corrections and now logs when it skips.
+- Spike alerts after a dropped poll window are no longer swallowed. The gap guard skipped any check whose previous row was more than one interval old, so during a stats-API outage every real burst that followed a missed window was silenced (five missed alerts on 2026-10-11). The alert now fires with the actual span labeled (e.g. `30m Delta`), and only skips when the previous row is over 6h old (true backfill/import lump).
 
 ## v0.0.17 - 2026-10-06
 

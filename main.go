@@ -1500,7 +1500,7 @@ func checkTrafficSpike(db *sql.DB, paidBytes, unpaidBytes uint64, now time.Time,
 	// The spike delta is computed on paid+unpaid (total bytes served), not
 	// unpaid alone: when a payment settles mid-window, unpaid decreases and
 	// paid increases by the same amount, so the unpaid-only delta went
-	// backwards and the guard below silently skipped a genuine burst.
+	// backwards and the unpaid-only check skipped a genuine burst.
 	var prevTotal sql.NullInt64
 	var prevAt sql.NullString
 	db.QueryRow(
@@ -1510,26 +1510,32 @@ func checkTrafficSpike(db *sql.DB, paidBytes, unpaidBytes uint64, now time.Time,
 	if !prevTotal.Valid {
 		return
 	}
-	// If the previous row is not a recent poll window, this is a backfill
-	// after the poller dropped windows, not a genuine short-window burst.
-	// Example above threshold with no gap guard: polls lost for
-	// 04:30-05:45 lumped into one row, so the 06:00 delta read as an 18 GB
-	// "15m spike" and alerted. Skip and log instead. The threshold is two
-	// poll intervals so it stays correct if STATS_INTERVAL is raised.
+	// The span between the previous row and this one is usually one poll
+	// interval, but a dropped window (failed fetch, API outage) makes it
+	// longer. Alert on the real delta either way and label it with the
+	// actual span instead of skipping: skipping silenced every real burst
+	// that followed a missed window (five missed alerts on 2026-10-11 when
+	// the stats API flapped). Only spans past backfillSkipSpan are dropped,
+	// so a months-old row restored by import can't fire a bogus alert.
+	span := statsInterval()
 	if prevAt.Valid {
 		pt, perr := time.Parse(time.RFC3339, prevAt.String)
 		if perr != nil {
-			fmt.Printf("[webhook] traffic spike: could not parse prev created_at %q: %v (proceeding unguarded)\n",
+			fmt.Printf("[webhook] traffic spike: could not parse prev created_at %q: %v (assuming one window)\n",
 				prevAt.String, perr)
-		} else if now.Sub(pt) > 2*statsInterval() {
-			fmt.Printf("[webhook] traffic spike skipped: prev row %s is %.0fm old (backfill, not a %s window)\n",
-				pt.Format("15:04"), now.Sub(pt).Minutes(), statsInterval())
-			return
+		} else {
+			gap := now.Sub(pt)
+			if gap > backfillSkipSpan() {
+				fmt.Printf("[webhook] traffic spike skipped: prev row %s is %.0fm old (backfill, not a live window)\n",
+					pt.Format("15:04"), gap.Minutes())
+				return
+			}
+			span = gap
 		}
 	}
 	// Compare unsigned to avoid int64 overflow if the counter ever exceeds
 	// MaxInt64 (would wrap negative and fire a bogus spike). A decrease in
-	// the total is a genuine API correction or wallet reset, not a spike.
+	// the total is an API correction, not a spike.
 	curTotal := paidBytes + unpaidBytes
 	if prevTotal.Int64 >= 0 && uint64(prevTotal.Int64) > curTotal {
 		fmt.Printf("[webhook] traffic spike skipped: total went backwards (%d -> %d) at %s (correction, not a spike)\n",
@@ -1543,20 +1549,44 @@ func checkTrafficSpike(db *sql.DB, paidBytes, unpaidBytes uint64, now time.Time,
 	deltaGB := float64(deltaBytes) / 1e9
 	totalGB := float64(unpaidBytes) / 1e9
 	nowStr := now.Format("15:04:05")
+	leftCell := fmt.Sprintf("%s Delta", spanLabel(span))
 	sendDiscordNotification(fmt.Sprintf(
 		"🛫 **Traffic Spike**\n"+
 			"```\n"+
 			"┌──────────────────────┬────────────┐\n"+
 			"├──────────────────────┼────────────┤\n"+
-			"│ 15m Delta            │ %10s │\n"+
-			"│ Total Unpaid         │ %10s │\n"+
-			"│ At (UTC)             │ %10s │\n"+
+			"│ %-20s │ %10s │\n"+
+			"│ %-20s │ %10s │\n"+
+			"│ %-20s │ %10s │\n"+
 			"└──────────────────────┴────────────┘\n"+
 			"```",
+		leftCell,
 		fmt.Sprintf("+%.2f GB", deltaGB),
+		"Total Unpaid",
 		fmt.Sprintf("%.2f GB", totalGB),
+		"At (UTC)",
 		nowStr,
 	))
+}
+
+// spanLabel formats the gap between poll rows for the alert: "15m" for a
+// single window, "45m" for a few dropped windows, "1h30m" past an hour.
+func spanLabel(gap time.Duration) string {
+	m := int(gap.Round(time.Minute) / time.Minute)
+	if m < 1 {
+		return "15m"
+	}
+	if m < 60 {
+		return fmt.Sprintf("%dm", m)
+	}
+	return fmt.Sprintf("%dh%02dm", m/60, m%60)
+}
+
+// backfillSkipSpan is how old the previous row must be before a delta is
+// treated as a historical backfill lump rather than a live burst. Generous
+// (6h) so ordinary missed windows still alert with their real span.
+func backfillSkipSpan() time.Duration {
+	return 6 * time.Hour
 }
 
 // discordWebhookPath is the file where a URL saved from the dashboard is

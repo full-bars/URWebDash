@@ -1135,47 +1135,111 @@ func TestIndexHTML_ErrorBannerNotClearedBeforeErrorCheck(t *testing.T) {
 // sendDiscordNotification posts to the resolved webhook URL in a goroutine.
 // These tests point it at a local httptest server and count real posts.
 type spikeCountServer struct {
-	mu  sync.Mutex
-	n   int
-	URL string
+	mu     sync.Mutex
+	n      int
+	bodies []string
+	URL    string
 }
 
-func (c *spikeCountServer) add()       { c.mu.Lock(); c.n++; c.mu.Unlock() }
+func (c *spikeCountServer) add(body string) {
+	c.mu.Lock()
+	c.n++
+	c.bodies = append(c.bodies, body)
+	c.mu.Unlock()
+}
 func (c *spikeCountServer) count() int { c.mu.Lock(); defer c.mu.Unlock(); return c.n }
+func (c *spikeCountServer) lastBody() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.bodies) == 0 {
+		return ""
+	}
+	return c.bodies[len(c.bodies)-1]
+}
 
 func newSpikeCountServer() (*spikeCountServer, func()) {
 	s := &spikeCountServer{}
 	hh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.add()
+		b, _ := io.ReadAll(r.Body)
+		s.add(string(b))
 		w.WriteHeader(204)
 	}))
 	s.URL = hh.URL
 	return s, hh.Close
 }
 
-// The gap guard must skip a backfill: when the previous stored row is older
-// than 30 minutes (the poller dropped windows), a huge delta is not a genuine
-// 15-minute burst and must not alert.
-func TestCheckTrafficSpike_GapGuardSkipsOldRow(t *testing.T) {
+// A dropped window makes the previous row older than one interval, but the
+// burst is real: the check must still fire, labeled with the actual span
+// (e.g. "30m Delta") rather than skipping. Skipping silenced every real
+// burst after a missed window on 2026-10-11.
+func TestCheckTrafficSpike_GapFiresWithSpanLabel(t *testing.T) {
 	srv, close := newSpikeCountServer()
 	defer close()
 	t.Setenv("DISCORD_WEBHOOK_URL", srv.URL)
 	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "t.db"))
 	db, _ := openDB()
 	defer db.Close()
-	// Insert an old previous row (04:15) then a newest row (06:00) so the
-	// 04:15 row is the OFFSET-1 "previous" checkTrafficSpike reads.
+	// 04:15 row then a 06:00 row (two windows dropped): the 04:15 row is the
+	// OFFSET-1 "previous" checkTrafficSpike reads, 30m behind 05:30.
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1294821013940,'2026-08-22T05:00:00Z','2026-08-22T05:00:00Z')")
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1313080594146,'2026-08-22T05:30:00Z','2026-08-22T05:30:00Z')")
+
+	checkTrafficSpike(db, 0, 1313080594146, time.Date(2026, 8, 22, 5, 30, 0, 0, time.UTC), "2026-08-22T05:30:00Z")
+	for i := 0; i < 50 && srv.count() == 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if srv.count() != 1 {
+		t.Fatalf("30m-span over-threshold delta should still fire, server saw %d post(s)", srv.count())
+	}
+	body := srv.lastBody()
+	if !strings.Contains(body, "30m Delta") {
+		t.Fatalf("alert should be labeled with the real span, got %q", body)
+	}
+}
+
+// A prev row far in the past (restored import / months-old DB) is a backfill
+// lump, not a live burst: skip and log instead of alerting.
+func TestCheckTrafficSpike_BackfillSpanSkips(t *testing.T) {
+	srv, close := newSpikeCountServer()
+	defer close()
+	t.Setenv("DISCORD_WEBHOOK_URL", srv.URL)
+	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "t.db"))
+	db, _ := openDB()
+	defer db.Close()
 	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1294821013940,'2026-08-22T04:15:01Z','2026-08-22T04:15:01Z')")
 	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1313080594146,'2026-08-22T06:00:00Z','2026-08-22T06:00:00Z')")
 
 	out := captureStdout(t, func() {
-		checkTrafficSpike(db, 0, 1313080594146, time.Date(2026, 8, 22, 6, 0, 0, 0, time.UTC), "2026-08-22T06:00:00Z")
+		// now is 7h after the prev row -> past the 6h backfill skip.
+		checkTrafficSpike(db, 0, 1313080594146, time.Date(2026, 8, 22, 11, 15, 0, 0, time.UTC), "2026-08-22T06:00:00Z")
 	})
 	if srv.count() != 0 {
-		t.Fatalf("gap guard should skip backfill, server saw %d post(s)", srv.count())
+		t.Fatalf("backfill span should skip, server saw %d post(s)", srv.count())
 	}
 	if !strings.Contains(out, "traffic spike skipped") {
 		t.Fatalf("expected skip log, got %q", out)
+	}
+}
+
+func TestSpanLabel(t *testing.T) {
+	cases := []struct {
+		gap  time.Duration
+		want string
+	}{
+		{0, "15m"},
+		{15 * time.Minute, "15m"},
+		{30 * time.Minute, "30m"},
+		{45 * time.Minute, "45m"},
+		{59 * time.Minute, "59m"},
+		{60 * time.Minute, "1h00m"},
+		{90 * time.Minute, "1h30m"},
+		{120 * time.Minute, "2h00m"},
+		{95 * time.Minute, "1h35m"},
+	}
+	for _, tc := range cases {
+		if got := spanLabel(tc.gap); got != tc.want {
+			t.Errorf("spanLabel(%v) = %q, want %q", tc.gap, got, tc.want)
+		}
 	}
 }
 
