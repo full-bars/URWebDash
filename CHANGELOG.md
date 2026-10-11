@@ -2,7 +2,7 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
-## Unreleased
+## v0.0.18 - 2026-10-11
 
 ### Fixed
 
