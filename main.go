@@ -737,7 +737,7 @@ func runPolling() {
 		}
 		fmt.Printf("[stats] stored: paid=%d unpaid=%d window=%s\n", stats.PaidBytes, stats.UnpaidBytes, windowStr)
 
-		checkTrafficSpike(db, stats.UnpaidBytes, now, windowStr)
+		checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, now, windowStr)
 		return windowStart
 	}
 
@@ -1134,7 +1134,7 @@ func handleRefresh(token string, db *sql.DB) http.HandlerFunc {
 				jsonError(w, err.Error())
 				return
 			}
-			checkTrafficSpike(db, stats.UnpaidBytes, now, windowStart.Format(time.RFC3339))
+			checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, now, windowStart.Format(time.RFC3339))
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1496,14 +1496,18 @@ func parseSize(s string) (int64, error) {
 	return int64(num * mult), nil
 }
 
-func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time, currentAt string) {
-	var prevUnpaid sql.NullInt64
+func checkTrafficSpike(db *sql.DB, paidBytes, unpaidBytes uint64, now time.Time, currentAt string) {
+	// The spike delta is computed on paid+unpaid (total bytes served), not
+	// unpaid alone: when a payment settles mid-window, unpaid decreases and
+	// paid increases by the same amount, so the unpaid-only delta went
+	// backwards and the guard below silently skipped a genuine burst.
+	var prevTotal sql.NullInt64
 	var prevAt sql.NullString
 	db.QueryRow(
-		"SELECT unpaid_bytes, created_at FROM wallet_stats WHERE created_at <= ? ORDER BY created_at DESC LIMIT 1 OFFSET 1",
+		"SELECT paid_bytes + unpaid_bytes, created_at FROM wallet_stats WHERE created_at <= ? ORDER BY created_at DESC LIMIT 1 OFFSET 1",
 		currentAt,
-	).Scan(&prevUnpaid, &prevAt)
-	if !prevUnpaid.Valid {
+	).Scan(&prevTotal, &prevAt)
+	if !prevTotal.Valid {
 		return
 	}
 	// If the previous row is not a recent poll window, this is a backfill
@@ -1523,12 +1527,16 @@ func checkTrafficSpike(db *sql.DB, unpaidBytes uint64, now time.Time, currentAt 
 			return
 		}
 	}
-	// Compare unsigned to avoid int64 overflow if unpaidBytes ever
-	// exceeds MaxInt64 (would wrap negative and fire a bogus spike).
-	if prevUnpaid.Int64 >= 0 && uint64(prevUnpaid.Int64) > unpaidBytes {
-		return // counter went backwards: API correction, not a spike
+	// Compare unsigned to avoid int64 overflow if the counter ever exceeds
+	// MaxInt64 (would wrap negative and fire a bogus spike). A decrease in
+	// the total is a genuine API correction or wallet reset, not a spike.
+	curTotal := paidBytes + unpaidBytes
+	if prevTotal.Int64 >= 0 && uint64(prevTotal.Int64) > curTotal {
+		fmt.Printf("[webhook] traffic spike skipped: total went backwards (%d -> %d) at %s (correction, not a spike)\n",
+			prevTotal.Int64, curTotal, currentAt)
+		return
 	}
-	var deltaBytes uint64 = unpaidBytes - uint64(prevUnpaid.Int64)
+	var deltaBytes uint64 = curTotal - uint64(prevTotal.Int64)
 	if deltaBytes <= uint64(spikeThreshold()) {
 		return
 	}
