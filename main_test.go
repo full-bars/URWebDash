@@ -1169,7 +1169,7 @@ func TestCheckTrafficSpike_GapGuardSkipsOldRow(t *testing.T) {
 	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1313080594146,'2026-08-22T06:00:00Z','2026-08-22T06:00:00Z')")
 
 	out := captureStdout(t, func() {
-		checkTrafficSpike(db, 1313080594146, time.Date(2026, 8, 22, 6, 0, 0, 0, time.UTC), "2026-08-22T06:00:00Z")
+		checkTrafficSpike(db, 0, 1313080594146, time.Date(2026, 8, 22, 6, 0, 0, 0, time.UTC), "2026-08-22T06:00:00Z")
 	})
 	if srv.count() != 0 {
 		t.Fatalf("gap guard should skip backfill, server saw %d post(s)", srv.count())
@@ -1190,7 +1190,7 @@ func TestCheckTrafficSpike_RecentWindowFires(t *testing.T) {
 	// newest row 10 min after the previous -> recent window.
 	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,19000000000,'2026-08-22T05:55:00Z','2026-08-22T05:55:00Z')")
 
-	checkTrafficSpike(db, 19000000000, time.Date(2026, 8, 22, 5, 55, 0, 0, time.UTC), "2026-08-22T05:55:00Z")
+	checkTrafficSpike(db, 0, 19000000000, time.Date(2026, 8, 22, 5, 55, 0, 0, time.UTC), "2026-08-22T05:55:00Z")
 	for i := 0; i < 50 && srv.count() == 0; i++ {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -1209,9 +1209,75 @@ func TestCheckTrafficSpike_SubThresholdDoesNotFire(t *testing.T) {
 	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1000000000,'2026-08-22T05:45:00Z','2026-08-22T05:45:00Z')")
 	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(0,1500000000,'2026-08-22T05:55:00Z','2026-08-22T05:55:00Z')")
 
-	checkTrafficSpike(db, 1500000000, time.Date(2026, 8, 22, 5, 55, 0, 0, time.UTC), "2026-08-22T05:55:00Z")
+	checkTrafficSpike(db, 0, 1500000000, time.Date(2026, 8, 22, 5, 55, 0, 0, time.UTC), "2026-08-22T05:55:00Z")
 	if srv.count() != 0 {
 		t.Fatalf("sub-threshold delta should not fire, server saw %d post(s)", srv.count())
+	}
+}
+
+// A payment settling mid-window moves bytes from unpaid to paid: unpaid goes
+// backwards while paid jumps, but the served-traffic total keeps growing. The
+// spike check must fire on the total delta. Numbers are the real 2026-10-11
+// 14:45 UTC window from the multivortex dashboard: unpaid -34.76 GB, paid
+// +42.41 GB, real traffic +7.65 GB — previously missed.
+func TestCheckTrafficSpike_PaymentShiftFires(t *testing.T) {
+	srv, close := newSpikeCountServer()
+	defer close()
+	t.Setenv("DISCORD_WEBHOOK_URL", srv.URL)
+	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "t.db"))
+	db, _ := openDB()
+	defer db.Close()
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(10321827106566,5578902253213,'2026-10-11T14:30:00Z','2026-10-11T14:30:00Z')")
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(10364242647022,5544140800932,'2026-10-11T14:45:00Z','2026-10-11T14:45:00Z')")
+
+	checkTrafficSpike(db, 10364242647022, 5544140800932, time.Date(2026, 10, 11, 14, 45, 0, 0, time.UTC), "2026-10-11T14:45:00Z")
+	for i := 0; i < 50 && srv.count() == 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if srv.count() != 1 {
+		t.Fatalf("payment-shift window with over-threshold traffic should fire, server saw %d post(s)", srv.count())
+	}
+}
+
+// Same shape as the payment-shift case but with real traffic under the
+// threshold: only the settlement moved, so nothing must fire.
+func TestCheckTrafficSpike_PaymentShiftSubThresholdDoesNotFire(t *testing.T) {
+	srv, close := newSpikeCountServer()
+	defer close()
+	t.Setenv("DISCORD_WEBHOOK_URL", srv.URL)
+	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "t.db"))
+	db, _ := openDB()
+	defer db.Close()
+	// total 100 GB both rows except +0.5 GB real traffic under a 35 GB settlement.
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(65000000000,35000000000,'2026-10-11T14:30:00Z','2026-10-11T14:30:00Z')")
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(99500000000,500000000,'2026-10-11T14:45:00Z','2026-10-11T14:45:00Z')")
+
+	checkTrafficSpike(db, 99500000000, 500000000, time.Date(2026, 10, 11, 14, 45, 0, 0, time.UTC), "2026-10-11T14:45:00Z")
+	if srv.count() != 0 {
+		t.Fatalf("settlement with sub-threshold traffic should not fire, server saw %d post(s)", srv.count())
+	}
+}
+
+// A decrease in the paid+unpaid total is a genuine API correction or wallet
+// reset, not a burst: skip (and log) instead of underflowing the unsigned delta.
+func TestCheckTrafficSpike_BackwardsTotalSkips(t *testing.T) {
+	srv, close := newSpikeCountServer()
+	defer close()
+	t.Setenv("DISCORD_WEBHOOK_URL", srv.URL)
+	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "t.db"))
+	db, _ := openDB()
+	defer db.Close()
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(50000000000,50000000000,'2026-10-11T14:30:00Z','2026-10-11T14:30:00Z')")
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(10000000000,10000000000,'2026-10-11T14:45:00Z','2026-10-11T14:45:00Z')")
+
+	out := captureStdout(t, func() {
+		checkTrafficSpike(db, 10000000000, 10000000000, time.Date(2026, 10, 11, 14, 45, 0, 0, time.UTC), "2026-10-11T14:45:00Z")
+	})
+	if srv.count() != 0 {
+		t.Fatalf("backwards total should not fire, server saw %d post(s)", srv.count())
+	}
+	if !strings.Contains(out, "total went backwards") {
+		t.Fatalf("expected backwards-skip log, got %q", out)
 	}
 }
 

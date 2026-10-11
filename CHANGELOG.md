@@ -2,6 +2,12 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## Unreleased
+
+### Fixed
+
+- Traffic spike alerts no longer miss bursts in windows where a payment settles. The delta was computed on unpaid bytes alone; when a settlement moved bytes from unpaid to paid mid-window, unpaid went backwards and the backwards-counter guard silently skipped a genuine burst (e.g. 2026-10-11 14:45 UTC: unpaid -34.76 GB, paid +42.41 GB, real traffic +7.65 GB, no alert). The delta is now computed on paid+unpaid, which is monotonic across settlements. The backwards guard remains for genuine API corrections and now logs when it skips.
+
 ## v0.0.17 - 2026-10-06
 
 ### Fixed
