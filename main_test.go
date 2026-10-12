@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1968,4 +1969,171 @@ func readTestDB(t *testing.T, path string) []testRow {
 		out = append(out, r)
 	}
 	return out
+}
+
+// fakeWindowClock drives fetchStatsForWindow deterministically: sleep advances
+// the clock instead of waiting, so a whole-window retry ladder runs instantly.
+type fakeWindowClock struct {
+	t     time.Time
+	slept []time.Duration
+}
+
+func (c *fakeWindowClock) now() time.Time { return c.t }
+
+func (c *fakeWindowClock) sleep(d time.Duration) {
+	if d < 0 {
+		panic(fmt.Sprintf("negative sleep: %v", d))
+	}
+	c.slept = append(c.slept, d)
+	c.t = c.t.Add(d)
+}
+
+func TestFetchStatsForWindowFirstTrySucceeds(t *testing.T) {
+	start := time.Date(2026, 10, 12, 5, 30, 0, 0, time.UTC)
+	clock := &fakeWindowClock{t: start}
+	want := &walletStats{PaidBytes: 10, UnpaidBytes: 20}
+
+	calls := 0
+	stats, attempts, err := fetchStatsForWindow("tok", start.Add(15*time.Minute), 15*time.Minute,
+		func(string) (*walletStats, error) { calls++; return want, nil }, clock.now, clock.sleep)
+
+	if err != nil || attempts != 1 || calls != 1 || stats != want {
+		t.Fatalf("stats=%v attempts=%d calls=%d err=%v; want a first-try success", stats, attempts, calls, err)
+	}
+	if len(clock.slept) != 0 {
+		t.Fatalf("slept %v, want no sleeps", clock.slept)
+	}
+}
+
+func TestFetchStatsForWindowRetriesThenSucceeds(t *testing.T) {
+	start := time.Date(2026, 10, 12, 5, 30, 0, 0, time.UTC)
+	clock := &fakeWindowClock{t: start}
+	boom := errors.New("boom")
+
+	calls := 0
+	stats, attempts, err := fetchStatsForWindow("tok", start.Add(15*time.Minute), 15*time.Minute,
+		func(string) (*walletStats, error) {
+			calls++
+			if calls < 3 {
+				return nil, boom
+			}
+			return &walletStats{PaidBytes: 1}, nil
+		}, clock.now, clock.sleep)
+
+	if err != nil || attempts != 3 || stats == nil {
+		t.Fatalf("attempts=%d stats=%v err=%v; want success on attempt 3", attempts, stats, err)
+	}
+	want := []time.Duration{5 * time.Second, 15 * time.Second}
+	if len(clock.slept) != len(want) || clock.slept[0] != want[0] || clock.slept[1] != want[1] {
+		t.Fatalf("slept %v, want %v", clock.slept, want)
+	}
+}
+
+func TestFetchStatsForWindowGivesUpAtWindowEnd(t *testing.T) {
+	start := time.Date(2026, 10, 12, 5, 30, 0, 0, time.UTC)
+	end := start.Add(15 * time.Minute)
+	clock := &fakeWindowClock{t: start}
+	boom := errors.New("api down")
+
+	var attemptOffsets []time.Duration
+	_, attempts, err := fetchStatsForWindow("tok", end, 15*time.Minute,
+		func(string) (*walletStats, error) {
+			attemptOffsets = append(attemptOffsets, clock.now().Sub(start))
+			return nil, boom
+		}, clock.now, clock.sleep)
+
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want the last fetch error", err)
+	}
+	if attempts != len(attemptOffsets) {
+		t.Fatalf("attempts=%d but %d fetches recorded", attempts, len(attemptOffsets))
+	}
+	if attempts < 10 {
+		t.Fatalf("attempts=%d, want a sustained ladder across the window", attempts)
+	}
+	giveUp := end.Add(-statsFetchTimeout)
+	for i, off := range attemptOffsets {
+		if at := start.Add(off); at.After(giveUp) {
+			t.Fatalf("attempt %d started at +%v, after the give-up point +%v", i+1, off, giveUp.Sub(start))
+		}
+	}
+	// The ladder must keep trying until the window is almost over, not stop early.
+	last := attemptOffsets[len(attemptOffsets)-1]
+	if rem := giveUp.Sub(start) - last; rem > time.Minute {
+		t.Fatalf("last attempt at +%v, %v before the give-up point", last, rem)
+	}
+	// No sleep may overrun the window, and the cap must bind.
+	var maxSleep time.Duration
+	for _, d := range clock.slept {
+		if d <= 0 || d > 60*time.Second {
+			t.Fatalf("sleep %v out of range", d)
+		}
+		if d > maxSleep {
+			maxSleep = d
+		}
+	}
+	if maxSleep != 60*time.Second {
+		t.Fatalf("max sleep = %v, want the 60s cap to bind", maxSleep)
+	}
+	if clock.t.After(end) {
+		t.Fatalf("clock advanced past the window end: %v", clock.t)
+	}
+}
+
+func TestFetchStatsForWindowLateCallStillTriesOnce(t *testing.T) {
+	// A call in the last seconds of a window (startup, catch-up) must still
+	// make one attempt: the first fetch is unconditional.
+	start := time.Date(2026, 10, 12, 5, 30, 0, 0, time.UTC)
+	end := start.Add(15 * time.Minute)
+	clock := &fakeWindowClock{t: end.Add(-5 * time.Second)}
+	boom := errors.New("down")
+
+	calls := 0
+	_, attempts, err := fetchStatsForWindow("tok", end, 15*time.Minute,
+		func(string) (*walletStats, error) { calls++; return nil, boom }, clock.now, clock.sleep)
+
+	if !errors.Is(err, boom) || calls != 1 || attempts != 1 {
+		t.Fatalf("calls=%d attempts=%d err=%v; want exactly one attempt", calls, attempts, err)
+	}
+	if len(clock.slept) != 0 {
+		t.Fatalf("slept %v, want no sleeps", clock.slept)
+	}
+}
+
+func TestPollGapNoticeTransitions(t *testing.T) {
+	first := time.Date(2026, 10, 12, 5, 15, 0, 0, time.UTC)
+	interval := 15 * time.Minute
+	var g pollGapNotice
+
+	msg := g.skippedWindow(first, 12, errors.New("API 500: cached response unavailable"))
+	if !strings.Contains(msg, "Poll gap started") || !strings.Contains(msg, "05:15Z") || !strings.Contains(msg, "12 attempts") {
+		t.Fatalf("gap-start message = %q", msg)
+	}
+	if msg := g.skippedWindow(first.Add(interval), 12, errors.New("x")); msg != "" {
+		t.Fatalf("second skip message = %q, want none", msg)
+	}
+	if msg := g.skippedWindow(first.Add(2*interval), 12, errors.New("x")); msg != "" {
+		t.Fatalf("third skip message = %q, want none", msg)
+	}
+
+	msg = g.storedWindow(first.Add(3*interval), interval)
+	for _, want := range []string{"Polling recovered", "3 windows skipped", "05:15Z to 05:45Z", "45m", "06:00Z"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("recovery message = %q, want %q", msg, want)
+		}
+	}
+
+	if msg := g.storedWindow(first.Add(4*interval), interval); msg != "" {
+		t.Fatalf("store after recovery = %q, want none", msg)
+	}
+
+	// A new gap after a recovery starts a fresh notice cycle, and a
+	// single-window gap uses the singular form.
+	if msg := g.skippedWindow(first.Add(5*interval), 3, errors.New("y")); !strings.Contains(msg, "Poll gap started") {
+		t.Fatalf("second gap-start message = %q", msg)
+	}
+	msg = g.storedWindow(first.Add(6*interval), interval)
+	if !strings.Contains(msg, "1 window skipped") || !strings.Contains(msg, "(06:30Z, gap 15m)") {
+		t.Fatalf("single-window recovery message = %q", msg)
+	}
 }
