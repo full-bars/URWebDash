@@ -1107,7 +1107,7 @@ func handleWalletStats(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		rows, err := db.Query("SELECT paid_bytes, unpaid_bytes, created_at FROM wallet_stats ORDER BY created_at ASC")
+		rows, err := db.Query("SELECT paid_bytes, unpaid_bytes, created_at, updated_at FROM wallet_stats ORDER BY created_at ASC")
 		if err != nil {
 			jsonError(w, err.Error())
 			return
@@ -1118,13 +1118,14 @@ func handleWalletStats(db *sql.DB) http.HandlerFunc {
 			PaidBytes   int64  `json:"paid_bytes"`
 			UnpaidBytes int64  `json:"unpaid_bytes"`
 			CreatedAt   string `json:"created_at"`
+			UpdatedAt   string `json:"updated_at"`
 			ChangeBytes int64  `json:"change_bytes"`
 		}
 		var entries []entry
 		var prevTotal int64
 		for rows.Next() {
 			var e entry
-			if err := rows.Scan(&e.PaidBytes, &e.UnpaidBytes, &e.CreatedAt); err != nil {
+			if err := rows.Scan(&e.PaidBytes, &e.UnpaidBytes, &e.CreatedAt, &e.UpdatedAt); err != nil {
 				continue
 			}
 			total := e.PaidBytes + e.UnpaidBytes

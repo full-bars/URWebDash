@@ -228,6 +228,40 @@ func TestHandleWalletStats_PartialScanFailure(t *testing.T) {
 	}
 }
 
+func TestHandleWalletStatsIncludesUpdatedAt(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("STATS_DB", filepath.Join(tmp, "test.db"))
+
+	db, err := openDB()
+	if err != nil {
+		t.Fatalf("openDB() = %v", err)
+	}
+	defer db.Close()
+
+	// A late row: window stamped at :15, actually fetched and written at :22.
+	db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(1, 2, '2026-01-01T00:15:00Z', '2026-01-01T00:22:00Z')")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/wallet-stats", nil)
+	handleWalletStats(db)(w, r)
+
+	var body struct {
+		Entries []struct {
+			CreatedAt string `json:"created_at"`
+			UpdatedAt string `json:"updated_at"`
+		} `json:"entries"`
+	}
+	json.NewDecoder(w.Body).Decode(&body)
+
+	if len(body.Entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(body.Entries))
+	}
+	if body.Entries[0].CreatedAt != "2026-01-01T00:15:00Z" || body.Entries[0].UpdatedAt != "2026-01-01T00:22:00Z" {
+		t.Fatalf("created_at/updated_at = %q / %q, want the window stamp and the real fetch time",
+			body.Entries[0].CreatedAt, body.Entries[0].UpdatedAt)
+	}
+}
+
 func contains(slice []string, s string) bool {
 	for _, v := range slice {
 		if v == s {

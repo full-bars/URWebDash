@@ -708,6 +708,7 @@ function renderWalletTable() {
 
   const displayData = walletEntries.map(e => ({
     ts: e.created_at,
+    updated_at: e.updated_at,
     paid: e.paid_bytes,
     unpaid: e.unpaid_bytes,
     change_bytes: e.change_bytes
@@ -729,8 +730,18 @@ function renderWalletTable() {
     const tr = document.createElement('tr');
     const gbPerHour = e.change_bytes * 4 / 1e9;
     const changeClass = e.change_bytes > 0 ? 'text-green' : (e.change_bytes < 0 ? 'text-yellow' : 'text-gray');
+    // A window fetched more than two minutes after its boundary was retried
+    // by the poller; show the real fetch time so a late row is not read as if
+    // it sampled the boundary itself.
+    let lateNote = '';
+    if (e.updated_at) {
+      const lateMs = new Date(e.updated_at) - new Date(e.ts);
+      if (lateMs > 120000) {
+        lateNote = ` <span class="text-yellow" title="fetched at ${fmtTime(e.updated_at)}">· fetched ${new Date(e.updated_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} (+${Math.round(lateMs / 60000)}m)</span>`;
+      }
+    }
     tr.innerHTML = `
-      <td class="text-gray">${fmtTime(e.ts)}</td>
+      <td class="text-gray">${fmtTime(e.ts)}${lateNote}</td>
       <td class="text-right text-green">${(e.paid / 1e9).toFixed(2)}</td>
       <td class="text-right text-yellow text-mono">${fmtNumber(e.unpaid)}</td>
       <td class="text-right ${changeClass} text-mono">${e.change_bytes > 0 ? '+' : ''}${fmtNumber(e.change_bytes)}</td>
