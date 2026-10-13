@@ -86,6 +86,12 @@ type pointsResponse struct {
 	} `json:"error,omitempty"`
 }
 
+// statsFetchTimeout bounds a single stats fetch (it is httpClient's timeout).
+// It doubles as the margin the poller keeps when retrying inside a window: a
+// fetch started later than windowEnd - statsFetchTimeout could overrun the
+// window it is sampling.
+const statsFetchTimeout = 15 * time.Second
+
 var (
 	Version   = "dev"
 	startTime = time.Now()
@@ -97,7 +103,7 @@ var (
 	payoutLastUpdate string
 	payoutLastPoints float64
 
-	httpClient = &http.Client{Timeout: 15 * time.Second}
+	httpClient = &http.Client{Timeout: statsFetchTimeout}
 	cachedJWT  string
 
 	// Payout notification dedup state, persisted to disk so a process
@@ -536,6 +542,126 @@ func fetchStats(token string) (*walletStats, error) {
 	return &s, nil
 }
 
+// fetchStatsForWindow fetches the current sample, retrying until it succeeds
+// or until no further attempt fits inside the window. The window deadline,
+// not a fixed attempt count, is the retry budget: the stats API flaps for
+// seconds to minutes during backend incidents, and the old three-attempt
+// burst (~20s) lost the whole window whenever the API was still down when it
+// gave up. Each attempt can take up to statsFetchTimeout, so retries stop
+// with enough of the window left for one last full attempt. now and sleep
+// are injectable for tests.
+func fetchStatsForWindow(token string, windowEnd time.Time, interval time.Duration, fetch func(string) (*walletStats, error), now func() time.Time, sleep func(time.Duration)) (*walletStats, int, error) {
+	giveUpAt := windowEnd.Add(-statsFetchTimeout)
+	backoff := 5 * time.Second
+	maxBackoff := maxFetchBackoff(interval)
+	for attempts := 1; ; attempts++ {
+		stats, err := fetch(token)
+		if err == nil {
+			return stats, attempts, nil
+		}
+		fmt.Printf("[stats] fetch error (attempt %d): %v\n", attempts, err)
+		t := now()
+		if !t.Before(giveUpAt) {
+			return nil, attempts, err
+		}
+		nap := backoff
+		if rem := giveUpAt.Sub(t); nap > rem {
+			nap = rem
+		}
+		sleep(nap)
+		if !now().Before(windowEnd) {
+			// A pathological wake overshot the whole window; an attempt now
+			// would start after the window it would be stamped with has
+			// ended. A mild overshoot past the give-up instant still gets its
+			// attempt: the counters are cumulative and that late retry is
+			// exactly what salvages a flap clearing in the last minute.
+			return nil, attempts, err
+		}
+		backoff *= 3
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+// maxFetchBackoff caps the pause between retries at a quarter of the poll
+// interval, bounded to 60s, so the retry ladder stays proportionate whether
+// the interval is 15m or a short custom value.
+func maxFetchBackoff(interval time.Duration) time.Duration {
+	max := interval / 4
+	if max > 60*time.Second {
+		max = 60 * time.Second
+	}
+	if max < 5*time.Second {
+		max = 5 * time.Second
+	}
+	return max
+}
+
+// pollGapNotice tracks consecutive skipped windows and emits one "gap
+// started" message and one "recovered" message per gap, so a stats-API
+// outage is visible in Discord without one message per lost window. State
+// is in-memory: a poller restart mid-gap begins a fresh cycle.
+type pollGapNotice struct {
+	active  bool
+	first   time.Time // window of the first skipped sample
+	last    time.Time // most recent window counted into the gap
+	skipped int
+}
+
+// skippedWindow records a skipped sample. It returns the alert only for the
+// window that starts a gap; later skips just update the count. A repeat of
+// the same window (the startup poll and the first loop iteration can both
+// target one window) counts once.
+func (g *pollGapNotice) skippedWindow(windowStart time.Time, attempts int, lastErr error) string {
+	if g.active {
+		if windowStart.Equal(g.last) {
+			return ""
+		}
+		g.last = windowStart
+		g.skipped++
+		return ""
+	}
+	g.active = true
+	g.first = windowStart
+	g.last = windowStart
+	g.skipped = 1
+	return fmt.Sprintf("🕳️ **Poll gap started**\nwindow %sZ skipped after %d attempts: %s",
+		windowStart.Format("15:04"), attempts, shortErr(lastErr))
+}
+
+// storedWindow records a successful sample. It returns the recovery alert
+// when this success ends a gap, naming the lost span.
+func (g *pollGapNotice) storedWindow(windowStart time.Time, interval time.Duration) string {
+	if !g.active {
+		return ""
+	}
+	first, skipped := g.first, g.skipped
+	g.active, g.skipped = false, 0
+	where := first.Format("15:04") + "Z"
+	if skipped > 1 {
+		where = fmt.Sprintf("%sZ to %sZ", first.Format("15:04"), windowStart.Add(-interval).Format("15:04"))
+	}
+	noun := "windows"
+	if skipped == 1 {
+		noun = "window"
+	}
+	return fmt.Sprintf("✅ **Polling recovered**\n%d %s skipped (%s, gap %s); polling resumed at %sZ",
+		skipped, noun, where, spanLabel(windowStart.Sub(first)), windowStart.Format("15:04"))
+}
+
+// shortErr trims an error string for a one-line notification.
+func shortErr(err error) string {
+	if err == nil {
+		return "unknown error"
+	}
+	s := err.Error()
+	if len(s) > 120 {
+		s = s[:120] + "..."
+	}
+	return s
+}
+
 func fetchPayouts(token string) (*accountResponse, error) {
 	req, err := http.NewRequest("GET", "https://api.bringyour.com/account/payments", nil)
 	if err != nil {
@@ -685,6 +811,17 @@ func runPolling() {
 
 	fmt.Printf("[stats] polling every %s | db=%s\n", interval, dbPath())
 
+	var gap pollGapNotice
+
+	// reconcileGap ends an active poll gap once a window is recorded by any
+	// writer, so a manual refresh winning the race still reports the recovery
+	// the poller would have reported itself.
+	reconcileGap := func(windowStart time.Time) {
+		if msg := gap.storedWindow(windowStart, interval); msg != "" {
+			notifySend(msg)
+		}
+	}
+
 	update := func() time.Time {
 		now := time.Now().UTC()
 
@@ -701,25 +838,27 @@ func runPolling() {
 			windowEnd.Format(time.RFC3339),
 		).Scan(&existingID)
 		if existingID != 0 {
+			reconcileGap(windowStart)
 			return windowStart
 		}
 
-		var stats *walletStats
-		var err error
-		for attempt := range 3 {
-			stats, err = fetchStats(token)
-			if err == nil {
-				break
-			}
-			fmt.Printf("[stats] fetch error (attempt %d/3): %v\n", attempt+1, err)
-			if attempt < 2 {
-				time.Sleep(time.Duration(attempt+1) * 5 * time.Second)
-			}
-		}
+		// Retry inside the window: a transient API flap (seconds to minutes)
+		// must not cost the whole sample the way the old ~20s burst did.
+		stats, attempts, err := fetchStatsForWindow(token, windowEnd, interval, fetchStats, time.Now, time.Sleep)
 		if err != nil {
-			fmt.Printf("[stats] all 3 attempts failed for window %s\n", windowStart.Format("15:04"))
+			fmt.Printf("[stats] window %s skipped after %d attempts: %v\n", windowStart.Format("15:04"), attempts, err)
+			if msg := gap.skippedWindow(windowStart, attempts, err); msg != "" {
+				notifySend(msg)
+			}
 			return windowStart
 		}
+		if attempts > 1 {
+			fmt.Printf("[stats] window %s fetched on attempt %d\n", windowStart.Format("15:04"), attempts)
+		}
+		// The fetch can retry for minutes; record and spike-check the
+		// completion time, not the pre-retry time. created_at stays at the
+		// window boundary.
+		completedAt := time.Now().UTC()
 
 		// Stamp the row at the WINDOW boundary, not the poll instant. That
 		// keeps every valid sample on the interval grid (cleanupDB and manual
@@ -727,17 +866,28 @@ func runPolling() {
 		// identical timestamps, so a backup -> primary merge dedupes on
 		// created_at cleanly.
 		windowStr := windowStart.Format(time.RFC3339)
-		_, err = db.Exec(
-			"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
-			int64(stats.PaidBytes), int64(stats.UnpaidBytes), windowStr, now.Format(time.RFC3339),
+		res, err := db.Exec(
+			"INSERT OR IGNORE INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
+			int64(stats.PaidBytes), int64(stats.UnpaidBytes), windowStr, completedAt.Format(time.RFC3339),
 		)
 		if err != nil {
 			fmt.Printf("[stats] insert error: %v\n", err)
+			if msg := gap.skippedWindow(windowStart, attempts, err); msg != "" {
+				notifySend(msg)
+			}
+			return windowStart
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			// A concurrent writer (manual refresh) recorded this window first;
+			// its sample already went through the spike check.
+			fmt.Printf("[stats] window %s already recorded\n", windowStart.Format("15:04"))
+			reconcileGap(windowStart)
 			return windowStart
 		}
 		fmt.Printf("[stats] stored: paid=%d unpaid=%d window=%s\n", stats.PaidBytes, stats.UnpaidBytes, windowStr)
 
-		checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, now, windowStr)
+		reconcileGap(windowStart)
+		checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, completedAt, windowStr)
 		return windowStart
 	}
 
@@ -1126,15 +1276,20 @@ func handleRefresh(token string, db *sql.DB) http.HandlerFunc {
 		).Scan(&existingID)
 
 		if existingID == 0 {
-			_, err = db.Exec(
-				"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
+			res, err := db.Exec(
+				"INSERT OR IGNORE INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
 				int64(stats.PaidBytes), int64(stats.UnpaidBytes), windowStart.Format(time.RFC3339), now.Format(time.RFC3339),
 			)
 			if err != nil {
 				jsonError(w, err.Error())
 				return
 			}
-			checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, now, windowStart.Format(time.RFC3339))
+			// An ignored insert means the poller stored this window between
+			// the check and the insert: an ordinary dedupe, and its sample
+			// already went through the spike check.
+			if n, _ := res.RowsAffected(); n > 0 {
+				checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, now, windowStart.Format(time.RFC3339))
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
