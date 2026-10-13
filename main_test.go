@@ -2137,3 +2137,73 @@ func TestPollGapNoticeTransitions(t *testing.T) {
 		t.Fatalf("single-window recovery message = %q", msg)
 	}
 }
+
+func TestFetchStatsForWindowSuccessOnFinalAllowedAttempt(t *testing.T) {
+	// A flap that clears in the last minute of the window must still be
+	// salvaged: the ladder retries up to the give-up instant, and a success
+	// there is returned. (A ladder that stopped one nap short would still
+	// pass the give-up test above, so the boundary needs pinning here.)
+	start := time.Date(2026, 10, 12, 5, 30, 0, 0, time.UTC)
+	end := start.Add(15 * time.Minute)
+	giveUpAt := end.Add(-statsFetchTimeout)
+	clock := &fakeWindowClock{t: start}
+	boom := errors.New("flap")
+
+	var lastOffset time.Duration
+	stats, attempts, err := fetchStatsForWindow("tok", end, 15*time.Minute,
+		func(string) (*walletStats, error) {
+			lastOffset = clock.now().Sub(start)
+			if clock.now().Before(giveUpAt) {
+				return nil, boom
+			}
+			return &walletStats{PaidBytes: 7}, nil
+		}, clock.now, clock.sleep)
+
+	if err != nil || stats == nil || stats.PaidBytes != 7 {
+		t.Fatalf("stats=%v err=%v; want a late success", stats, err)
+	}
+	if want := giveUpAt.Sub(start); lastOffset != want {
+		t.Fatalf("last attempt at +%v, want the give-up instant +%v", lastOffset, want)
+	}
+	if attempts < 10 {
+		t.Fatalf("attempts=%d, want a sustained ladder", attempts)
+	}
+}
+
+func TestMaxFetchBackoffProportionality(t *testing.T) {
+	cases := []struct {
+		interval time.Duration
+		want     time.Duration
+	}{
+		{15 * time.Minute, 60 * time.Second}, // cap binds on the default cadence
+		{8 * time.Minute, 60 * time.Second},
+		{4 * time.Minute, 60 * time.Second}, // a quarter is exactly the cap
+		{2 * time.Minute, 30 * time.Second},
+		{1 * time.Minute, 15 * time.Second},
+		{20 * time.Second, 5 * time.Second},
+		{10 * time.Second, 5 * time.Second}, // floor binds on tiny cadences
+	}
+	for _, c := range cases {
+		if got := maxFetchBackoff(c.interval); got != c.want {
+			t.Errorf("maxFetchBackoff(%v) = %v, want %v", c.interval, got, c.want)
+		}
+	}
+}
+
+func TestShortErrTruncatesForOneLineNotices(t *testing.T) {
+	if got := shortErr(nil); got != "unknown error" {
+		t.Fatalf("shortErr(nil) = %q, want the placeholder", got)
+	}
+	if got := shortErr(errors.New("boom")); got != "boom" {
+		t.Fatalf("shortErr(short) = %q, want passthrough", got)
+	}
+	exact := strings.Repeat("x", 120)
+	if got := shortErr(errors.New(exact)); got != exact {
+		t.Fatalf("shortErr(120 chars) = %d chars, want unchanged", len(got))
+	}
+	long := strings.Repeat("y", 400)
+	got := shortErr(errors.New(long))
+	if got != long[:120]+"..." || len(got) != 123 {
+		t.Fatalf("shortErr(400 chars) = %d chars %q, want 120 chars plus ellipsis", len(got), got)
+	}
+}
