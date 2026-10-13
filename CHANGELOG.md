@@ -2,6 +2,17 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## v0.0.19 - 2026-10-12
+
+### Fixed
+
+- Poller could lose a whole sample window to a short stats-API flap. A window's fetch was a fixed three-attempt burst (~20s); flaps longer than that abandoned the window even though the endpoint typically recovered minutes later, and the October backend incidents cost dozens of samples that way. A window's fetch now retries with 5s/15s/45s backoff (60s cap) until window end minus the fetch timeout, so only an API that stays down for the full 15 minutes costs the sample.
+- A manual refresh racing the poller can no longer double-write or drop a window: both writers insert conflict-aware, the spike check runs exactly once per window, and either writer ending a poll gap reports the recovery.
+
+### Added
+
+- Poll-gap notices: one `Poll gap started` message (window, attempts, last error) when polling starts failing and one `Polling recovered` message (windows skipped, gap span, resume time) when it resumes - a dropped window is visible in Discord instead of silent. A repeat failure of the same window counts once.
+
 ## v0.0.18 - 2026-10-11
 
 ### Fixed
