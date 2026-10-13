@@ -855,6 +855,10 @@ func runPolling() {
 		if attempts > 1 {
 			fmt.Printf("[stats] window %s fetched on attempt %d\n", windowStart.Format("15:04"), attempts)
 		}
+		// The fetch can retry for minutes; record and spike-check the
+		// completion time, not the pre-retry time. created_at stays at the
+		// window boundary.
+		completedAt := time.Now().UTC()
 
 		// Stamp the row at the WINDOW boundary, not the poll instant. That
 		// keeps every valid sample on the interval grid (cleanupDB and manual
@@ -864,7 +868,7 @@ func runPolling() {
 		windowStr := windowStart.Format(time.RFC3339)
 		res, err := db.Exec(
 			"INSERT OR IGNORE INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
-			int64(stats.PaidBytes), int64(stats.UnpaidBytes), windowStr, now.Format(time.RFC3339),
+			int64(stats.PaidBytes), int64(stats.UnpaidBytes), windowStr, completedAt.Format(time.RFC3339),
 		)
 		if err != nil {
 			fmt.Printf("[stats] insert error: %v\n", err)
@@ -883,7 +887,7 @@ func runPolling() {
 		fmt.Printf("[stats] stored: paid=%d unpaid=%d window=%s\n", stats.PaidBytes, stats.UnpaidBytes, windowStr)
 
 		reconcileGap(windowStart)
-		checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, now, windowStr)
+		checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, completedAt, windowStr)
 		return windowStart
 	}
 
