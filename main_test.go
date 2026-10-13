@@ -2207,3 +2207,76 @@ func TestShortErrTruncatesForOneLineNotices(t *testing.T) {
 		t.Fatalf("shortErr(400 chars) = %d chars %q, want 120 chars plus ellipsis", len(got), got)
 	}
 }
+
+// oversleepClock advances the clock by the requested nap plus a fixed
+// overshoot, modeling a scheduler-delayed wake-up.
+type oversleepClock struct {
+	t         time.Time
+	overshoot time.Duration
+	slept     []time.Duration
+}
+
+func (c *oversleepClock) now() time.Time { return c.t }
+
+func (c *oversleepClock) sleep(d time.Duration) {
+	c.slept = append(c.slept, d)
+	c.t = c.t.Add(d + c.overshoot)
+}
+
+func TestFetchStatsForWindowOversleepGuard(t *testing.T) {
+	// On a 20s interval the give-up instant is the first nap away, so the
+	// guard's branch is the pathological wake past the window end.
+	start := time.Date(2026, 10, 12, 5, 30, 0, 0, time.UTC)
+	end := start.Add(20 * time.Second)
+	boom := errors.New("down")
+
+	// Mild overshoot: the wake is late but still inside the window, so the
+	// last-ditch attempt runs. That is how a flap clearing in the final
+	// minute gets salvaged.
+	mild := &oversleepClock{t: start, overshoot: time.Second}
+	var mildOffsets []time.Duration
+	_, attempts, err := fetchStatsForWindow("tok", end, 20*time.Second,
+		func(string) (*walletStats, error) {
+			mildOffsets = append(mildOffsets, mild.now().Sub(start))
+			return nil, boom
+		}, mild.now, mild.sleep)
+	if !errors.Is(err, boom) || attempts != 2 {
+		t.Fatalf("mild overshoot: attempts=%d err=%v, want the late attempt", attempts, err)
+	}
+	if want := 6 * time.Second; mildOffsets[1] != want {
+		t.Fatalf("mild overshoot: second attempt at +%v, want +%v", mildOffsets[1], want)
+	}
+
+	// Severe overshoot: the wake is past the window end, so no further
+	// attempt starts and the last error is returned.
+	severe := &oversleepClock{t: start, overshoot: 16 * time.Second}
+	var severeOffsets []time.Duration
+	_, attempts, err = fetchStatsForWindow("tok", end, 20*time.Second,
+		func(string) (*walletStats, error) {
+			severeOffsets = append(severeOffsets, severe.now().Sub(start))
+			return nil, boom
+		}, severe.now, severe.sleep)
+	if !errors.Is(err, boom) || attempts != 1 || len(severeOffsets) != 1 {
+		t.Fatalf("severe overshoot: attempts=%d offsets=%v err=%v, want exactly one attempt", attempts, severeOffsets, err)
+	}
+}
+
+func TestPollGapNoticeSameWindowCountsOnce(t *testing.T) {
+	// The startup poll and the first loop iteration can both fail on the
+	// same window; the gap must count it once so the recovery notice is
+	// truthful.
+	first := time.Date(2026, 10, 12, 5, 15, 0, 0, time.UTC)
+	interval := 15 * time.Minute
+	var g pollGapNotice
+
+	if msg := g.skippedWindow(first, 18, errors.New("api down")); !strings.Contains(msg, "Poll gap started") {
+		t.Fatalf("gap-start message = %q", msg)
+	}
+	if msg := g.skippedWindow(first, 18, errors.New("api down")); msg != "" {
+		t.Fatalf("same-window skip message = %q, want none", msg)
+	}
+	msg := g.storedWindow(first.Add(interval), interval)
+	if !strings.Contains(msg, "1 window skipped") {
+		t.Fatalf("recovery message = %q, want a single skipped window", msg)
+	}
+}

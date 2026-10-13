@@ -569,6 +569,14 @@ func fetchStatsForWindow(token string, windowEnd time.Time, interval time.Durati
 			nap = rem
 		}
 		sleep(nap)
+		if !now().Before(windowEnd) {
+			// A pathological wake overshot the whole window; an attempt now
+			// would start after the window it would be stamped with has
+			// ended. A mild overshoot past the give-up instant still gets its
+			// attempt: the counters are cumulative and that late retry is
+			// exactly what salvages a flap clearing in the last minute.
+			return nil, attempts, err
+		}
 		backoff *= 3
 		if backoff > maxBackoff {
 			backoff = maxBackoff
@@ -597,18 +605,26 @@ func maxFetchBackoff(interval time.Duration) time.Duration {
 type pollGapNotice struct {
 	active  bool
 	first   time.Time // window of the first skipped sample
+	last    time.Time // most recent window counted into the gap
 	skipped int
 }
 
 // skippedWindow records a skipped sample. It returns the alert only for the
-// window that starts a gap; later skips just update the count.
+// window that starts a gap; later skips just update the count. A repeat of
+// the same window (the startup poll and the first loop iteration can both
+// target one window) counts once.
 func (g *pollGapNotice) skippedWindow(windowStart time.Time, attempts int, lastErr error) string {
 	if g.active {
+		if windowStart.Equal(g.last) {
+			return ""
+		}
+		g.last = windowStart
 		g.skipped++
 		return ""
 	}
 	g.active = true
 	g.first = windowStart
+	g.last = windowStart
 	g.skipped = 1
 	return fmt.Sprintf("🕳️ **Poll gap started**\nwindow %sZ skipped after %d attempts: %s",
 		windowStart.Format("15:04"), attempts, shortErr(lastErr))
@@ -797,6 +813,15 @@ func runPolling() {
 
 	var gap pollGapNotice
 
+	// reconcileGap ends an active poll gap once a window is recorded by any
+	// writer, so a manual refresh winning the race still reports the recovery
+	// the poller would have reported itself.
+	reconcileGap := func(windowStart time.Time) {
+		if msg := gap.storedWindow(windowStart, interval); msg != "" {
+			notifySend(msg)
+		}
+	}
+
 	update := func() time.Time {
 		now := time.Now().UTC()
 
@@ -813,6 +838,7 @@ func runPolling() {
 			windowEnd.Format(time.RFC3339),
 		).Scan(&existingID)
 		if existingID != 0 {
+			reconcileGap(windowStart)
 			return windowStart
 		}
 
@@ -842,19 +868,21 @@ func runPolling() {
 		)
 		if err != nil {
 			fmt.Printf("[stats] insert error: %v\n", err)
+			if msg := gap.skippedWindow(windowStart, attempts, err); msg != "" {
+				notifySend(msg)
+			}
 			return windowStart
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			// A concurrent writer (manual refresh) recorded this window first;
 			// its sample already went through the spike check.
 			fmt.Printf("[stats] window %s already recorded\n", windowStart.Format("15:04"))
+			reconcileGap(windowStart)
 			return windowStart
 		}
 		fmt.Printf("[stats] stored: paid=%d unpaid=%d window=%s\n", stats.PaidBytes, stats.UnpaidBytes, windowStr)
 
-		if msg := gap.storedWindow(windowStart, interval); msg != "" {
-			notifySend(msg)
-		}
+		reconcileGap(windowStart)
 		checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, now, windowStr)
 		return windowStart
 	}
@@ -1244,15 +1272,20 @@ func handleRefresh(token string, db *sql.DB) http.HandlerFunc {
 		).Scan(&existingID)
 
 		if existingID == 0 {
-			_, err = db.Exec(
-				"INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
+			res, err := db.Exec(
+				"INSERT OR IGNORE INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?, ?, ?, ?)",
 				int64(stats.PaidBytes), int64(stats.UnpaidBytes), windowStart.Format(time.RFC3339), now.Format(time.RFC3339),
 			)
 			if err != nil {
 				jsonError(w, err.Error())
 				return
 			}
-			checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, now, windowStart.Format(time.RFC3339))
+			// An ignored insert means the poller stored this window between
+			// the check and the insert: an ordinary dedupe, and its sample
+			// already went through the spike check.
+			if n, _ := res.RowsAffected(); n > 0 {
+				checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, now, windowStart.Format(time.RFC3339))
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
