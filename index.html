@@ -492,7 +492,9 @@ function renderPrice() {
   const drift = seenAt ? Math.max(0, Math.round((Date.now() - seenAt) / 1000)) : 0;
   const age = (priceMeta.quote_age_s || 0) + drift, fxAge = (priceMeta.fx_age_s || 0) + drift;
   const bits = [];
-  if (priceMeta.quote_is_old) bits.push('quote ' + humanAge(age) + ' old');
+  /* derive staleness from the age we just computed: the server's flag only
+     describes the moment the response was built */
+  if (age >= 60) bits.push('quote ' + humanAge(age) + ' old');
   if (fxAge > 3600) bits.push('fx ' + humanAge(fxAge) + ' old');
   ch.textContent += bits.length ? ' · ' + bits.join(' · ') : '';
 }
@@ -639,13 +641,17 @@ function renderEpochs() {
 function startEpochTicker() {
   if (epochTimer) return;
   epochTimer = setInterval(function () {
-    if (document.getElementById('section-bittensor').classList.contains('active')) renderEpochs();
+    if (!document.getElementById('section-bittensor').classList.contains('active')) return;
+    renderEpochs();
+    renderPrice(); /* repaint the quote age as it drifts */
   }, 30000);
 }
 function stopEpochTicker() { if (epochTimer) { clearInterval(epochTimer); epochTimer = null; } }
 
 function loadBittensor() {
+  const priceStale = !priceMeta.seen_at || (Date.now() - priceMeta.seen_at) > 60000;
   if (!bittensorLoaded) { bittensorLoaded = true; loadPrice(); loadEpochs(); }
+  else if (priceStale) loadPrice();
   startEpochTicker();
   startPriceTicker();
   const n = document.getElementById('hero-net-name');
