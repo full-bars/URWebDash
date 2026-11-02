@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,23 +9,22 @@ import (
 )
 
 /*
-The test button must show the alert the channel will actually receive.
+The test button must show what the channel will actually receive.
 
-The page's style previews are design studies with placeholder text, and the ANSI
-one posts raw escape bytes that Discord renders as gibberish. So the handler sends
-its own sample built from the real template, and ignores whatever the preview
-would have posted.
+The page's style previews are design studies: one is an embed, and posting an
+embed as message content prints the JSON into the channel. So the handler builds
+its own sample and posts it as a request body.
 */
-func TestWebhookTestSendsTheRealAlert(t *testing.T) {
-	old := sendDiscordWebhook
+func TestWebhookTestPostsAnEmbedBody(t *testing.T) {
+	old := sendDiscordWebhookJSON
 	var got string
-	sendDiscordWebhook = func(url, content string) (int, error) {
-		got = content
+	sendDiscordWebhookJSON = func(url, body string) (int, error) {
+		got = body
 		return http.StatusNoContent, nil
 	}
-	defer func() { sendDiscordWebhook = old }()
+	defer func() { sendDiscordWebhookJSON = old }()
 
-	body := `{"url":"https://discord.com/api/webhooks/1/abc","content":"**Traffic Spike** ANSI PREVIEW PAYLOAD"}`
+	body := `{"url":"https://discord.com/api/webhooks/1/abc","content":"{\"embeds\":[]}"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/webhook-test", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -33,39 +33,62 @@ func TestWebhookTestSendsTheRealAlert(t *testing.T) {
 	if rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(got, "Traffic Spike") {
-		t.Fatalf("sent %q, want the traffic-spike alert", got)
+
+	var sent struct {
+		Embeds []struct {
+			Title  string `json:"title"`
+			Fields []struct {
+				Name string `json:"name"`
+			} `json:"fields"`
+			Footer struct {
+				Text string `json:"text"`
+			} `json:"footer"`
+		} `json:"embeds"`
+		Content string `json:"content"`
 	}
-	if !strings.Contains(got, "Total Unpaid") || !strings.Contains(got, "At (UTC)") {
-		t.Fatalf("sent %q, want the real alert rows", got)
+	if err := json.Unmarshal([]byte(got), &sent); err != nil {
+		t.Fatalf("body is not JSON: %v (%q)", err, got)
 	}
-	/* the preview payload must not survive into the message */
-	if strings.Contains(got, "ANSI PREVIEW PAYLOAD") {
-		t.Fatalf("sent %q, which still carries the preview payload", got)
+	if sent.Content != "" {
+		t.Fatalf("body carried content %q; an embed belongs in embeds", sent.Content)
+	}
+	if len(sent.Embeds) != 1 {
+		t.Fatalf("sent %d embeds, want 1", len(sent.Embeds))
+	}
+	if !strings.Contains(sent.Embeds[0].Title, "Traffic Spike") {
+		t.Fatalf("title %q, want the traffic-spike alert", sent.Embeds[0].Title)
+	}
+	if len(sent.Embeds[0].Fields) != 3 {
+		t.Fatalf("sent %d fields, want 3", len(sent.Embeds[0].Fields))
+	}
+	if !strings.Contains(sent.Embeds[0].Footer.Text, "spike threshold") {
+		t.Fatalf("footer %q, want the threshold", sent.Embeds[0].Footer.Text)
 	}
 }
 
-/* A caller that sends nothing still gets the same real alert, not a canned line. */
-func TestWebhookTestWithoutPayloadStillSendsTheRealAlert(t *testing.T) {
-	old := sendDiscordWebhook
+/* Whatever the preview posted must not leak into the message. */
+func TestWebhookTestIgnoresPreviewPayload(t *testing.T) {
+	old := sendDiscordWebhookJSON
 	var got string
-	sendDiscordWebhook = func(url, content string) (int, error) {
-		got = content
+	sendDiscordWebhookJSON = func(url, body string) (int, error) {
+		got = body
 		return http.StatusNoContent, nil
 	}
-	defer func() { sendDiscordWebhook = old }()
+	defer func() { sendDiscordWebhookJSON = old }()
 
-	body := `{"url":"https://discord.com/api/webhooks/1/abc"}`
+	body := `{"url":"https://discord.com/api/webhooks/1/abc","content":"\u001b[2;37m ANSI PREVIEW"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/webhook-test", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	handleWebhookTest(rec, req)
 
-	if !strings.Contains(got, "Traffic Spike") {
-		t.Fatalf("sent %q, want the traffic-spike alert", got)
+	if strings.Contains(got, "ANSI PREVIEW") {
+		t.Fatalf("sent %q, which carries the preview payload", got)
 	}
-	/* no raw ANSI escape bytes: Discord would print them literally */
 	if strings.Contains(got, "\x1b[") {
 		t.Fatalf("sent %q, which carries ANSI escapes", got)
+	}
+	if !strings.Contains(got, "embeds") {
+		t.Fatalf("sent %q, want an embed body", got)
 	}
 }
