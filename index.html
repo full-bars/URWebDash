@@ -361,6 +361,8 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
           <button class="btn btn-sm active" onclick="setWin('24h',this)">24H</button>
           <button class="btn btn-sm" onclick="setWin('7d',this)">7D</button>
           <button class="btn btn-sm" onclick="setWin('30d',this)">30D</button>
+          <button class="btn btn-sm" onclick="setWin('gbd',this)">GB/d</button>
+          <button class="btn btn-sm" onclick="setWin('all',this)">ALL</button>
         </div><div class="chart-box"><canvas id="rate-chart"></canvas></div></div>
     </div>
     <div class="table-wrap"><table>
@@ -509,7 +511,15 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="toolbar" style="margin-top:14px">
       <span class="info">Sending a test posts into the selected webhook in the selected style.</span>
       <button class="btn" onclick="whTest(this)">&#128260; Send test alert</button>
-      <button class="btn primary" onclick="whSave(this)">&#128190; Save</button></div>
+      <button class="btn primary" onclick="whSave(this)">&#128190; Save</button>
+      <button class="btn danger" onclick="whClear(this)">&#128465; Clear</button></div>
+    <div class="toolbar" style="margin-top:14px">
+      <span class="info">Traffic spike threshold &middot; currently <b id="spike-current">&mdash;</b></span>
+      <input id="spike-threshold" type="number" step="0.1" min="0.1" placeholder="GB per window"
+             style="width:140px;padding:6px 9px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);color:var(--text)">
+      <button class="btn" onclick="saveSpikeThreshold(this)">&#128190; Save threshold</button>
+    </div>
+    <div class="note" id="spike-note"></div>
     <div class="note">The webhook address comes from the dashboard's own configuration (an environment variable or a saved file) and is read on every send, so a change applies without a restart. The style options below change the preview only — the alert text is fixed.</div>
   </div>
 </main>
@@ -1798,10 +1808,29 @@ function chartOn(id,cfg){
   return new Chart(el,cfg);
 }
 function rateSeries(win){
+  /* 'all' has no back edge; 'gbd' rolls the same rows into calendar days so the
+     rate reads per day rather than per hour */
   const back={'6h':6,'24h':24,'7d':168,'30d':720}[win];
-  const cut=new Date(last.t).getTime()-back*3600000;
   const src = (win==='6h') ? recent.slice().reverse() : series;
-  const rows=src.filter(r=>new Date(r.t).getTime()>=cut);
+  if(win==='gbd'){
+    const days=new Map();
+    src.forEach(r=>{
+      const k=new Date(r.t).toISOString().slice(0,10);
+      const cur=days.get(k);
+      if(!cur) days.set(k,{first:r.t,last:r.t,total:r.paid+r.unpaid});
+      else { cur.last=r.t; cur.total=r.paid+r.unpaid; }
+    });
+    const keys=[...days.keys()].sort();
+    let prev=null;
+    return keys.map(k=>{
+      const d=days.get(k);
+      const val=prev?((d.total-prev)/GB):0;
+      prev=d.total;
+      return {t:k, v:+val.toFixed(2)};
+    }).filter(x=>x.v!==0);
+  }
+  const cut=back?new Date(last.t).getTime()-back*3600000:0;
+  const rows=src.filter(r=>!back||new Date(r.t).getTime()>=cut);
   return rows.map((r,i)=>{
     const o=rows[i-1], h=o?(new Date(r.t)-new Date(o.t))/3600000:0;
     const gb=o&&h>0?((r.paid+r.unpaid)-(o.paid+o.unpaid))/h/GB:0;
@@ -2073,6 +2102,7 @@ function sparkHoverInit(){
 }
 sparkHoverInit();
 setInterval(sparkHoverInit, 3000);
+setTimeout(()=>{ if(typeof loadSpikeThreshold==='function') loadSpikeThreshold(); }, 1500);
 
 
 /* ---------- paged history ---------- */
@@ -3158,6 +3188,50 @@ async function whTest(btn){
   }finally{
     btn.disabled=false; btn.innerHTML=label;
   }
+}
+
+/* removing the saved webhook stops alerts, so it asks first */
+async function whClear(btn){
+  if(!confirm('Remove the saved webhook URL? Alerts will stop.')) return;
+  btn.disabled=true;
+  try{
+    const res=await fetch('/api/webhook',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({url:''})});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok||data.error) throw new Error(data.error||('HTTP '+res.status));
+    const f=document.getElementById('wh-url'); if(f) f.value='';
+    const note=document.getElementById('wh-note'); if(note) note.textContent='Webhook cleared. Alerts will stop.';
+  }catch(e){
+    const note=document.getElementById('wh-note'); if(note) note.textContent='Clear failed: '+e.message;
+  }finally{ btn.disabled=false; }
+}
+
+/* the spike threshold had no control on this page; alerts used whatever was set
+   elsewhere. it is editable here now, and shows the value in force. */
+async function saveSpikeThreshold(btn){
+  const input=document.getElementById('spike-threshold');
+  const val=parseFloat(input&&input.value);
+  if(!(val>0)){ const n=document.getElementById('spike-note'); if(n) n.textContent='Enter a threshold greater than 0'; return; }
+  btn.disabled=true;
+  try{
+    const res=await fetch('/api/spike-threshold',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({threshold_gb:val})});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok||data.error) throw new Error(data.error||('HTTP '+res.status));
+    const n=document.getElementById('spike-note');
+    if(n) n.textContent='Threshold saved ('+val.toFixed(1)+' GB)';
+    loadSpikeThreshold();
+  }catch(e){
+    const n=document.getElementById('spike-note'); if(n) n.textContent='Failed: '+e.message;
+  }finally{ btn.disabled=false; }
+}
+async function loadSpikeThreshold(){
+  try{
+    const res=await fetch('/api/spike-threshold',{cache:'no-store'});
+    const d=await res.json();
+    const cur=document.getElementById('spike-current');
+    if(cur&&d&&d.threshold_gb!==undefined) cur.textContent=d.threshold_gb.toFixed(1)+' GB';
+  }catch(_){}
 }
 async function whSave(btn){
   const label=btn.innerHTML; btn.disabled=true; btn.innerHTML='&#128190; Saving\u2026';
