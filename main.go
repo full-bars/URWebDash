@@ -1082,6 +1082,7 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/webhook-test", handleWebhookTest)
 	mux.HandleFunc("/api/spike-threshold", handleSpikeThreshold)
 	mux.HandleFunc("/api/epochs", handleEpochs(db, token))
+	mux.HandleFunc("/api/price", handlePrice)
 	mux.HandleFunc("/api/refresh-epochs", handleRefreshEpochs(db, token))
 	mux.HandleFunc("/", handleIndex)
 
