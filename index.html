@@ -1606,9 +1606,11 @@ const fmtTime=s=>{
   if(!s) return '\u2014';
   const d=new Date(s);
   if(isNaN(d)) return String(s);
-  const p=new Intl.DateTimeFormat('en-CA',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(d);
+  const p=new Intl.DateTimeFormat('en-US',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).formatToParts(d);
   const g=t=>(p.find(x=>x.type===t)||{}).value||'';
-  return g('year')+'-'+g('month')+'-'+g('day')+' '+g('hour')+':'+g('minute')+':'+g('second');
+  /* 12-hour to match the fetched note beside it; the date stays sortable */
+  const ap=g('dayPeriod').toUpperCase().replace(/[\u202f\u00a0]/g,' ');
+  return g('year')+'-'+g('month')+'-'+g('day')+' '+g('hour')+':'+g('minute')+':'+g('second')+' '+ap;
 };
 /* a window is only late when the poller had to retry past its boundary. two
    minutes is the threshold; a normal fetch lands within seconds and must not be
