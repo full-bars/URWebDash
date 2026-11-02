@@ -2246,8 +2246,13 @@ function renderWalletTable(){
   const page=WALLETROWS.slice(start,start+PAGE_SIZE);
   tbody.innerHTML='';
   const frag=document.createDocumentFragment();
-  page.forEach(r=>{
+  page.forEach((r,i)=>{
     const d=Number(r.change_bytes||0);
+    /* the rate is derived from the neighbouring window, exactly as the live
+       insert does it, so an irregular gap reports the real hourly rate and the
+       two paths cannot print different numbers for one row */
+    const prevRow=WALLETROWS[start+i+1]||null;
+    const hours=prevRow?Math.max(0.01,(new Date(r.created_at)-new Date(prevRow.created_at))/3600000):0.25;
     const tr=document.createElement('tr');
     /* only a window the poller had to retry past its boundary is annotated;
        lagNote returns '' for a normal fetch */
@@ -2258,7 +2263,7 @@ function renderWalletTable(){
       '<td class="text-right text-blue">'+(d>=0?'+':'')+d.toLocaleString()+'</td>'+
       '<td class="text-right text-yellow">'+fmtGB2(r.unpaid_bytes)+'</td>'+
       '<td class="text-right text-blue">'+(d>=0?'+':'')+fmtGB2(d)+'</td>'+
-      '<td class="text-right text-blue">'+fmtGB2(d*4)+'</td>';
+      '<td class="text-right text-blue">'+(d>=0?'+':'')+fmtGB2(d/hours)+'</td>';
     frag.appendChild(tr);
   });
   tbody.appendChild(frag);
@@ -2576,8 +2581,8 @@ function epInsertRow(r, raw){
     '<td class="text-right text-white text-mono">'+r.unpaid_bytes.toLocaleString()+'</td>'+
     '<td class="text-right text-blue">'+sign+dTotal.toLocaleString()+'</td>'+
     '<td class="text-right text-yellow">'+fmtGB(r.unpaid_bytes)+'</td>'+
-    '<td class="text-right text-blue">'+sign+(dTotal/GB).toFixed(2)+'</td>'+
-    '<td class="text-right text-blue">'+sign+(dTotal/hours/GB).toFixed(2)+'</td>';
+    '<td class="text-right text-blue">'+sign+fmtGB2(dTotal)+'</td>'+
+    '<td class="text-right text-blue">'+sign+fmtGB2(dTotal/hours)+'</td>';
   tbody.insertBefore(tr, tbody.firstChild);
 }
 
