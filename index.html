@@ -147,13 +147,16 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
 @keyframes epHalo{0%,100%{opacity:.25;transform:scale(.85)}50%{opacity:.7;transform:scale(1.2)}}
 /* the tick is a hairline that stays at the head, so it is visible between
    blocks; each block makes it flash brighter and wider for a moment */
-.ep-tick{position:absolute;top:0;height:100%;width:3px;background:rgba(255,255,255,.75);opacity:1;border-radius:2px;pointer-events:none;
-  box-shadow:0 0 6px rgba(255,255,255,.45)}
-.ep-tick.run{animation:epRipple 3.2s ease-out}
+/* the mark shows up where the block landed, flares, and is gone again: ending
+   at full opacity left a white bar stranded on the track */
+.ep-tick{position:absolute;top:0;height:100%;width:3px;background:#fff;opacity:0;border-radius:2px;pointer-events:none;
+  box-shadow:0 0 10px rgba(255,255,255,.85)}
+.ep-tick.run{animation:epRipple 1.8s ease-out}
 @keyframes epRipple{
-  0%{opacity:1;transform:scaleY(1.9) scaleX(2.2);box-shadow:0 0 12px rgba(255,255,255,.95)}
-  55%{opacity:.85;transform:scaleY(1.2) scaleX(1.2)}
-  100%{opacity:1;transform:scaleY(1) scaleX(1)}}
+  0%{opacity:0;transform:scaleY(.5) scaleX(1)}
+  12%{opacity:1;transform:scaleY(1.45) scaleX(2.6);box-shadow:0 0 14px rgba(255,255,255,.95)}
+  45%{opacity:.75;transform:scaleY(1.1) scaleX(1.6)}
+  100%{opacity:0;transform:scaleY(1) scaleX(1);box-shadow:0 0 4px rgba(255,255,255,0)}}
 @media (prefers-reduced-motion: reduce){
   .ep-glow,.ep-tick.run{animation:none}
 }
