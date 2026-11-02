@@ -157,14 +157,24 @@ func cachedPrice() (priceDoc, time.Duration, error) {
 	if priceCache.doc.AlphaUSD > 0 && age < priceTTL {
 		return priceCache.doc, age, nil
 	}
+	/* do not hammer an upstream that just failed: a retry waits out the TTL */
+	if priceCache.fail != "" && age < priceTTL && priceCache.doc.AlphaUSD > 0 {
+		return priceCache.doc, age, nil
+	}
 	doc, err := fetchPrice()
 	if err != nil {
+		priceCache.fail = err.Error()
+		priceCache.at = time.Now()
 		/* keep serving the last good quote; the age tells the page it is old */
 		if priceCache.doc.AlphaUSD > 0 {
-			priceCache.fail = err.Error()
 			return priceCache.doc, age, nil
 		}
 		return priceDoc{}, 0, err
+	}
+	/* an fx miss must not erase conversions learned on an earlier refresh */
+	if len(doc.Currencies) <= 1 && len(priceCache.doc.FX) > 1 {
+		doc.FX = priceCache.doc.FX
+		doc.Currencies = priceCache.doc.Currencies
 	}
 	priceCache.doc, priceCache.at, priceCache.fail = doc, time.Now(), ""
 	return doc, 0, nil

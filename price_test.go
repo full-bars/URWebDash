@@ -152,3 +152,44 @@ func TestHandlePriceShape(t *testing.T) {
 		t.Errorf("shape: %+v", body.Price)
 	}
 }
+
+// An fx miss on a later refresh must keep the conversions learned earlier.
+func TestRefreshKeepsEarlierFX(t *testing.T) {
+	stubFeeds(t, false)
+	if _, _, err := cachedPrice(); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if _, ok := priceCache.doc.FX["EUR"]; !ok {
+		t.Fatal("eur rate not stored")
+	}
+	// same pool feed, fx now failing
+	oldFX := geckoFXURL
+	geckoFXURL = "http://127.0.0.1:1/fx"
+	t.Cleanup(func() { geckoFXURL = oldFX })
+	priceCache.at = time.Now().Add(-2 * priceTTL)
+	if _, _, err := cachedPrice(); err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if _, ok := priceCache.doc.FX["EUR"]; !ok {
+		t.Error("earlier eur rate was wiped by a failed fx fetch")
+	}
+}
+
+// A failed refresh must not be retried on every request.
+func TestFailureBacksOff(t *testing.T) {
+	hits := stubFeeds(t, false)
+	oldPool := geckoPoolURL
+	geckoPoolURL = "http://127.0.0.1:1/pool"
+	t.Cleanup(func() { geckoPoolURL = oldPool })
+
+	if _, _, err := cachedPrice(); err == nil {
+		t.Fatal("expected the first failure to surface")
+	}
+	attempts := *hits
+	if _, _, err := cachedPrice(); err == nil {
+		t.Fatal("expected an error while backing off")
+	}
+	if *hits != attempts {
+		t.Errorf("backoff ignored: %d -> %d upstream calls", attempts, *hits)
+	}
+}

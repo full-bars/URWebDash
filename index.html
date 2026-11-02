@@ -420,9 +420,12 @@ let epochData = null, priceData = null, pointsChart = null, currency = 'USD', bi
 const FX_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', JPY: 'JP¥', CNY: 'CN¥' };
 
 function money(usd, digits) {
-  const rate = (priceData && priceData.fx && priceData.fx[currency]) || 1;
-  const sym = FX_SYMBOLS[currency] || '$';
-  const v = usd * rate;
+  /* no rate means no conversion happened, so the value is still USD and must
+     carry the dollar sign rather than another currency's */
+  const rate = (priceData && priceData.fx && priceData.fx[currency]) || null;
+  const shown = rate === null ? 'USD' : currency;
+  const sym = FX_SYMBOLS[shown] || '$';
+  const v = usd * (rate === null ? 1 : rate);
   const d = digits === undefined ? 2 : digits;
   return sym + v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 }
@@ -464,6 +467,15 @@ async function loadPrice() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const doc = await res.json();
     priceData = doc.price;
+    const have = Object.keys(priceData.fx || {});
+    const sel = document.getElementById('currency-select');
+    if (sel && have.length) {
+      sel.innerHTML = have.map(function (c) {
+        return '<option value="' + c + '">' + c + '</option>';
+      }).join('');
+      if (have.indexOf(currency) === -1) currency = 'USD';
+      sel.value = currency;
+    }
     renderPrice();
   } catch (e) {
     document.getElementById('alpha-price').textContent = '—';
@@ -561,10 +573,18 @@ function loadBittensor() {
 /* The hero: a slowly rotating sphere of providers with packets flowing into the
    settlement hub. Decoration only, so it costs one frame loop and stops when the
    section is not visible or the tab is hidden. */
-let heroRaf = null, heroRunning = false;
+let heroRaf = null, heroRunning = false, heroWired = false, heroFrame = null;
+function stopHero() {
+  heroRunning = false;
+  if (heroRaf) { cancelAnimationFrame(heroRaf); heroRaf = null; }
+}
 function startHero() {
   const canvas = document.getElementById('hero-canvas');
-  if (!canvas || heroRunning) return;
+  if (!canvas) return;
+  if (heroWired) {                       /* second visit: resume, never re-wire */
+    if (!heroRunning && !document.hidden) { heroRunning = true; heroRaf = requestAnimationFrame(heroFrame); }
+    return;
+  }
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const ctx = canvas.getContext('2d');
   const C = { ur: '#ED8FFF', usd: '#87FB67', prov: '#638BFC', ui: '#D6E6F4' };
@@ -626,12 +646,14 @@ function startHero() {
     heroRaf = requestAnimationFrame(frame);
   }
   size();
+  heroFrame = frame;
+  heroWired = true;
   heroRunning = true; heroRaf = requestAnimationFrame(frame);
   window.addEventListener('resize', function () { size(); });
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { heroRunning = false; if (heroRaf) cancelAnimationFrame(heroRaf); }
-    else if (document.getElementById('section-bittensor').classList.contains('active')) {
-      heroRunning = true; heroRaf = requestAnimationFrame(frame);
+    if (document.hidden) stopHero();
+    else if (document.getElementById('section-bittensor').classList.contains('active') && heroWired) {
+      heroRunning = true; heroRaf = requestAnimationFrame(heroFrame);
     }
   });
 }
@@ -652,6 +674,7 @@ function switchSection(section) {
   if (target) target.classList.add('active');
   if (section === 'payout' && !payoutLoaded) loadPayouts();
   if (section === 'bittensor') loadBittensor();
+  else stopHero();
   if (section === 'webhook') { loadWebhookConfig(); loadSpikeThreshold(); }
   return false;
 }
