@@ -32,6 +32,9 @@ import (
 // boundary, so the boundary is derived from t_epoch_blocks.
 const commitWindowBlocks = 1200
 
+// raoPerAlpha is the fixed-point scale the coordinator reports alpha in.
+const raoPerAlpha = 1e9
+
 // epochRow is one finalized epoch as the dashboard cares about it.
 type epochRow struct {
 	Epoch       int64    `json:"epoch"`
@@ -41,6 +44,7 @@ type epochRow struct {
 	Settlement  string   `json:"settlement"` // "v1" or "v2"
 	StartMillis int64    `json:"start_millis"`
 	EndMillis   int64    `json:"end_millis"`
+	Finalized   int64    `json:"finalized"` // 1 once the epoch has closed
 }
 
 // snEpoch is the live epoch's block geometry.
@@ -88,6 +92,7 @@ func ensureEpochSchema(db *sql.DB) error {
 			settlement TEXT NOT NULL DEFAULT '',
 			start_millis INTEGER NOT NULL DEFAULT 0,
 			end_millis INTEGER NOT NULL DEFAULT 0,
+			finalized INTEGER NOT NULL DEFAULT 0,
 			updated_at TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS sn_epoch_state (
@@ -100,13 +105,40 @@ func ensureEpochSchema(db *sql.DB) error {
 			t_epoch_blocks INTEGER NOT NULL DEFAULT 0,
 			chain_id INTEGER NOT NULL DEFAULT 0,
 			netuid INTEGER NOT NULL DEFAULT 0,
-			fetched_at TEXT NOT NULL
+			fetched_at TEXT NOT NULL,
+			last_attempt TEXT NOT NULL DEFAULT '',
+			last_error TEXT NOT NULL DEFAULT ''
 		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("epoch schema: %w", err)
 		}
+	}
+	/* add the columns a pre-existing database will not have */
+	for _, c := range []struct{ table, col, decl string }{
+		{"epoch_stats", "finalized", "INTEGER NOT NULL DEFAULT 0"},
+		{"sn_epoch_state", "last_attempt", "TEXT NOT NULL DEFAULT ''"},
+		{"sn_epoch_state", "last_error", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if err := addColumnIfMissing(db, c.table, c.col, c.decl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func addColumnIfMissing(db *sql.DB, table, col, decl string) error {
+	var n int
+	err := db.QueryRow(`SELECT count(*) FROM pragma_table_info(?) WHERE name = ?`, table, col).Scan(&n)
+	if err != nil {
+		return fmt.Errorf("epoch schema: inspect %s.%s: %w", table, col, err)
+	}
+	if n > 0 {
+		return nil
+	}
+	if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + col + ` ` + decl); err != nil {
+		return fmt.Errorf("epoch schema: add %s.%s: %w", table, col, err)
 	}
 	return nil
 }
@@ -123,15 +155,18 @@ func storeEpochs(db *sql.DB, rows []epochRow, now time.Time) error {
 	}
 	defer tx.Rollback()
 	stmt, err := tx.Prepare(`INSERT INTO epoch_stats
-		(epoch, points, share_bps, alpha_rao, settlement, start_millis, end_millis, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		(epoch, points, share_bps, alpha_rao, settlement, start_millis, end_millis, finalized, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(epoch) DO UPDATE SET
-			points=excluded.points,
+			/* once an epoch has closed its points are final: a later poll (or a
+			   partial response) must not overwrite them */
+			points=CASE WHEN epoch_stats.finalized=1 THEN epoch_stats.points ELSE excluded.points END,
 			share_bps=excluded.share_bps,
 			alpha_rao=COALESCE(excluded.alpha_rao, epoch_stats.alpha_rao),
 			settlement=excluded.settlement,
 			start_millis=excluded.start_millis,
 			end_millis=excluded.end_millis,
+			finalized=MAX(epoch_stats.finalized, excluded.finalized),
 			updated_at=excluded.updated_at`)
 	if err != nil {
 		return err
@@ -143,8 +178,12 @@ func storeEpochs(db *sql.DB, rows []epochRow, now time.Time) error {
 		if r.Alpha != nil {
 			alpha = int64(*r.Alpha)
 		}
+		finalized := 0
+		if r.EndMillis > 0 && r.EndMillis <= now.UnixMilli() {
+			finalized = 1
+		}
 		if _, err := stmt.Exec(r.Epoch, r.Points, r.ShareBps, alpha, r.Settlement,
-			r.StartMillis, r.EndMillis, stamp); err != nil {
+			r.StartMillis, r.EndMillis, finalized, stamp); err != nil {
 			return fmt.Errorf("store epoch %d: %w", r.Epoch, err)
 		}
 	}
@@ -164,6 +203,29 @@ func storeSNEpoch(db *sql.DB, e snEpoch, now time.Time) error {
 		e.Epoch, e.StartBlock, e.earningEndBlock(), e.CommitBlock, e.Finalize,
 		e.TEpochBlock, e.ChainID, e.Netuid, now.UTC().Format(time.RFC3339))
 	return err
+}
+
+// storeEpochAttempt records when the poll last ran and what it said, so a
+// dashboard with no epochs can explain itself instead of showing "never polled".
+func storeEpochAttempt(db *sql.DB, at time.Time, err error) {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	db.Exec(`INSERT INTO sn_epoch_state (id, fetched_at, last_attempt, last_error)
+		VALUES (1, '', ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			last_attempt=excluded.last_attempt, last_error=excluded.last_error`,
+		at.UTC().Format(time.RFC3339), msg)
+}
+
+func readEpochAttempt(db *sql.DB) (time.Time, string) {
+	var at, msg string
+	if err := db.QueryRow(`SELECT last_attempt, last_error FROM sn_epoch_state WHERE id = 1`).Scan(&at, &msg); err != nil {
+		return time.Time{}, ""
+	}
+	ts, _ := time.Parse(time.RFC3339, at)
+	return ts, msg
 }
 
 func readSNEpoch(db *sql.DB) (snEpoch, time.Time, error) {
@@ -186,7 +248,7 @@ func readEpochs(db *sql.DB, limit int) ([]epochRow, error) {
 		limit = 104
 	}
 	rows, err := db.Query(`SELECT epoch, points, share_bps, alpha_rao, settlement,
-		start_millis, end_millis FROM epoch_stats ORDER BY epoch DESC LIMIT ?`, limit)
+		start_millis, end_millis, finalized FROM epoch_stats ORDER BY epoch DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -196,11 +258,12 @@ func readEpochs(db *sql.DB, limit int) ([]epochRow, error) {
 		var r epochRow
 		var alpha sql.NullFloat64
 		if err := rows.Scan(&r.Epoch, &r.Points, &r.ShareBps, &alpha, &r.Settlement,
-			&r.StartMillis, &r.EndMillis); err != nil {
+			&r.StartMillis, &r.EndMillis, &r.Finalized); err != nil {
 			return nil, err
 		}
 		if alpha.Valid {
-			v := alpha.Float64
+			/* stored as rao; everything above this layer speaks alpha */
+			v := alpha.Float64 / raoPerAlpha
 			r.Alpha = &v
 		}
 		out = append(out, r)
@@ -211,7 +274,11 @@ func readEpochs(db *sql.DB, limit int) ([]epochRow, error) {
 // settlementFor reports which payout model an epoch settled under. Epochs are
 // keyed by number, and the v2 switch happened at a single epoch for the whole
 // subnet, so the caller passes the first v2 epoch once it is known.
-func settlementFor(epoch, firstV2 int64) string {
+func settlementFor(epoch, firstV2 int64, fromCoordinator string) string {
+	/* the coordinator is the authority when it says something */
+	if fromCoordinator != "" {
+		return fromCoordinator
+	}
 	if firstV2 > 0 && epoch >= firstV2 {
 		return "v2"
 	}
@@ -247,7 +314,7 @@ func fetchEpochs(token string, firstV2 int64) ([]epochRow, error) {
 			Epoch:       e.Epoch,
 			Points:      e.Points,
 			ShareBps:    e.ShareBps,
-			Settlement:  settlementFor(e.Epoch, firstV2),
+			Settlement:  settlementFor(e.Epoch, firstV2, e.SettlementV),
 			StartMillis: e.StartMillis,
 			EndMillis:   e.EndMillis,
 		}
@@ -262,8 +329,17 @@ func fetchEpochs(token string, firstV2 int64) ([]epochRow, error) {
 
 func fetchSNEpoch(token string) (snEpoch, error) {
 	var e snEpoch
-	err := fetchJSON("https://api.bringyour.com/sn/epoch", token, &e)
-	return e, err
+	if err := fetchJSON("https://api.bringyour.com/sn/epoch", token, &e); err != nil {
+		return e, err
+	}
+	/* decoding {} succeeds, and a zero epoch would then overwrite real geometry
+	   with a negative earning window. Reject anything that cannot be a real
+	   epoch rather than trusting the shape. */
+	if e.Epoch <= 0 || e.StartBlock <= 0 || e.CommitBlock <= e.StartBlock || e.Finalize <= e.CommitBlock {
+		return snEpoch{}, fmt.Errorf("sn/epoch: implausible geometry (epoch %d, start %d, commit %d, finalize %d)",
+			e.Epoch, e.StartBlock, e.CommitBlock, e.Finalize)
+	}
+	return e, nil
 }
 
 // epochsPayload is the one document both endpoints serve, so a client cannot
@@ -274,6 +350,10 @@ func epochsPayload(db *sql.DB) (map[string]interface{}, error) {
 		return nil, err
 	}
 	payload := map[string]interface{}{"epochs": epochs}
+	if at, msg := readEpochAttempt(db); !at.IsZero() {
+		payload["last_attempt"] = at.UTC().Format(time.RFC3339)
+		payload["last_error"] = msg
+	}
 	state, fetchedAt, stateErr := readSNEpoch(db)
 	switch {
 	case stateErr == nil:
@@ -310,9 +390,10 @@ func handleEpochs(db *sql.DB, token string) http.HandlerFunc {
 // slower writer could land an older epoch row last.
 var epochPollMu sync.Mutex
 
-func pollEpochs(db *sql.DB, token string, firstV2 int64) error {
+func pollEpochs(db *sql.DB, token string, firstV2 int64) (err error) {
 	epochPollMu.Lock()
 	defer epochPollMu.Unlock()
+	defer func() { storeEpochAttempt(db, time.Now(), err) }()
 	rows, err := fetchEpochs(token, firstV2)
 	if err != nil {
 		return err
