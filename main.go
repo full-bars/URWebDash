@@ -1898,7 +1898,16 @@ func maskWebhookURL(u string) string {
 /* a variable so a test can capture the message instead of posting it */
 var sendDiscordWebhook = func(url, content string) (int, error) {
 	body, _ := json.Marshal(map[string]string{"content": content})
-	resp, err := httpClient.Post(url, "application/json", strings.NewReader(string(body)))
+	return sendDiscordWebhookJSON(url, string(body))
+}
+
+/*
+the same post, for a caller that has already built the request body. An embed
+
+	is a JSON object; sending it as content prints the JSON into the channel.
+*/
+var sendDiscordWebhookJSON = func(url, body string) (int, error) {
+	resp, err := httpClient.Post(url, "application/json", strings.NewReader(body))
 	if err != nil {
 		return 0, err
 	}
@@ -2039,6 +2048,26 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 // webhookCSRFCheck first, and transport errors are returned as a generic
 // message so the webhook's secret token (which can appear inside a
 // transport error) is never echoed to the client.
+// sampleAlertBody is the traffic-spike alert as an embed, built from the same
+// fields the real alert uses. The test button exists to show what lands in the
+// channel, so it posts this body rather than a preview's placeholder text.
+func sampleAlertBody() string {
+	body := map[string]any{
+		"embeds": []map[string]any{{
+			"title": "🛫 Traffic Spike",
+			"color": 5793266,
+			"fields": []map[string]any{
+				{"name": "15m delta", "value": "+1.45 GB", "inline": true},
+				{"name": "Total unpaid", "value": "742.29 GB", "inline": true},
+				{"name": "At (UTC)", "value": time.Now().UTC().Format("15:04:05"), "inline": true},
+			},
+			"footer": map[string]any{"text": fmt.Sprintf("URWebDash · spike threshold %.2f GB", float64(spikeThreshold())/1e9)},
+		}},
+	}
+	out, _ := json.Marshal(body)
+	return string(out)
+}
+
 func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != "POST" {
@@ -2064,17 +2093,11 @@ func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "URL must start with https://discord.com/api/webhooks/")
 		return
 	}
-	/* the page sends the selected format's payload so the test exercises the real
-	   message shape. The canned line is only the fallback for a caller that sends
-	   no content. */
-	content := strings.TrimSpace(req.Content)
-	if content == "" {
-		content = "✅ **URWebDash test notification**\nWebhook is working. Payout and traffic-spike alerts will arrive here."
-	}
-	if len(content) > 1900 {
-		content = content[:1900] /* Discord rejects a longer message */
-	}
-	status, err := sendDiscordWebhook(url, content)
+	/* send the alert as it will actually arrive. The previews on the page are
+	   design studies with placeholder text, and an ANSI preview posts raw escape
+	   bytes that Discord renders as gibberish, so the test does not send them. */
+	body := sampleAlertBody()
+	status, err := sendDiscordWebhookJSON(url, body)
 	if err != nil {
 		if status == 0 {
 			// Transport-level failure: the error can embed the full webhook

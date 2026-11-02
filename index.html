@@ -509,7 +509,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
       <pre class="payload" id="payload"></pre>
     </div>
     <div class="toolbar" style="margin-top:14px">
-      <span class="info">Sending a test posts into the selected webhook in the selected style.</span>
+      <span class="info">The test sends the traffic-spike alert you would actually receive. The styles below change the preview only.</span>
       <button class="btn" onclick="whTest(this)">&#128260; Send test alert</button>
       <button class="btn primary" onclick="whSave(this)">&#128190; Save</button>
       <button class="btn danger" onclick="whClear(this)">&#128465; Clear</button></div>
@@ -1552,7 +1552,7 @@ function go(name){
   const pn=document.getElementById('page-name'); if(pn) pn.textContent=label;
   /* the data table pages over the whole store, so it loads when the section is
      first opened rather than on every page load */
-  if(name==='data' && !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
+  if(name==='wallet' && !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
   /* refresh and back should land where you were, not on the first section */
   try{ history.replaceState(null,'','#'+name); }catch(_){}
   try{ localStorage.setItem('section',name); }catch(_){}
@@ -1566,10 +1566,25 @@ function go(name){
   });
   return false;
 }
-function fakeRefresh(btn){
+/* this used to spin for 800ms and change nothing, which is worse than no button:
+   it told you the data was fresh when it was not. it asks the server to poll the
+   coordinator now, then re-reads what it just wrote. */
+async function fakeRefresh(btn){
   const label=btn.innerHTML; btn.disabled=true;
-  btn.innerHTML='<span class="spinner"></span> Refreshing...';
-  setTimeout(()=>{btn.disabled=false; btn.innerHTML=label;},800);
+  btn.innerHTML='<span class="spinner"></span> Refreshing\u2026';
+  let err='';
+  try{
+    const res=await fetch('/api/refresh',{method:'POST'});
+    const d=await res.json().catch(()=>({}));
+    if(!res.ok||d.error) throw new Error(d.error||('HTTP '+res.status));
+    await epLiveStats();
+    if(typeof WALLETROWS!=='undefined' && WALLETROWS) await loadAllHistory();
+  }catch(e){ err=e.message||'refresh failed'; }
+  finally{
+    btn.disabled=false;
+    btn.innerHTML=err ? ('\u26a0 '+err) : label;
+    if(err) setTimeout(()=>{ btn.innerHTML=label; }, 2500);
+  }
 }
 
 /* ---------- data ---------- */
@@ -1835,7 +1850,10 @@ function rateSeries(win){
   return rows.map((r,i)=>{
     const o=rows[i-1], h=o?(new Date(r.t)-new Date(o.t))/3600000:0;
     const gb=o&&h>0?((r.paid+r.unpaid)-(o.paid+o.unpaid))/h/GB:0;
-    return {t:r.t, v:+gb.toFixed(2)};
+    /* byte counters only climb. a drop means the coordinator reset one of them,
+       which is not negative traffic: drawing it as a downward bar invents a
+       −158 GB hour that never happened. */
+    return {t:r.t, v:gb>0?+gb.toFixed(2):0};
   });
 }
 function drawCharts(){
@@ -2104,6 +2122,11 @@ function sparkHoverInit(){
 sparkHoverInit();
 setInterval(sparkHoverInit, 3000);
 setTimeout(()=>{ if(typeof loadSpikeThreshold==='function') loadSpikeThreshold(); }, 1500);
+/* deep links land on a section without passing through go() */
+setTimeout(()=>{
+  if(document.getElementById('section-wallet')?.classList.contains('active') &&
+     !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
+}, 2200);
 
 
 /* ---------- paged history ---------- */
@@ -2561,7 +2584,7 @@ async function epLiveStats(){
 setInterval(()=>{ if(!document.hidden){
   epLiveStats();
   /* new windows land at the top, so only a viewer on page one needs a re-read */
-  if(WALLETROWS && walletPage===1 && document.getElementById('section-data')?.classList.contains('active')) loadAllHistory();
+  if(WALLETROWS && walletPage===1 && document.getElementById('section-wallet')?.classList.contains('active')) loadAllHistory();
 } }, 20000);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) epLiveStats(); });
 
