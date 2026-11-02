@@ -144,6 +144,11 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
   0%{opacity:.95;transform:scale(.4);border-width:4px}
   55%{opacity:.55;transform:scale(4.2);border-width:2px}
   100%{opacity:0;transform:scale(7);border-width:1px}}
+.ep-grow-flash{animation:epHeadGrow 1.6s cubic-bezier(.2,.8,.2,1);display:inline-block}
+@keyframes epHeadGrow{0%{filter:none;transform:scale(1)}18%{filter:brightness(2) drop-shadow(0 0 16px currentColor);transform:scale(1.16)}60%{filter:brightness(1.3);transform:scale(1.03)}100%{filter:none;transform:scale(1)}}
+.ep-delta.ep-float{top:auto;bottom:-30px}
+.ep-arc-grow{animation:epArcGrow 1.6s ease-out}
+@keyframes epArcGrow{0%{filter:none}20%{filter:brightness(2.6) drop-shadow(0 0 16px #34e0c0)}100%{filter:none}}
 .ep-orb-glow{animation:epOrbBreathe 2.8s ease-in-out infinite;transform-origin:center;filter:blur(1px)}
 @keyframes epOrbBreathe{0%,100%{opacity:.22;r:9}50%{opacity:.62;r:13}}
 .ep-orb-mark{animation:epOrbMark 1.8s ease-out forwards}
@@ -1906,8 +1911,44 @@ function enhanceEpochBar(){
      theme is mounted, and stopped when the page is hidden. */
   epTimer=setInterval(epTick, 12000);
 }
+/* Console, Editorial, Timeline and Orbit render progress as text or a ring, so
+   there is no bar fill to flash. Read the percentage they print, and when it
+   climbs, flash that element and float the delta beside it. */
+let epLastText=null;
+function epGrowthNoBar(){
+  const mount=document.getElementById('theme-mount');
+  if(!mount) return;
+  let host=null, m=null;
+  [...mount.querySelectorAll('*')].some(e=>{
+    if(e.children.length) return false;
+    const hit=(e.textContent||'').match(/(\d+(?:\.\d+)?)\s*%/);
+    if(hit){ host=e; m=hit; return true; }
+    return false;
+  });
+  if(!host||!m) return;
+  const val=parseFloat(m[1]);
+  const prev=epLastText;
+  epLastText=val;
+  if(prev===null||!(val>prev)) return;
+
+  const cs=getComputedStyle(host);
+  if(cs.position==='static') host.style.position='relative';
+  host.classList.remove('ep-grow-flash'); void host.offsetWidth; host.classList.add('ep-grow-flash');
+  let d=host.querySelector('.ep-delta.ep-float');
+  if(!d){ d=document.createElement('span'); d.className='ep-delta ep-float'; host.appendChild(d); }
+  d.textContent='+'+(val-prev).toFixed(4)+'%';
+  d.style.left='50%';
+  d.style.color=getComputedStyle(document.body).getPropertyValue('--accent3').trim()||'#fff';
+  d.classList.remove('show'); void d.offsetWidth; d.classList.add('show');
+
+  /* orbit answers on the ring too */
+  const arc=mount.querySelector('.tx-orbit svg circle[stroke="#34e0c0"]');
+  if(arc){ arc.classList.remove('ep-arc-grow'); void arc.getBoundingClientRect(); arc.classList.add('ep-arc-grow'); }
+}
+
 function epTick(){
-  if(!epLive){ epOrbitMark(); return; }
+  epOrbitMark();
+  if(!epLive){ epGrowthNoBar(); return; }
   const bar=epLive;
   bar.done+=1; if(bar.left>0) bar.left-=1;
   const before=bar.pct;
