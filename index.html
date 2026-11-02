@@ -1507,7 +1507,10 @@ window.URFORMATS['bullets'] = {
     ['At (UTC)', '01:15:01', '0;36']
   ];
   var ansiBody = rowsA.map(function (r) {
-    return E + '2;37m' + (r[0] + '          ').slice(0, 10) + E + r[2] + 'm' + ('         ' + r[1]).slice(-9) + E + '0m';
+    /* discord's ansi renderer knows the basic colours, bold and underline only.
+       the dim attribute (2) is not one of them, and a code it does not know
+       breaks the whole block, which is why this read as broken on desktop too. */
+    return E + '0;37m' + (r[0] + '          ').slice(0, 10) + E + r[2] + 'm' + ('         ' + r[1]).slice(-9) + E + '0m';
   }).join('\n');
   var ansiContent = '🛫 **Traffic Spike**\n```ansi\n' + ansiBody + '\n```';
   function span(c, t) { return '<span style="color:' + c + '">' + t + '</span>'; }
@@ -1515,7 +1518,7 @@ window.URFORMATS['bullets'] = {
     id: 'ansi',
     name: 'ANSI (desktop only)',
     iosSafe: false,
-    note: 'Borderless ASCII-only columns inside an ```ansi block, dim labels and green/white/cyan values on desktop; no U+2500 so columns will not shear, but Discord iOS does not render ANSI, so it falls back to uncoloured text with stray escape bytes, hence not iOS-safe.',
+    note: 'Borderless ASCII-only columns inside an ```ansi block: grey labels and green/white/cyan values. Only basic colour codes are used, because Discord breaks a block on an attribute it does not know. Discord iOS does not render ANSI, so it falls back to uncoloured text, hence not iOS-safe.',
     html: '<div class="uf-ansi" style="' + BODY + '">🛫 <b style="color:#fff">Traffic Spike</b>' +
       '<pre style="margin:4px 0 0;padding:8px 10px;background:#2b2d31;border:1px solid #1e1f22;border-radius:4px;font:13px/1.35 Consolas,\'Andale Mono WT\',\'Andale Mono\',\'Lucida Console\',Monaco,monospace;display:inline-block">' +
       span('#949ba4', '15m delta  ') + span('#8ccf5a', '  +1.45 GB') + '\n' +
