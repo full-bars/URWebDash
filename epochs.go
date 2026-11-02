@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -189,7 +190,7 @@ func readEpochs(db *sql.DB, limit int) ([]epochRow, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []epochRow
+	out := make([]epochRow, 0, limit)
 	for rows.Next() {
 		var r epochRow
 		var alpha sql.NullFloat64
@@ -264,22 +265,29 @@ func fetchSNEpoch(token string) (snEpoch, error) {
 	return e, err
 }
 
+// epochsPayload is the one document both endpoints serve, so a client cannot
+// see different shapes from the read and the refresh.
+func epochsPayload(db *sql.DB) (map[string]interface{}, error) {
+	epochs, err := readEpochs(db, 104)
+	if err != nil {
+		return nil, err
+	}
+	payload := map[string]interface{}{"epochs": epochs}
+	if state, fetchedAt, stateErr := readSNEpoch(db); stateErr == nil {
+		payload["sn_epoch"] = state
+		payload["sn_epoch_fetched_at"] = fetchedAt.Format(time.RFC3339)
+	}
+	return payload, nil
+}
+
 // handleEpochs serves the Bittensor page: the live epoch geometry plus the
 // finalized history, in one round trip.
 func handleEpochs(db *sql.DB, token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		epochs, err := readEpochs(db, 104)
+		payload, err := epochsPayload(db)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}
-		state, fetchedAt, stateErr := readSNEpoch(db)
-		payload := map[string]interface{}{
-			"epochs": epochs,
-		}
-		if stateErr == nil {
-			payload["sn_epoch"] = state
-			payload["sn_epoch_fetched_at"] = fetchedAt.Format(time.RFC3339)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(payload)
@@ -289,7 +297,14 @@ func handleEpochs(db *sql.DB, token string) http.HandlerFunc {
 // pollEpochs is the hourly refresh. Epochs move on a seven-day clock, so
 // polling them at the 15-minute stats cadence would be waste; the dashboard
 // also refreshes on demand through /api/refresh-epochs.
+// epochPollMu serialises whole poll operations: a manual refresh racing the
+// hourly tick would otherwise interleave two fetches and two stores, and the
+// slower writer could land an older epoch row last.
+var epochPollMu sync.Mutex
+
 func pollEpochs(db *sql.DB, token string, firstV2 int64) error {
+	epochPollMu.Lock()
+	defer epochPollMu.Unlock()
 	rows, err := fetchEpochs(token, firstV2)
 	if err != nil {
 		return err
@@ -320,15 +335,23 @@ func firstV2Epoch() int64 {
 func handleRefreshEpochs(db *sql.DB, token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+			return
+		}
 		if err := pollEpochs(db, token, firstV2Epoch()); err != nil {
 			w.WriteHeader(http.StatusBadGateway)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		epochs, _ := readEpochs(db, 104)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"ok":     true,
-			"epochs": epochs,
-		})
+		payload, err := epochsPayload(db)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		payload["ok"] = true
+		json.NewEncoder(w).Encode(payload)
 	}
 }

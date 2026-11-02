@@ -186,7 +186,7 @@ back to `commit - 1200` when the length is missing).
 | Endpoint | Returns |
 |---|---|
 | `GET /api/epochs` | Finalized epoch history plus the live epoch geometry |
-| `GET /api/refresh-epochs` | Forces a fetch, then returns the same document |
+| `POST /api/refresh-epochs` | Forces a fetch, then returns the same document |
 
 Epoch data refreshes hourly rather than on the 15-minute traffic cadence: an epoch is
 seven days long, so the traffic interval would be 672 identical requests a week.

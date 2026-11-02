@@ -117,6 +117,15 @@ func TestSettlementFor(t *testing.T) {
 
 // The handler must serve a well-formed empty document before any poll has run,
 // because the page hits it the first time it loads.
+func TestHandleRefreshEpochsRequiresPOST(t *testing.T) {
+	db := testDB(t)
+	rec := httptest.NewRecorder()
+	handleRefreshEpochs(db, "unused").ServeHTTP(rec, httptest.NewRequest("GET", "/api/refresh-epochs", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET should be 405, got %d", rec.Code)
+	}
+}
+
 func TestHandleEpochsEmptyDB(t *testing.T) {
 	db := testDB(t)
 	rec := httptest.NewRecorder()
@@ -128,8 +137,12 @@ func TestHandleEpochsEmptyDB(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("json: %v", err)
 	}
-	if _, ok := body["epochs"]; !ok {
-		t.Errorf("no epochs key: %s", rec.Body.String())
+	list, ok := body["epochs"].([]interface{})
+	if !ok {
+		t.Fatalf("epochs is %T, want []: %s", body["epochs"], rec.Body.String())
+	}
+	if len(list) != 0 {
+		t.Errorf("empty database should give [], got %v", list)
 	}
 }
 
