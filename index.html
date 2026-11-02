@@ -424,7 +424,18 @@ function esc(s) {
   });
 }
 let epochData = null, priceData = null, priceMeta = {}, pointsChart = null, currency = 'USD', bittensorLoaded = false;
-let epochTimer = null;
+let epochTimer = null, priceTimer = null;
+
+/* A quote fetched once is stale a minute later. Re-poll while the section is
+   open, and re-render between polls so the displayed age keeps advancing. */
+function startPriceTicker() {
+  if (priceTimer) return;
+  priceTimer = setInterval(function () {
+    if (!document.getElementById('section-bittensor').classList.contains('active')) return;
+    loadPrice();
+  }, 60000);
+}
+function stopPriceTicker() { if (priceTimer) { clearInterval(priceTimer); priceTimer = null; } }
 
 function humanAge(seconds) {
   if (seconds < 90) return Math.round(seconds) + 's';
@@ -475,7 +486,11 @@ function renderPrice() {
     ch.style.color = p.change_24h >= 0 ? '#10b981' : '#ef4444';
   }
   /* say how old the quote and its conversions are rather than implying fresh */
-  const age = priceMeta.quote_age_s || 0, fxAge = priceMeta.fx_age_s || 0;
+  /* advance the ages from the moment the quote was taken, not from when the
+     response happened to arrive */
+  const seenAt = priceMeta.seen_at || 0;
+  const drift = seenAt ? Math.max(0, Math.round((Date.now() - seenAt) / 1000)) : 0;
+  const age = (priceMeta.quote_age_s || 0) + drift, fxAge = (priceMeta.fx_age_s || 0) + drift;
   const bits = [];
   if (priceMeta.quote_is_old) bits.push('quote ' + humanAge(age) + ' old');
   if (fxAge > 3600) bits.push('fx ' + humanAge(fxAge) + ' old');
@@ -507,6 +522,7 @@ async function loadPrice() {
     const doc = await res.json();
     priceData = doc.price;
     priceMeta = doc;
+    priceMeta.seen_at = Date.now();
     const have = Object.keys(priceData.fx || {});
     const sel = document.getElementById('currency-select');
     if (sel && have.length) {
@@ -629,7 +645,9 @@ function startEpochTicker() {
 function stopEpochTicker() { if (epochTimer) { clearInterval(epochTimer); epochTimer = null; } }
 
 function loadBittensor() {
-  if (!bittensorLoaded) { bittensorLoaded = true; loadPrice(); loadEpochs(); startEpochTicker(); }
+  if (!bittensorLoaded) { bittensorLoaded = true; loadPrice(); loadEpochs(); }
+  startEpochTicker();
+  startPriceTicker();
   const n = document.getElementById('hero-net-name');
   if (n && (!n.textContent || n.textContent === '—')) {
     fetch(API + '/api/network').then(function (r) { return r.json(); })
@@ -748,7 +766,7 @@ function switchSection(section) {
   if (target) target.classList.add('active');
   if (section === 'payout' && !payoutLoaded) loadPayouts();
   if (section === 'bittensor') loadBittensor();
-  else { stopHero(); stopEpochTicker(); }
+  else { stopHero(); stopEpochTicker(); stopPriceTicker(); }
   if (section === 'webhook') { loadWebhookConfig(); loadSpikeThreshold(); }
   return false;
 }
