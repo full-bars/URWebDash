@@ -1639,7 +1639,8 @@ function lagNote(createdAt,updatedAt){
   /* ICU switched the gap before AM/PM to a narrow no-break space in some
      versions, which made the note render with different spacing per browser */
   const at=u.toLocaleTimeString('en-US',{timeZone:TZ,hour:'2-digit',minute:'2-digit'}).replace(/[\u202f\u00a0]/g,' ');
-  return ' \u00b7 fetched '+at+' (+'+mins+'m)';
+  /* the note carries a colour so a late row stands out without being read */
+  return ' <span class="text-yellow">\u00b7 fetched '+at+' (+'+mins+'m)</span>';
 }
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const series=(HIST.series||[]).slice(), recent=HIST.recent||[];

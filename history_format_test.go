@@ -138,8 +138,8 @@ eq('lag 119s', lagNote('2026-11-02T21:45:00Z', '2026-11-02T21:46:59Z'), '');
 // The gate is inclusive: exactly two minutes is still a normal fetch.
 eq('lag exactly 120s', lagNote('2026-11-02T21:45:00Z', '2026-11-02T21:47:00Z'), '');
 // One second past it is a retry, and the note is in local time.
-eq('lag 2m1s', lagNote('2026-11-02T21:45:00Z', '2026-11-02T21:47:01Z'), ' \u00b7 fetched 01:47 PM (+2m)');
-eq('lag 5m', lagNote('2026-11-02T21:45:00Z', '2026-11-02T21:50:00Z'), ' \u00b7 fetched 01:50 PM (+5m)');
+eq('lag 2m1s', lagNote('2026-11-02T21:45:00Z', '2026-11-02T21:47:01Z'), ' <span class="text-yellow">\u00b7 fetched 01:47 PM (+2m)</span>');
+eq('lag 5m', lagNote('2026-11-02T21:45:00Z', '2026-11-02T21:50:00Z'), ' <span class="text-yellow">\u00b7 fetched 01:50 PM (+5m)</span>');
 // A clock that steps backwards must not print a negative lag as if it were one.
 eq('lag negative', lagNote('2026-11-02T21:45:00Z', '2026-11-02T21:40:00Z'), '');
 eq('lag missing updated_at', lagNote('2026-11-02T21:45:00Z', ''), '');
