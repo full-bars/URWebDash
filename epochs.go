@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -273,9 +274,16 @@ func epochsPayload(db *sql.DB) (map[string]interface{}, error) {
 		return nil, err
 	}
 	payload := map[string]interface{}{"epochs": epochs}
-	if state, fetchedAt, stateErr := readSNEpoch(db); stateErr == nil {
+	state, fetchedAt, stateErr := readSNEpoch(db)
+	switch {
+	case stateErr == nil:
 		payload["sn_epoch"] = state
 		payload["sn_epoch_fetched_at"] = fetchedAt.Format(time.RFC3339)
+	case errors.Is(stateErr, sql.ErrNoRows):
+		/* a fresh install has no epoch fetched yet; that is not an error */
+	default:
+		/* anything else is a real read failure and must not be hidden */
+		return nil, stateErr
 	}
 	return payload, nil
 }
@@ -338,6 +346,13 @@ func handleRefreshEpochs(db *sql.DB, token string) http.HandlerFunc {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			json.NewEncoder(w).Encode(map[string]string{"error": "POST required"})
+			return
+		}
+		/* a client that hung up while the poll was queued behind the hourly
+		   tick must not hold the lock through a fetch nobody will read */
+		if err := r.Context().Err(); err != nil {
+			w.WriteHeader(http.StatusRequestTimeout)
+			json.NewEncoder(w).Encode(map[string]string{"error": "client went away"})
 			return
 		}
 		if err := pollEpochs(db, token, firstV2Epoch()); err != nil {
