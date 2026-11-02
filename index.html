@@ -1829,7 +1829,9 @@ function rateSeries(win){
   /* windows in hours; 'all' has no back edge and 'gbd' rolls a month into days.
      a year of two-hour buckets is four thousand bars, which no chart can draw, so
      the all-time view buckets by calendar day. */
-  const back={'6h':6,'24h':24,'7d':168,'30d':720,'gbd':720}[win];
+  /* gbd reads the whole history as days, not the last thirty: the daily view is
+     the long view, and cutting it to a month hid the rest of the year. */
+  const back={'6h':6,'24h':24,'7d':168,'30d':720}[win];
   const src=(win==='6h')?recent.slice().reverse():series;
   const cut=back?new Date(last.t).getTime()-back*3600000:0;
   const rows=src.filter(r=>!back||new Date(r.t).getTime()>=cut);
@@ -1923,16 +1925,42 @@ function drawCharts(){
 
     /* rate: bars by nature, positive/negative coloured, like the shipped chart */
     const rs=rateSeries(windowSel);
+    /* a daily bucket carries a date, an hourly one a timestamp; the axis and the
+       tooltip have to read both, or the daily view has no x labels at all */
+    const daily=windowSel==='gbd'||windowSel==='all';
+    const unit=daily?'GB/day':'GB/hr';
+    const axisLabel=t=>{
+      if(!t) return '';
+      /* a bucket key is a UTC day; formatting it in local time shows the day before */
+      if(t.length<=10){ const d=new Date(t+'T00:00:00Z'); return d.toLocaleDateString(undefined,{timeZone:'UTC',month:'short',day:'numeric'}); }
+      const d=new Date(t);
+      /* these windows hold many bars per day, so a date alone repeats on the axis */
+      if(windowSel==='30d'||windowSel==='7d'){
+        return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+
+               d.toLocaleTimeString(undefined,{hour:'2-digit',hour12:false})+'h';
+      }
+      return d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
+    };
+    const fullTime=t=>{
+      if(!t) return '';
+      if(t.length<=10){ const d=new Date(t+'T00:00:00Z');
+        return d.toLocaleDateString(undefined,{timeZone:'UTC',weekday:'short',year:'numeric',month:'short',day:'numeric'}); }
+      const d=new Date(t);
+      return d.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    };
     const rateBase=JSON.parse(JSON.stringify(base));
     rateBase.plugins.legend={display:false};
-    rateBase.plugins.tooltip.callbacks={label:c=>c.parsed.y.toFixed(2)+' GB/hr'};
+    rateBase.plugins.tooltip.callbacks={
+      title:items=>fullTime(rs[items[0].dataIndex]&&rs[items[0].dataIndex].t),
+      label:c=>c.parsed.y.toFixed(2)+' '+unit
+    };
     rateBase.scales.x={ticks:{color:t.muted,font:{size:10},maxTicksLimit:8,maxRotation:45},
       grid:{color:st.grid?t.line:'transparent'}};
     rateBase.scales.y={ticks:{color:t.muted,font:{size:10},callback:v=>v.toFixed(1)},
       grid:{color:st.grid?t.line:'transparent'},border:{display:false}};
     chartOn('rate-chart',{type:'bar',
-      data:{labels:rs.map(r=>r.t.slice(11,16)),
-        datasets:[{label:'GB/hr', data:rs.map(r=>r.v),
+      data:{labels:rs.map(r=>axisLabel(r.t)),
+        datasets:[{label:unit, data:rs.map(r=>r.v),
           backgroundColor:rs.map(r=>withAlpha(r.v>=0?col.c3:t.accent2,.5)),
           borderColor:rs.map(r=>r.v>=0?col.c3:t.accent2),
           borderWidth:1, borderRadius:2, barPercentage:.6}]},
