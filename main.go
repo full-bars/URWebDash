@@ -477,6 +477,10 @@ func openDB() (*sql.DB, error) {
 			return nil, fmt.Errorf("init: %w", err)
 		}
 	}
+	if err := ensureEpochSchema(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(2)
 	db.SetConnMaxLifetime(5 * time.Minute)
@@ -1077,7 +1081,24 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/webhook", handleWebhook)
 	mux.HandleFunc("/api/webhook-test", handleWebhookTest)
 	mux.HandleFunc("/api/spike-threshold", handleSpikeThreshold)
+	mux.HandleFunc("/api/epochs", handleEpochs(db, token))
+	mux.HandleFunc("/api/refresh-epochs", handleRefreshEpochs(db, token))
 	mux.HandleFunc("/", handleIndex)
+
+	/* Epochs move on a seven-day clock, so they are refreshed once an hour
+	   rather than on the 15-minute traffic cadence. The first fetch runs in the
+	   background so a slow coordinator cannot delay startup. */
+	go func() {
+		first := func() error { return pollEpochs(db, token, firstV2Epoch()) }
+		if err := first(); err != nil {
+			fmt.Printf("[epochs] first refresh: %v\n", err)
+		}
+		for range time.Tick(time.Hour) {
+			if err := first(); err != nil {
+				fmt.Printf("[epochs] refresh: %v\n", err)
+			}
+		}
+	}()
 
 	host := os.Getenv("HOST")
 	if host == "" {
