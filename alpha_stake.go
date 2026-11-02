@@ -32,11 +32,18 @@ type safeFloat struct {
 }
 
 func decodeSafeFloat(raw []byte) (safeFloat, error) {
-	if len(raw) < 24 {
-		return safeFloat{}, fmt.Errorf("SafeFloat needs 24 bytes, got %d", len(raw))
+	/* exactly 24 bytes: a longer payload means the layout changed, and decoding
+	   the first 24 anyway would print a garbage number as if it were real */
+	if len(raw) != 24 {
+		return safeFloat{}, fmt.Errorf("SafeFloat must be exactly 24 bytes, got %d", len(raw))
 	}
 	mant := new(big.Int).SetBytes(reverseCopy(raw[0:16]))
 	exp := int64(binary.LittleEndian.Uint64(raw[16:24]))
+	/* live exponents are single-digit negatives; anything outside this band is a
+	   misread, and a huge one makes big.Exp allocate without bound */
+	if exp > 40 || exp < -40 {
+		return safeFloat{}, fmt.Errorf("SafeFloat exponent out of range: %d", exp)
+	}
 	return safeFloat{mant: mant, exp: exp}, nil
 }
 
@@ -99,8 +106,11 @@ func stakingHotkeys(coldkeyID []byte) ([][]byte, error) {
 		return nil, err
 	}
 	n, used := compactLen(raw)
-	if n < 0 || 1+used+n*32 > len(raw)+1 {
-		return nil, fmt.Errorf("StakingHotkeys payload looks wrong: %d bytes, %d keys", len(raw), n)
+	if n < 0 {
+		return nil, fmt.Errorf("StakingHotkeys: unsupported compact length encoding")
+	}
+	if used+n*32 > len(raw) {
+		return nil, fmt.Errorf("StakingHotkeys truncated: %d bytes, %d keys", len(raw), n)
 	}
 	body := raw[used:] /* compactLen already reports the bytes it consumed */
 	out := make([][]byte, 0, n)
@@ -131,10 +141,9 @@ func compactLen(b []byte) (int, int) {
 		}
 		return int(binary.LittleEndian.Uint32(b) >> 2), 4
 	default:
-		if len(b) < 8 {
-			return 0, 1
-		}
-		return int(binary.LittleEndian.Uint64(b) >> 2), 8
+		/* mode 3 carries its length in the first byte's top six bits; it never
+		   appears in the storages read here, so refuse it rather than guess */
+		return -1, 1
 	}
 }
 
@@ -201,8 +210,10 @@ func alphaStakeForColdkey(coldkey string, netuid uint16) (float64, error) {
 		if err != nil {
 			return 0, err
 		}
+		/* a position exists, so its pool must exist too. Continuing here would
+		   understate the total and report it as known. */
 		if len(sharesRaw) == 0 || len(pAlphaRaw) < 8 {
-			continue
+			return 0, fmt.Errorf("position on netuid %d has no pool data", netuid)
 		}
 		shares, err := decodeSafeFloat(sharesRaw)
 		if err != nil {
