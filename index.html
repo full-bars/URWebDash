@@ -465,7 +465,8 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     </div>
     <div class="cards">
       <div class="card"><div class="label">Webhook URL</div>
-        <input type="url" id="wh-url" placeholder="not configured" readonly>
+        <div class="sub" id="wh-state" style="margin:6px 0">checking&hellip;</div>
+        <input type="url" id="wh-url" placeholder="paste a Discord webhook URL to start alerts" style="width:100%">
         <div class="sub">masked on read &mdash; the URL is a bearer secret</div></div>
       <div class="card"><div class="label">Spike threshold (GB / 15m)</div>
         <input type="number" id="wh-threshold" value="1.00" step="0.25" min="0" style="width:100%;margin-top:8px">
@@ -1557,6 +1558,8 @@ function go(name){
   /* the data table pages over the whole store, so it loads when the section is
      first opened rather than on every page load */
   if(name==='wallet' && !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
+  /* the webhook card has to show the stored state, not a blank field */
+  if(name==='webhook' && typeof loadWebhook==='function') loadWebhook();
   /* refresh and back should land where you were, not on the first section */
   try{ history.replaceState(null,'','#'+name); }catch(_){}
   try{ localStorage.setItem('section',name); }catch(_){}
@@ -2222,6 +2225,7 @@ function sparkHoverInit(){
 sparkHoverInit();
 setInterval(sparkHoverInit, 3000);
 setTimeout(()=>{ if(typeof loadSpikeThreshold==='function') loadSpikeThreshold(); }, 1500);
+setTimeout(()=>{ if(typeof loadWebhook==='function') loadWebhook(); }, 1600);
 /* deep links land on a section without passing through go() */
 setTimeout(()=>{
   if(document.getElementById('section-wallet')?.classList.contains('active') &&
@@ -3295,6 +3299,34 @@ async function whTest(btn){
   }
 }
 
+/* The page used to show a read-only field that was never filled, so a saved
+   webhook still read "not configured" — and Save posted the empty field, which
+   the server treats as "remove the stored URL", silently deleting it. Read the
+   real state on load, and refuse an empty save instead of clearing. */
+let whConfigured=false;
+async function loadWebhook(){
+  const st=document.getElementById('wh-state');
+  const f=document.getElementById('wh-url');
+  try{
+    const res=await fetch('/api/webhook',{cache:'no-store'});
+    const d=await res.json().catch(()=>({}));
+    whConfigured=!!(d&&d.configured);
+    if(st){
+      st.innerHTML=whConfigured
+        ? '<span class="text-green">&#10003; Configured</span> &middot; '+
+          (d.source==='env'?'from DISCORD_WEBHOOK_URL':'saved on this host')+
+          (d.url_masked?' &middot; <span class="text-mono">'+esc(d.url_masked)+'</span>':'')
+        : '<span class="text-yellow">Not configured</span> &mdash; no alerts are sent';
+    }
+    if(f) f.placeholder=whConfigured
+      ? 'paste a new URL to replace the saved one'
+      : 'paste a Discord webhook URL to start alerts';
+  }catch(e){
+    whConfigured=false;
+    if(st) st.textContent='Could not read the saved webhook: '+(e.message||'request failed');
+  }
+}
+
 /* removing the saved webhook stops alerts, so it asks first */
 async function whClear(btn){
   if(!confirm('Remove the saved webhook URL? Alerts will stop.')) return;
@@ -3306,6 +3338,7 @@ async function whClear(btn){
     if(!res.ok||data.error) throw new Error(data.error||('HTTP '+res.status));
     const f=document.getElementById('wh-url'); if(f) f.value='';
     const note=document.getElementById('wh-note'); if(note) note.textContent='Webhook cleared. Alerts will stop.';
+    await loadWebhook();
   }catch(e){
     const note=document.getElementById('wh-note'); if(note) note.textContent='Clear failed: '+e.message;
   }finally{ btn.disabled=false; }
@@ -3342,7 +3375,17 @@ async function whSave(btn){
   const label=btn.innerHTML; btn.disabled=true; btn.innerHTML='&#128190; Saving\u2026';
   const note=document.getElementById('wh-note');
   const field=document.getElementById('wh-url');
-  const url=field?field.value:'';
+  const url=field?(field.value||'').trim():'';
+  /* an empty body is how the server clears the saved URL. Saving the blank box
+     must not be that, or the button silently deletes a working webhook. */
+  if(!url){
+    if(note) note.textContent=whConfigured
+      ? 'A webhook is already saved. Paste a new URL to replace it, or use Clear to remove it.'
+      : 'Paste a Discord webhook URL first.';
+    btn.disabled=false; btn.innerHTML=label;
+    if(field) field.focus();
+    return;
+  }
   try{
     const res=await fetch('/api/webhook',{method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -3351,6 +3394,10 @@ async function whSave(btn){
     if(!res.ok||data.error) throw new Error(data.error||('HTTP '+res.status));
     btn.innerHTML='&#9989; Saved';
     if(note) note.textContent='Saved. New alerts use this style.';
+    /* the box is an entry field, not the stored value: clear it and re-read the
+       masked state so the saved URL is what the card shows */
+    if(field) field.value='';
+    await loadWebhook();
   }catch(e){
     btn.innerHTML=label;
     if(note) note.textContent='Save failed: '+e.message;

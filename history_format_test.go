@@ -426,3 +426,82 @@ if (fail) { console.log(fail + ' assertion(s) failed'); process.exit(1); }
 
 	runNode(t, node, harness)
 }
+
+// The webhook card must show what is actually saved, and Save must never treat
+// a blank box as "clear the stored URL" — that is how clicking Save used to
+// silently delete a working webhook.
+func TestWebhookCardShowsSavedState(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed; skipping page-logic test")
+	}
+	page := readPage(t)
+
+	harness := pageFormatters(t, page) +
+		funcBody(t, page, "async function loadWebhook(){") +
+		funcBody(t, page, "async function whSave(btn){") + `
+let fail = 0;
+const eq = (n, got, want) => {
+  if (String(got) !== String(want)) { fail++; console.log('FAIL ' + n + ': got ' + JSON.stringify(got) + ' want ' + JSON.stringify(want)); }
+};
+const has = (n, hay, needle) => {
+  if (String(hay).indexOf(needle) < 0) { fail++; console.log('FAIL ' + n + ': ' + JSON.stringify(hay) + ' is missing ' + JSON.stringify(needle)); }
+};
+
+const els = {};
+const el = id => (els[id] = els[id] || { id: id, innerHTML: '', textContent: '', value: '', placeholder: '', focus() {} });
+global.document = { getElementById: id => el(id) };
+
+let state;
+global.fetch = async () => ({ json: async () => state });
+
+// 1. a saved webhook reads as configured, masked, and names its source
+state = { configured: true, source: 'file', url_masked: 'https://discord.com/api/webhooks/1234/abcd…' };
+let whConfigured = false;
+(async () => {
+  await loadWebhook();
+  const st = el('wh-state').innerHTML;
+  has('configured state', st, 'Configured');
+  has('masked url shown', st, 'abcd…');
+  has('source shown', st, 'saved on this host');
+  eq('placeholder offers replace', el('wh-url').placeholder, 'paste a new URL to replace the saved one');
+  eq('whConfigured flag', whConfigured, true);
+
+  // 2. nothing saved reads as not configured
+  state = { configured: false, source: '' };
+  await loadWebhook();
+  has('unconfigured state', el('wh-state').innerHTML, 'Not configured');
+  eq('placeholder offers set', el('wh-url').placeholder, 'paste a Discord webhook URL to start alerts');
+  eq('whConfigured flag cleared', whConfigured, false);
+
+  // 3. Save with a blank box must NOT post — an empty body clears the URL
+  state = { configured: true, source: 'file', url_masked: 'https://discord.com/api/webhooks/1234/abcd…' };
+  await loadWebhook();
+  let posts = 0;
+  const before = global.fetch;
+  global.fetch = async (u, o) => { if (o && o.method === 'POST') posts++; return { json: async () => ({}) }; };
+  const btn = { disabled: false, innerHTML: 'Save' };
+  el('wh-url').value = '   ';
+  await whSave(btn);
+  eq('blank save did not post', posts, 0);
+  has('blank save explains why', el('wh-note').textContent, 'already saved');
+  eq('blank save re-enables the button', btn.disabled, false);
+
+  // 4. a real URL does post exactly what was typed
+  let sent = null;
+  global.fetch = async (u, o) => {
+    if (o && o.method === 'POST') { posts++; sent = JSON.parse(o.body).url; }
+    return { ok: true, json: async () => ({ ok: true, configured: true }) };
+  };
+  el('wh-url').value = '  https://discord.com/api/webhooks/99/real  ';
+  await whSave(btn);
+  eq('typed url posted trimmed', sent, 'https://discord.com/api/webhooks/99/real');
+  eq('entry box cleared after save', el('wh-url').value, '');
+
+  global.fetch = before;
+  if (fail) { console.log(fail + ' assertion(s) failed'); process.exit(1); }
+})().catch(e => { console.log('FAIL threw: ' + (e && e.message)); process.exit(1); });
+`
+
+	runNode(t, node, harness)
+}
