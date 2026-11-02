@@ -219,6 +219,8 @@ tr.ep-row-new{animation:epRowIn 1.9s ease-out}
 .price-strip{display:flex;gap:26px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin:0 0 14px;
 border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
 .price-strip .px{display:flex;flex-direction:column;gap:3px}
+.hist-pager{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:12px}
+.pager-info{color:var(--muted);font-size:12.5px}
 .spark-band{display:flex;align-items:center;gap:18px;padding:0 16px 12px;margin:-4px 0 14px}
 .spark-meta{display:flex;flex-direction:column;gap:1px;min-width:104px}
 .spark-meta .sv{font-family:var(--mono);font-size:12px;color:var(--text)}
@@ -359,6 +361,8 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
           <button class="btn btn-sm active" onclick="setWin('24h',this)">24H</button>
           <button class="btn btn-sm" onclick="setWin('7d',this)">7D</button>
           <button class="btn btn-sm" onclick="setWin('30d',this)">30D</button>
+          <button class="btn btn-sm" onclick="setWin('gbd',this)">GB/d</button>
+          <button class="btn btn-sm" onclick="setWin('all',this)">ALL</button>
         </div><div class="chart-box"><canvas id="rate-chart"></canvas></div></div>
     </div>
     <div class="table-wrap"><table>
@@ -367,6 +371,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
       <th class="text-right">&#128230; Unpaid (GB)</th><th class="text-right">&#10133; Change (GB)</th>
       <th class="text-right">&#128640; GB/hr</th></tr></thead>
       <tbody id="history-table"></tbody></table></div>
+    <div id="table-pagination" class="hist-pager"></div>
     <div class="note">The 30 newest 15-minute windows of 34,534 stored rows. Charts and table are drawn from the theme's own palette.</div>
   </div>
 
@@ -506,7 +511,15 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="toolbar" style="margin-top:14px">
       <span class="info">Sending a test posts into the selected webhook in the selected style.</span>
       <button class="btn" onclick="whTest(this)">&#128260; Send test alert</button>
-      <button class="btn primary" onclick="whSave(this)">&#128190; Save</button></div>
+      <button class="btn primary" onclick="whSave(this)">&#128190; Save</button>
+      <button class="btn danger" onclick="whClear(this)">&#128465; Clear</button></div>
+    <div class="toolbar" style="margin-top:14px">
+      <span class="info">Traffic spike threshold &middot; currently <b id="spike-current">&mdash;</b></span>
+      <input id="spike-threshold" type="number" step="0.1" min="0.1" placeholder="GB per window"
+             style="width:140px;padding:6px 9px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);color:var(--text)">
+      <button class="btn" onclick="saveSpikeThreshold(this)">&#128190; Save threshold</button>
+    </div>
+    <div class="note" id="spike-note"></div>
     <div class="note">The webhook address comes from the dashboard's own configuration (an environment variable or a saved file) and is read on every send, so a change applies without a restart. The style options below change the preview only — the alert text is fixed.</div>
   </div>
 </main>
@@ -1537,6 +1550,9 @@ function go(name){
   window.scrollTo(0,0);
   const label={wallet:'Data Stats',payout:'Payout Stats',bittensor:'Bittensor Stats',webhook:'Webhook'}[name]||'';
   const pn=document.getElementById('page-name'); if(pn) pn.textContent=label;
+  /* the data table pages over the whole store, so it loads when the section is
+     first opened rather than on every page load */
+  if(name==='data' && !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
   /* refresh and back should land where you were, not on the first section */
   try{ history.replaceState(null,'','#'+name); }catch(_){}
   try{ localStorage.setItem('section',name); }catch(_){}
@@ -1792,10 +1808,30 @@ function chartOn(id,cfg){
   return new Chart(el,cfg);
 }
 function rateSeries(win){
-  const back={'6h':6,'24h':24,'7d':168,'30d':720}[win];
-  const cut=new Date(last.t).getTime()-back*3600000;
-  const src = (win==='6h') ? recent.slice().reverse() : series;
-  const rows=src.filter(r=>new Date(r.t).getTime()>=cut);
+  /* windows in hours; 'all' has no back edge and 'gbd' rolls a month into days.
+     a year of two-hour buckets is four thousand bars, which no chart can draw, so
+     the all-time view buckets by calendar day. */
+  const back={'6h':6,'24h':24,'7d':168,'30d':720,'gbd':720}[win];
+  const src=(win==='6h')?recent.slice().reverse():series;
+  const cut=back?new Date(last.t).getTime()-back*3600000:0;
+  const rows=src.filter(r=>!back||new Date(r.t).getTime()>=cut);
+  if(win==='all'||win==='gbd'){
+    const days=new Map();
+    rows.forEach(r=>{
+      const k=new Date(r.t).toISOString().slice(0,10);
+      const cur=days.get(k);
+      if(!cur) days.set(k,{t:r.t,total:r.paid+r.unpaid});
+      else { cur.t=r.t; cur.total=r.paid+r.unpaid; }
+    });
+    const keys=[...days.keys()].sort();
+    let prev=null;
+    return keys.map(k=>{
+      const d=days.get(k);
+      const val=prev?((d.total-prev)/GB):0;
+      prev=d.total;
+      return {t:k, v:+val.toFixed(2)};
+    });
+  }
   return rows.map((r,i)=>{
     const o=rows[i-1], h=o?(new Date(r.t)-new Date(o.t))/3600000:0;
     const gb=o&&h>0?((r.paid+r.unpaid)-(o.paid+o.unpaid))/h/GB:0;
@@ -2067,7 +2103,75 @@ function sparkHoverInit(){
 }
 sparkHoverInit();
 setInterval(sparkHoverInit, 3000);
+setTimeout(()=>{ if(typeof loadSpikeThreshold==='function') loadSpikeThreshold(); }, 1500);
 
+
+/* ---------- paged history ---------- */
+const PAGE_SIZE=50; let walletPage=1, WALLETROWS=null;
+
+/* the page used to carry only the newest thirty windows, which hid a year of
+   stored history. the whole store is fetched once and paged, so every row is
+   reachable without putting tens of thousands of nodes in the document. */
+async function loadAllHistory(){
+  const tbody=document.getElementById('history-table');
+  if(!tbody) return;
+  try{
+    const res=await fetch('/api/wallet-stats',{cache:'no-store'});
+    const rows=await res.json();
+    /* the endpoint answers {count, entries}; older builds sent a bare array */
+    WALLETROWS=Array.isArray(rows)?rows:(rows&&Array.isArray(rows.entries)?rows.entries:[]);
+  }catch(_){ WALLETROWS=null; }
+  walletPage=1;
+  renderWalletTable();
+}
+function renderWalletTable(){
+  const tbody=document.getElementById('history-table');
+  const pager=document.getElementById('table-pagination');
+  if(!tbody||!WALLETROWS) return;
+  const total=WALLETROWS.length;
+  const pages=Math.ceil(total/PAGE_SIZE)||1;
+  if(walletPage>pages) walletPage=pages;
+  const start=(walletPage-1)*PAGE_SIZE;
+  const page=WALLETROWS.slice(start,start+PAGE_SIZE);
+  tbody.innerHTML='';
+  const frag=document.createDocumentFragment();
+  page.forEach(r=>{
+    const d=Number(r.change_bytes||0);
+    const tr=document.createElement('tr');
+    /* when the window was fetched, and how far behind the window it landed: a
+       lagging poll is visible in the table instead of being guessed at */
+    let lag='';
+    if(r.created_at&&r.updated_at){
+      const c=new Date(r.created_at), u=new Date(r.updated_at);
+      if(!isNaN(c)&&!isNaN(u)){
+        const mins=Math.round((u-c)/60000);
+        lag=' \u00b7 fetched '+u.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})+
+            ' ('+(mins>=0?'+':'')+mins+'m)';
+      }
+    }
+    tr.innerHTML='<td class="text-mono">'+esc(fmtTime(r.created_at))+lag+'</td>'+
+      '<td class="text-right text-green">'+(Number(r.paid_bytes)/GB).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
+      '<td class="text-right text-white text-mono">'+Number(r.unpaid_bytes).toLocaleString()+'</td>'+
+      '<td class="text-right text-blue">'+(d>=0?'+':'')+d.toLocaleString()+'</td>'+
+      '<td class="text-right text-yellow">'+(Number(r.unpaid_bytes)/GB).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
+      '<td class="text-right text-blue">'+(d>=0?'+':'')+(d/GB).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
+      '<td class="text-right text-blue">'+(d*4/GB).toFixed(2)+'</td>';
+    frag.appendChild(tr);
+  });
+  tbody.appendChild(frag);
+  if(!pager) return;
+  pager.innerHTML='';
+  const info=document.createElement('span');
+  info.className='pager-info';
+  info.textContent='Page '+walletPage+' of '+pages+' ('+total.toLocaleString()+' entries)';
+  const prev=document.createElement('button');
+  prev.className='btn btn-sm'; prev.textContent='\u25c0 Prev'; prev.disabled=walletPage<=1;
+  prev.onclick=()=>{ if(walletPage>1){ walletPage--; renderWalletTable(); } };
+  const next=document.createElement('button');
+  next.className='btn btn-sm'; next.textContent='Next \u25b6'; next.disabled=walletPage>=pages;
+  next.onclick=()=>{ if(walletPage<pages){ walletPage++; renderWalletTable(); } };
+  pager.appendChild(prev); pager.appendChild(info); pager.appendChild(next);
+}
 function renderPrice(){
   const p=D.price; if(!p) return;
   const set=(id,txt)=>{const el=document.getElementById(id);if(el)el.textContent=txt;};
@@ -2450,7 +2554,16 @@ async function epLiveStats(){
   }catch(_){ /* a failed poll must not disturb the page */ }
   finally{ epPolling=false; }
 }
-setInterval(epLiveStats, 60000);
+/* the poller writes a row at the window boundary, so a minute between checks put
+   the page a whole cycle behind the alert that announced it. twenty seconds keeps
+   the row close behind, and a backgrounded tab throttles timers anyway, so coming
+   back to the tab refreshes at once instead of waiting out the interval. */
+setInterval(()=>{ if(!document.hidden){
+  epLiveStats();
+  /* new windows land at the top, so only a viewer on page one needs a re-read */
+  if(WALLETROWS && walletPage===1 && document.getElementById('section-data')?.classList.contains('active')) loadAllHistory();
+} }, 20000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) epLiveStats(); });
 
 function epUnpaidGrowth(){
   const nodes=epUnpaidNodes();
@@ -3076,6 +3189,50 @@ async function whTest(btn){
   }finally{
     btn.disabled=false; btn.innerHTML=label;
   }
+}
+
+/* removing the saved webhook stops alerts, so it asks first */
+async function whClear(btn){
+  if(!confirm('Remove the saved webhook URL? Alerts will stop.')) return;
+  btn.disabled=true;
+  try{
+    const res=await fetch('/api/webhook',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({url:''})});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok||data.error) throw new Error(data.error||('HTTP '+res.status));
+    const f=document.getElementById('wh-url'); if(f) f.value='';
+    const note=document.getElementById('wh-note'); if(note) note.textContent='Webhook cleared. Alerts will stop.';
+  }catch(e){
+    const note=document.getElementById('wh-note'); if(note) note.textContent='Clear failed: '+e.message;
+  }finally{ btn.disabled=false; }
+}
+
+/* the spike threshold had no control on this page; alerts used whatever was set
+   elsewhere. it is editable here now, and shows the value in force. */
+async function saveSpikeThreshold(btn){
+  const input=document.getElementById('spike-threshold');
+  const val=parseFloat(input&&input.value);
+  if(!(val>0)){ const n=document.getElementById('spike-note'); if(n) n.textContent='Enter a threshold greater than 0'; return; }
+  btn.disabled=true;
+  try{
+    const res=await fetch('/api/spike-threshold',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({threshold_gb:val})});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok||data.error) throw new Error(data.error||('HTTP '+res.status));
+    const n=document.getElementById('spike-note');
+    if(n) n.textContent='Threshold saved ('+val.toFixed(1)+' GB)';
+    loadSpikeThreshold();
+  }catch(e){
+    const n=document.getElementById('spike-note'); if(n) n.textContent='Failed: '+e.message;
+  }finally{ btn.disabled=false; }
+}
+async function loadSpikeThreshold(){
+  try{
+    const res=await fetch('/api/spike-threshold',{cache:'no-store'});
+    const d=await res.json();
+    const cur=document.getElementById('spike-current');
+    if(cur&&d&&d.threshold_gb!==undefined) cur.textContent=d.threshold_gb.toFixed(1)+' GB';
+  }catch(_){}
 }
 async function whSave(btn){
   const label=btn.innerHTML; btn.disabled=true; btn.innerHTML='&#128190; Saving\u2026';
