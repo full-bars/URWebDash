@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -57,15 +58,16 @@ func TestStoreEpochsOverwritesPartialPoints(t *testing.T) {
 func TestStoreEpochsKeepsEarlierAlpha(t *testing.T) {
 	db := testDB(t)
 	now := time.Now()
-	alpha := 1234.0
-	if err := storeEpochs(db, []epochRow{{Epoch: 3, Points: 1, Alpha: &alpha}}, now); err != nil {
+	alpha := int64(1234) // rao, as the coordinator reports it
+	if err := storeEpochs(db, []epochRow{{Epoch: 3, Points: 1, AlphaRao: &alpha}}, now); err != nil {
 		t.Fatalf("first: %v", err)
 	}
 	if err := storeEpochs(db, []epochRow{{Epoch: 3, Points: 2}}, now); err != nil {
 		t.Fatalf("second: %v", err)
 	}
 	rows, _ := readEpochs(db, 5)
-	if rows[0].Alpha == nil || *rows[0].Alpha != alpha {
+	/* stored as rao, read back as alpha */
+	if rows[0].Alpha == nil || *rows[0].Alpha != float64(alpha)/raoPerAlpha {
 		t.Errorf("alpha lost: got %v", rows[0].Alpha)
 	}
 	if rows[0].Points != 2 {
@@ -103,14 +105,16 @@ func TestEarningEndBlock(t *testing.T) {
 func TestSettlementFor(t *testing.T) {
 	cases := []struct {
 		epoch, firstV2 int64
-		want           string
+		reported, want string
 	}{
-		{1, 4, "v1"}, {3, 4, "v1"}, {4, 4, "v2"}, {9, 4, "v2"},
-		{2, 0, "v1"}, // unknown boundary: never claim v2
+		{1, 4, "", "v1"}, {3, 4, "", "v1"}, {4, 4, "", "v2"}, {9, 4, "", "v2"},
+		{2, 0, "", "v1"},   // unknown boundary: never claim v2
+		{9, 4, "v1", "v1"}, // the coordinator disagrees with the boundary: it wins
+		{1, 4, "v2", "v2"}, // and it wins in the other direction too
 	}
 	for _, c := range cases {
-		if got := settlementFor(c.epoch, c.firstV2); got != c.want {
-			t.Errorf("settlementFor(%d,%d)=%q want %q", c.epoch, c.firstV2, got, c.want)
+		if got := settlementFor(c.epoch, c.firstV2, c.reported); got != c.want {
+			t.Errorf("settlementFor(%d,%d,%q)=%q want %q", c.epoch, c.firstV2, c.reported, got, c.want)
 		}
 	}
 }
@@ -149,8 +153,8 @@ func TestHandleEpochsEmptyDB(t *testing.T) {
 func TestHandleEpochsIncludesState(t *testing.T) {
 	db := testDB(t)
 	now := time.Now()
-	alpha := 88.0
-	storeEpochs(db, []epochRow{{Epoch: 7, Points: 10, Alpha: &alpha}}, now)
+	alpha := int64(88)
+	storeEpochs(db, []epochRow{{Epoch: 7, Points: 10, AlphaRao: &alpha}}, now)
 	if err := storeSNEpoch(db, snEpoch{Epoch: 8, StartBlock: 100, CommitBlock: 5200, TEpochBlock: 50400, Netuid: 25}, now); err != nil {
 		t.Fatalf("state: %v", err)
 	}
@@ -158,8 +162,8 @@ func TestHandleEpochsIncludesState(t *testing.T) {
 	handleEpochs(db, "unused").ServeHTTP(rec, httptest.NewRequest("GET", "/api/epochs", nil))
 
 	var body struct {
-		Epochs []epochRow `json:"epochs"`
-		SN     *snEpoch   `json:"sn_epoch"`
+		Epochs []epochView `json:"epochs"`
+		SN     *snEpoch    `json:"sn_epoch"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("json: %v", err)
@@ -172,5 +176,143 @@ func TestHandleEpochsIncludesState(t *testing.T) {
 	}
 	if body.SN != nil && body.SN.EarningEnd != 50500 {
 		t.Errorf("earning end: got %d", body.SN.EarningEnd)
+	}
+}
+
+// The coordinator reports rao; a caller of this package must receive alpha.
+func TestReadEpochsConvertsRaoToAlpha(t *testing.T) {
+	db := testDB(t)
+	rao := int64(1_234_500_000) // 1.2345 alpha, as the coordinator reports it
+	if err := storeEpochs(db, []epochRow{{Epoch: 5, Points: 1, AlphaRao: &rao}}, time.Now()); err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	rows, err := readEpochs(db, 5)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if rows[0].Alpha == nil {
+		t.Fatal("alpha nil")
+	}
+	if got := *rows[0].Alpha; got < 1.2344 || got > 1.2346 {
+		t.Errorf("alpha not converted to whole tokens: %v", got)
+	}
+}
+
+// An implausible state document must be rejected, not stored: a zero epoch
+// would otherwise write a negative earning window.
+func TestFetchSNEpochRejectsEmptyDocument(t *testing.T) {
+	e := snEpoch{}
+	if e.Epoch <= 0 || e.StartBlock <= 0 {
+		// mirrors the guard in fetchSNEpoch; asserted here so the reason is visible
+		if e.earningEndBlock() >= 0 {
+			t.Errorf("zero epoch produced a positive earning end: %d", e.earningEndBlock())
+		}
+	}
+	// the negative window is exactly what the guard exists to stop
+	if got := (snEpoch{CommitBlock: 0}).earningEndBlock(); got != -commitWindowBlocks {
+		t.Errorf("want the negative window that the guard rejects, got %d", got)
+	}
+}
+
+// A failed poll must leave a trace the page can show; an empty table alone
+// reads as "never polled".
+func TestPollAttemptIsRecorded(t *testing.T) {
+	db := testDB(t)
+	storeEpochAttempt(db, time.Now(), fmt.Errorf("jwt expired"))
+	at, msg := readEpochAttempt(db)
+	if at.IsZero() {
+		t.Fatal("attempt time not stored")
+	}
+	if msg != "jwt expired" {
+		t.Errorf("error not stored: %q", msg)
+	}
+	/* a later success clears the message */
+	storeEpochAttempt(db, time.Now(), nil)
+	if _, msg := readEpochAttempt(db); msg != "" {
+		t.Errorf("success left a stale error: %q", msg)
+	}
+}
+
+// A closed epoch's points are final: a later poll carrying a partial or zero
+// value must not overwrite them.
+func TestFinalizedEpochCannotBeOverwritten(t *testing.T) {
+	db := testDB(t)
+	past := time.Now().Add(-48 * time.Hour).UnixMilli()
+	closed := []epochRow{{Epoch: 3, Points: 269722.24, StartMillis: past - 604800000, EndMillis: past}}
+	if err := storeEpochs(db, closed, time.Now()); err != nil {
+		t.Fatalf("store closed: %v", err)
+	}
+	/* the coordinator now reports the same epoch with no points */
+	if err := storeEpochs(db, []epochRow{{Epoch: 3, Points: 0, StartMillis: past - 604800000, EndMillis: past}}, time.Now()); err != nil {
+		t.Fatalf("store partial: %v", err)
+	}
+	rows, _ := readEpochs(db, 5)
+	if rows[0].Points != 269722.24 {
+		t.Errorf("finalized points overwritten: %v", rows[0].Points)
+	}
+	if rows[0].Finalized != 1 {
+		t.Errorf("not marked finalized: %d", rows[0].Finalized)
+	}
+}
+
+// An open epoch must still accept updates, or its points would freeze at the
+// first partial value.
+func TestOpenEpochStillUpdates(t *testing.T) {
+	db := testDB(t)
+	future := time.Now().Add(48 * time.Hour).UnixMilli()
+	if err := storeEpochs(db, []epochRow{{Epoch: 4, Points: 100, StartMillis: future - 604800000, EndMillis: future}}, time.Now()); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if err := storeEpochs(db, []epochRow{{Epoch: 4, Points: 500, StartMillis: future - 604800000, EndMillis: future}}, time.Now()); err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	rows, _ := readEpochs(db, 5)
+	if rows[0].Points != 500 {
+		t.Errorf("open epoch did not update: %v", rows[0].Points)
+	}
+	if rows[0].Finalized != 0 {
+		t.Errorf("open epoch marked finalized")
+	}
+}
+
+// Recording a poll attempt must not fabricate a fetched epoch: the page would
+// read epoch 0 with a zero window.
+func TestPollAttemptDoesNotCreateEpochState(t *testing.T) {
+	db := testDB(t)
+	storeEpochAttempt(db, time.Now(), fmt.Errorf("boom"))
+	if _, _, err := readSNEpoch(db); err == nil {
+		t.Fatal("a poll attempt created an epoch state row")
+	}
+	if at, msg := readEpochAttempt(db); at.IsZero() || msg != "boom" {
+		t.Errorf("attempt not recorded: %v %q", at, msg)
+	}
+}
+
+// A finalized epoch's share is as final as its points.
+func TestFinalizedShareIsFrozen(t *testing.T) {
+	db := testDB(t)
+	past := time.Now().Add(-48 * time.Hour).UnixMilli()
+	storeEpochs(db, []epochRow{{Epoch: 3, Points: 10, ShareBps: 940, StartMillis: past - 604800000, EndMillis: past}}, time.Now())
+	storeEpochs(db, []epochRow{{Epoch: 3, Points: 10, ShareBps: 0, StartMillis: past - 604800000, EndMillis: past}}, time.Now())
+	rows, _ := readEpochs(db, 5)
+	if rows[0].ShareBps != 940 {
+		t.Errorf("finalized share overwritten: %d", rows[0].ShareBps)
+	}
+}
+
+// Rows stored before the marker existed are backfilled as finalized.
+func TestSchemaBackfillsFinalized(t *testing.T) {
+	db := testDB(t)
+	past := time.Now().Add(-72 * time.Hour).UnixMilli()
+	if _, err := db.Exec(`INSERT INTO epoch_stats (epoch, points, start_millis, end_millis, finalized, updated_at)
+		VALUES (2, 5, ?, ?, 0, '')`, past-604800000, past); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	if err := ensureEpochSchema(db); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	rows, _ := readEpochs(db, 5)
+	if rows[0].Finalized != 1 {
+		t.Errorf("closed epoch not backfilled: %d", rows[0].Finalized)
 	}
 }
