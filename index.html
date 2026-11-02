@@ -424,7 +424,7 @@ function esc(s) {
   });
 }
 let epochData = null, priceData = null, priceMeta = {}, pointsChart = null, currency = 'USD', bittensorLoaded = false;
-let epochTimer = null, priceTimer = null;
+let epochTimer = null, priceTimer = null, priceInFlight = false;
 
 /* A quote fetched once is stale a minute later. Re-poll while the section is
    open, and re-render between polls so the displayed age keeps advancing. */
@@ -492,9 +492,9 @@ function renderPrice() {
   const drift = seenAt ? Math.max(0, Math.round((Date.now() - seenAt) / 1000)) : 0;
   const age = (priceMeta.quote_age_s || 0) + drift, fxAge = (priceMeta.fx_age_s || 0) + drift;
   const bits = [];
-  /* derive staleness from the age we just computed: the server's flag only
-     describes the moment the response was built */
-  if (age >= 60) bits.push('quote ' + humanAge(age) + ' old');
+  /* stale when the server said so, or when the quote has aged past the same
+     threshold since it arrived */
+  if (priceMeta.quote_is_old || age >= 60) bits.push('quote ' + humanAge(age) + ' old');
   if (fxAge > 3600) bits.push('fx ' + humanAge(fxAge) + ' old');
   ch.textContent += bits.length ? ' · ' + bits.join(' · ') : '';
 }
@@ -518,6 +518,8 @@ async function refreshEpochs() {
 }
 
 async function loadPrice() {
+  if (priceInFlight) return;
+  priceInFlight = true;
   try {
     const res = await fetch(API + '/api/price');
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -537,6 +539,8 @@ async function loadPrice() {
     renderPrice();
   } catch (e) {
     document.getElementById('alpha-price').textContent = '—';
+  } finally {
+    priceInFlight = false;
   }
 }
 
@@ -649,9 +653,10 @@ function startEpochTicker() {
 function stopEpochTicker() { if (epochTimer) { clearInterval(epochTimer); epochTimer = null; } }
 
 function loadBittensor() {
-  const priceStale = !priceMeta.seen_at || (Date.now() - priceMeta.seen_at) > 60000;
+  const onScreen = priceMeta.seen_at ? (Date.now() - priceMeta.seen_at) / 1000 : null;
+  const priceAge = onScreen === null ? null : (priceMeta.quote_age_s || 0) + onScreen;
   if (!bittensorLoaded) { bittensorLoaded = true; loadPrice(); loadEpochs(); }
-  else if (priceStale) loadPrice();
+  else if (!priceInFlight && (priceAge === null || priceAge > 60)) loadPrice();
   startEpochTicker();
   startPriceTicker();
   const n = document.getElementById('hero-net-name');
