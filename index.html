@@ -110,6 +110,7 @@
   <div class="nav-links">
     <a href="#" class="active" data-section="wallet" onclick="return switchSection('wallet')">📊 Data Stats</a>
     <a href="#" data-section="payout" onclick="return switchSection('payout')">💰 Payout Stats</a>
+    <a href="#" data-section="bittensor" onclick="return switchSection('bittensor')">⚡ Bittensor</a>
     <a href="#" data-section="webhook" onclick="return switchSection('webhook')">🔔 Webhook</a>
   </div>
   <div class="nav-footer" id="svc-status">—</div>
@@ -236,6 +237,62 @@
     </div>
   </div>
 
+  <!-- Bittensor (SN25) Section -->
+  <div id="section-bittensor" class="section">
+    <div class="header">
+      <h2>⚡ Bittensor Earnings</h2>
+      <p>Subnet 25 epoch progress and the value of alpha</p>
+      <div class="sub">Epoch data: <span id="epoch-updated">—</span> · <span id="epoch-source">—</span></div>
+    </div>
+
+    <div class="cards" id="price-cards">
+      <div class="card"><div class="label">α Price</div><div class="value green" id="alpha-price">—</div>
+        <div class="note" id="alpha-change" style="font-size:11px;color:#6b7280">—</div></div>
+      <div class="card"><div class="label">Market Cap</div><div class="value white" id="alpha-mcap">—</div></div>
+      <div class="card"><div class="label">TAO</div><div class="value white" id="tao-price">—</div></div>
+      <div class="card"><div class="label">Show values in</div>
+        <select id="currency-select" onchange="setCurrency(this.value)"
+          style="background:#111827;border:1px solid #374151;color:#e5e7eb;border-radius:6px;padding:6px 8px;font-size:13px;margin-top:6px">
+          <option value="USD">USD</option><option value="EUR">EUR</option>
+          <option value="GBP">GBP</option><option value="JPY">JPY</option><option value="CNY">CNY</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="chart-container" id="hero-container" style="position:relative;height:200px;padding:0;overflow:hidden;background:#050505">
+      <canvas id="hero-canvas"></canvas>
+      <div class="hero-net" style="position:absolute;left:0;bottom:12px;width:42%;text-align:center;pointer-events:none">
+        <span style="display:block;font-size:9px;letter-spacing:.3em;text-transform:uppercase;color:#6b7280">network</span>
+        <span id="hero-net-name" style="font-size:20px;letter-spacing:.16em;text-transform:uppercase;color:#F2D9FF;text-shadow:0 0 6px rgba(237,143,255,.75),0 0 18px rgba(237,143,255,.35)">—</span>
+      </div>
+    </div>
+
+    <div class="cards" id="epoch-cards">
+      <div class="card"><div class="label">Epoch</div><div class="value white" id="epoch-n">—</div>
+        <div class="note" id="epoch-phase" style="font-size:11px;color:#6b7280">—</div></div>
+      <div class="card"><div class="label">Window spent</div><div class="value blue" id="epoch-pct">—</div>
+        <div class="note" id="epoch-blocks" style="font-size:11px;color:#6b7280">—</div></div>
+      <div class="card"><div class="label">Commits in</div><div class="value yellow" id="epoch-commit">—</div></div>
+      <div class="card"><div class="label">Claimable in</div><div class="value green" id="epoch-finalize">—</div></div>
+    </div>
+
+    <div class="chart-container">
+      <div class="chart-title"><span>Points by epoch</span></div>
+      <div style="height:220px"><canvas id="points-chart"></canvas></div>
+    </div>
+
+    <div class="table-container">
+      <h3 style="margin:0 0 12px;font-size:14px;color:#9ca3af">Epoch history</h3>
+      <table class="stats-table">
+        <thead><tr><th>Epoch</th><th class="text-right">Points</th><th class="text-right">Share</th><th class="text-right">Alpha</th><th class="text-right">Settled</th><th class="text-right">Closed</th></tr></thead>
+        <tbody id="epoch-table"></tbody>
+      </table>
+      <div id="epoch-empty" class="empty" style="display:none">
+        <div class="icon">⏳</div><p>No epoch recorded yet. The first fetch runs when the dashboard starts.</p>
+      </div>
+    </div>
+  </div>
+
   <!-- Webhook Section -->
   <div id="section-webhook" class="section">
     <div class="header">
@@ -356,6 +413,229 @@ if (navOverlay) navOverlay.addEventListener('click', () => {
   navOverlay.classList.remove('open');
 });
 
+
+// ── Bittensor (SN25) ────────────────────────────────────────────────────────
+let epochData = null, priceData = null, pointsChart = null, currency = 'USD', bittensorLoaded = false;
+
+const FX_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', JPY: 'JP¥', CNY: 'CN¥' };
+
+function money(usd, digits) {
+  const rate = (priceData && priceData.fx && priceData.fx[currency]) || 1;
+  const sym = FX_SYMBOLS[currency] || '$';
+  const v = usd * rate;
+  const d = digits === undefined ? 2 : digits;
+  return sym + v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+function setCurrency(c) { currency = c; renderPrice(); }
+
+function renderPrice() {
+  if (!priceData) return;
+  const p = priceData;
+  document.getElementById('alpha-price').textContent = money(p.alpha_usd, 4);
+  document.getElementById('alpha-mcap').textContent = money(p.market_cap_usd, 0);
+  document.getElementById('tao-price').textContent = money(p.tao_usd, 2);
+  const ch = document.getElementById('alpha-change');
+  ch.textContent = (p.change_24h >= 0 ? '+' : '') + p.change_24h.toFixed(2) + '% 24h';
+  ch.style.color = p.change_24h >= 0 ? '#10b981' : '#ef4444';
+}
+
+async function loadEpochs() {
+  try {
+    const res = await fetch(API + '/api/epochs');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    epochData = await res.json();
+    renderEpochs();
+  } catch (e) {
+    document.getElementById('epoch-source').textContent = 'epoch data unavailable: ' + e.message;
+  }
+}
+
+async function refreshEpochs() {
+  try {
+    await fetch(API + '/api/refresh-epochs', { method: 'POST' });
+  } catch (e) { /* the read below shows whatever is stored */ }
+  await loadEpochs();
+}
+
+async function loadPrice() {
+  try {
+    const res = await fetch(API + '/api/price');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const doc = await res.json();
+    priceData = doc.price;
+    renderPrice();
+  } catch (e) {
+    document.getElementById('alpha-price').textContent = '—';
+  }
+}
+
+/* Countdowns are computed in the page from block numbers, never stored as
+   strings: a tab left open for an hour must not show a stale countdown. */
+function blocksToHuman(blocks, secondsPerBlock) {
+  const s = Math.max(0, blocks * (secondsPerBlock || 12));
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  if (d > 0) return d + 'd ' + h + 'h';
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+
+function renderEpochs() {
+  const ge = epochData && epochData.sn_epoch;
+  const rows = (epochData && epochData.epochs) || [];
+  document.getElementById('epoch-source').textContent =
+    epochData && epochData.sn_epoch ? 'chain ' + ge.chain_id + ' · netuid ' + ge.netuid : 'no epoch fetched yet';
+  document.getElementById('epoch-updated').textContent = epochData ? (epochData.sn_epoch_fetched_at || '—') : '—';
+
+  if (ge) {
+    document.getElementById('epoch-n').textContent = ge.epoch;
+    document.getElementById('epoch-phase').textContent = 'earning';
+
+    /* The coordinator does not report the chain head, so it is estimated from
+       the last finalized epoch's timestamps: epoch N+1 starts where N ended, and
+       the epoch length is known, so elapsed time gives an approximate block.
+       Labelled as an estimate; a head from the chain would replace this. */
+    const last = rows[0];
+    const startMs = last && last.end_millis ? last.end_millis : Date.now();
+    const spanMs = last && last.end_millis && last.start_millis ? (last.end_millis - last.start_millis) : 7 * 86400000;
+    const elapsed = Math.max(0, Date.now() - startMs);
+    const spent = Math.max(0, Math.min(1, elapsed / spanMs));
+    const estHead = ge.start_block + Math.floor(elapsed / 1000 / 12);
+    document.getElementById('epoch-pct').textContent = (spent * 100).toFixed(0) + '%';
+    document.getElementById('epoch-blocks').textContent =
+      'est. block ' + estHead.toLocaleString() + ' · closes ' + ge.earning_end_block.toLocaleString();
+    document.getElementById('epoch-commit').textContent =
+      blocksToHuman(ge.commit_deadline_block - estHead) + ' (est.)';
+    document.getElementById('epoch-finalize').textContent =
+      blocksToHuman(ge.finalize_block - estHead) + ' (est.)';
+  }
+
+  const body = document.getElementById('epoch-table');
+  if (!rows.length) {
+    document.getElementById('epoch-empty').style.display = 'block';
+    body.innerHTML = '';
+  } else {
+    document.getElementById('epoch-empty').style.display = 'none';
+    body.innerHTML = rows.map(function (r) {
+      const closed = r.end_millis ? new Date(r.end_millis).toISOString().slice(0, 16).replace('T', ' ') : '—';
+      return '<tr><td>' + r.epoch + '</td>' +
+        '<td class="text-right text-mono">' + (r.points ? r.points.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '0') + '</td>' +
+        '<td class="text-right">' + (r.share_bps / 100).toFixed(2) + '%</td>' +
+        '<td class="text-right text-gray">' + (r.alpha === null ? '—' : r.alpha.toFixed(4)) + '</td>' +
+        '<td class="text-right"><span class="badge ' + (r.settlement === 'v2' ? 'ok' : '') + '">' + r.settlement + '</span></td>' +
+        '<td class="text-right text-gray">' + closed + '</td></tr>';
+    }).join('');
+  }
+
+  /* points by epoch, oldest first */
+  if (typeof Chart !== 'undefined' && document.getElementById('points-chart')) {
+    const ordered = rows.slice().reverse();
+    const labels = ordered.map(function (r) { return 'E' + r.epoch; });
+    const data = ordered.map(function (r) { return +r.points.toFixed(2); });
+    if (pointsChart) {
+      pointsChart.data.labels = labels; pointsChart.data.datasets[0].data = data; pointsChart.update('none');
+    } else {
+      pointsChart = new Chart(document.getElementById('points-chart'), {
+        type: 'bar',
+        data: { labels: labels, datasets: [{ label: 'Points', data: data, backgroundColor: '#87FB6760', borderColor: '#87FB67', borderWidth: 1, borderRadius: 2 }] },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { x: { ticks: { color: '#9ca3af', font: { size: 10 } }, grid: { color: '#374151' } },
+                    y: { ticks: { color: '#9ca3af', font: { size: 10 } }, grid: { color: '#374151' } } } }
+      });
+    }
+  }
+}
+
+function loadBittensor() {
+  if (!bittensorLoaded) { bittensorLoaded = true; loadPrice(); loadEpochs(); }
+  const n = document.getElementById('hero-net-name');
+  if (n && (!n.textContent || n.textContent === '—')) {
+    fetch(API + '/api/network').then(function (r) { return r.json(); })
+      .then(function (d) { n.textContent = (d && d.network_name) || 'network'; })
+      .catch(function () { n.textContent = 'network'; });
+  }
+  startHero();
+}
+
+/* The hero: a slowly rotating sphere of providers with packets flowing into the
+   settlement hub. Decoration only, so it costs one frame loop and stops when the
+   section is not visible or the tab is hidden. */
+let heroRaf = null, heroRunning = false;
+function startHero() {
+  const canvas = document.getElementById('hero-canvas');
+  if (!canvas || heroRunning) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const ctx = canvas.getContext('2d');
+  const C = { ur: '#ED8FFF', usd: '#87FB67', prov: '#638BFC', ui: '#D6E6F4' };
+  let W = 0, H = 0, R = 0, cx = 0, cy = 0, rot = 0, pulse = 0;
+  const N = 120, nodes = [], parts = [];
+  let hub = { x: 0, y: 0 }, hubR = 8;
+  for (let i = 0; i < N; i++) {
+    const phi = Math.acos(-1 + (2 * i + 1) / N), theta = Math.sqrt(N * Math.PI) * phi;
+    nodes.push({ phi: phi, theta: theta });
+  }
+  function size() {
+    const r = canvas.parentElement.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.max(1, Math.round(r.width)); H = Math.max(1, Math.round(r.height));
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    R = Math.min(W, H) * (W < 820 ? 0.40 : 0.46);
+    cx = W * (W < 820 ? 0.55 : 0.64); cy = H * 0.5;
+    hub = { x: W * (W < 820 ? 0.2 : 0.22), y: H * 0.5 };
+  }
+  function project(n) {
+    const x = Math.sin(n.phi) * Math.cos(n.theta + rot), y = Math.cos(n.phi);
+    const z = Math.sin(n.phi) * Math.sin(n.theta + rot);
+    return { x: cx + x * R, y: cy + y * R, vis: z > 0 };
+  }
+  function frame() {
+    if (!heroRunning) return;
+    ctx.clearRect(0, 0, W, H);
+    rot += 0.0018;
+    if (Math.random() < 0.22) {
+      const p = project(nodes[Math.floor(Math.random() * nodes.length)]);
+      if (p.vis) parts.push({ fx: p.x, fy: p.y, p: 0, spd: 0.02, color: C.prov });
+    }
+    if (Math.random() < 0.1) {
+      const p = project(nodes[Math.floor(Math.random() * nodes.length)]);
+      if (p.vis) parts.push({ fx: p.x, fy: p.y, p: 0, spd: 0.018, color: C.usd });
+    }
+    pulse++;
+    if (pulse > 150) { pulse = 0; parts.push({ fx: hub.x, fy: hub.y, p: 0, spd: 0.012, color: C.ur, out: true }); }
+    nodes.forEach(function (n) {
+      const p = project(n);
+      ctx.beginPath(); ctx.arc(p.x, p.y, 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(214,230,244,' + (0.16 + (p.vis ? 0.34 : 0)).toFixed(2) + ')'; ctx.fill();
+    });
+    ctx.beginPath(); ctx.arc(hub.x, hub.y, hubR, 0, Math.PI * 2);
+    ctx.fillStyle = '#050505'; ctx.fill();
+    ctx.strokeStyle = C.ur; ctx.lineWidth = 1.6;
+    ctx.shadowBlur = hubR * 1.4; ctx.shadowColor = C.ur; ctx.stroke(); ctx.shadowBlur = 0;
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const q = parts[i];
+      q.p += q.spd;
+      if (q.p >= 1) { parts.splice(i, 1); continue; }
+      const x = q.out ? q.fx + (cx - q.fx) * q.p : q.fx + (hub.x - q.fx) * q.p;
+      const y = q.out ? q.fy + (cy - q.fy) * q.p : q.fy + (hub.y - q.fy) * q.p;
+      ctx.beginPath(); ctx.arc(x, y, 2.8, 0, Math.PI * 2);
+      ctx.fillStyle = q.color; ctx.globalAlpha = 0.25 + 0.75 * Math.sin(Math.PI * q.p); ctx.fill(); ctx.globalAlpha = 1;
+    }
+    heroRaf = requestAnimationFrame(frame);
+  }
+  size();
+  heroRunning = true; heroRaf = requestAnimationFrame(frame);
+  window.addEventListener('resize', function () { size(); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { heroRunning = false; if (heroRaf) cancelAnimationFrame(heroRaf); }
+    else if (document.getElementById('section-bittensor').classList.contains('active')) {
+      heroRunning = true; heroRaf = requestAnimationFrame(frame);
+    }
+  });
+}
+
 // Sidebar nav
 let currentSection = 'wallet';
 let payoutLoaded = false;
@@ -371,6 +651,7 @@ function switchSection(section) {
   const target = document.getElementById('section-' + section);
   if (target) target.classList.add('active');
   if (section === 'payout' && !payoutLoaded) loadPayouts();
+  if (section === 'bittensor') loadBittensor();
   if (section === 'webhook') { loadWebhookConfig(); loadSpikeThreshold(); }
   return false;
 }
