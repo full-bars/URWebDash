@@ -312,6 +312,9 @@ func settlementFor(epoch, firstV2 int64, fromCoordinator string) string {
 	return "v1"
 }
 
+/* the coordinator base is a var so tests can point it at a local server */
+var coordBaseURL = "https://api.bringyour.com"
+
 // fetchJSON is the one place the bearer token is attached.
 func fetchJSON(rawURL, token string, out interface{}) error {
 	req, err := http.NewRequest("GET", rawURL, nil)
@@ -332,7 +335,7 @@ func fetchJSON(rawURL, token string, out interface{}) error {
 
 func fetchEpochs(token string, firstV2 int64) ([]epochRow, error) {
 	var acc epochAPIAccount
-	if err := fetchJSON("https://api.bringyour.com/account/epochs?limit=104", token, &acc); err != nil {
+	if err := fetchJSON(coordBaseURL+"/account/epochs?limit=104", token, &acc); err != nil {
 		return nil, err
 	}
 	out := make([]epochRow, 0, len(acc.Epochs))
@@ -356,7 +359,7 @@ func fetchEpochs(token string, firstV2 int64) ([]epochRow, error) {
 
 func fetchSNEpoch(token string) (snEpoch, error) {
 	var e snEpoch
-	if err := fetchJSON("https://api.bringyour.com/sn/epoch", token, &e); err != nil {
+	if err := fetchJSON(coordBaseURL+"/sn/epoch", token, &e); err != nil {
 		return e, err
 	}
 	/* decoding {} succeeds, and a zero epoch would then overwrite real geometry
