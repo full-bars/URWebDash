@@ -10,6 +10,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -45,7 +47,7 @@ func primePayoutCache(token string) (bool, error) {
 		payoutPrimeMu.Unlock()
 	}()
 
-	resp, err := fetchPayouts(token)
+	resp, err := payoutSource(token)
 	if err != nil {
 		payoutCacheMu.Lock()
 		payoutLastError = err.Error()
@@ -79,6 +81,8 @@ func primePayoutCache(token string) (bool, error) {
 		p.ReliabilityPts = reliabilityByPayment[p.PaymentID]
 	}
 
+	fmt.Printf("[payout] prime: %d payments from %s\n", len(resp.AccountPayments),
+		map[bool]string{true: "fixture", false: "coordinator"}[strings.TrimSpace(os.Getenv("PAYOUT_FIXTURE_FILE")) != ""])
 	payoutCacheMu.Lock()
 	payoutCache = resp.AccountPayments
 	payoutCacheTime = time.Now()

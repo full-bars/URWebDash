@@ -89,8 +89,8 @@ select{cursor:pointer;padding:6px 10px;font-size:12.5px}
 .wh-tile.on .dot{background:var(--accent);border-color:var(--accent)}
 .wh-tile .nm{font-size:13px;font-weight:600;color:var(--head)}
 .wh-tile .badge{margin-left:auto;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;padding:1px 6px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
-.wh-tile .badge.ok{color:var(--accent);border-color:var(--accent)}
-.wh-tile .badge.bad{color:var(--accent2);border-color:var(--accent2)}
+.badge.ok, .wh-tile .badge.ok{color:var(--accent);border-color:var(--accent)}
+.badge.bad, .wh-tile .badge.bad{color:var(--accent2);border-color:var(--accent2)}
 .wh-stage{border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);padding:14px}
 .wh-stage .bar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .wh-stage .bar .lbl{font-size:10.5px;letter-spacing:.09em;text-transform:var(--labels);color:var(--faint);margin-right:auto}
@@ -126,8 +126,17 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
 /* epoch bar: glow at the head, a ripple per block, a slow shimmer. The width
    always stays the true percentage; these are decoration on top of it. */
 #theme-mount .track{position:relative}
+/* the themes clip their track (overflow:hidden) for the rounded ends, so a bloom
+   inside it can only ever show a slice; the decorations live in this wrapper */
+.ep-wrap{position:relative;overflow:visible}
+/* a flash down the fill when the width actually changes, plus the delta */
+.ep-wrap .fill.grew, .ep-wrap .track > i.grew{animation:epGrow 1.1s ease-out}
+@keyframes epGrow{0%{box-shadow:0 0 0 0 rgba(255,255,255,.85) inset}45%{box-shadow:0 0 22px 4px rgba(255,255,255,.55) inset}100%{box-shadow:0 0 0 0 rgba(255,255,255,0) inset}}
+.ep-delta{position:absolute;top:-18px;right:0;font:600 10px/1 ui-monospace,monospace;color:#d1fae5;opacity:0;pointer-events:none}
+.ep-delta.show{animation:epDelta 2.4s ease-out}
+@keyframes epDelta{0%{opacity:0;transform:translateY(4px)}15%{opacity:1;transform:translateY(0)}75%{opacity:1}100%{opacity:0;transform:translateY(-4px)}}
 #theme-mount .track > i,#theme-mount .track > .fill{position:relative;overflow:hidden}
-.ep-glow{position:absolute;top:50%;right:-12px;width:38px;height:38px;margin-top:-19px;border-radius:50%;
+.ep-glow{position:absolute;top:50%;left:0;width:38px;height:38px;margin-top:-19px;margin-left:-19px;border-radius:50%;
   background:radial-gradient(circle,rgba(167,243,208,.95) 0%,rgba(52,211,153,.75) 32%,rgba(52,211,153,.18) 60%,rgba(52,211,153,0) 78%);
   mix-blend-mode:screen;animation:epBreathe 2.6s ease-in-out infinite;pointer-events:none}
 /* a second, wider halo so the head reads as a light source rather than a dot */
@@ -136,9 +145,15 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
   animation:epHalo 2.6s ease-in-out infinite}
 @keyframes epBreathe{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.45)}}
 @keyframes epHalo{0%,100%{opacity:.25;transform:scale(.85)}50%{opacity:.7;transform:scale(1.2)}}
-.ep-tick{position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.95);opacity:0;border-radius:2px;pointer-events:none}
-.ep-tick.run{animation:epRipple 900ms ease-out}
-@keyframes epRipple{0%{opacity:.9;transform:scaleY(1.7)}100%{opacity:0;transform:scaleY(1)}}
+/* the tick is a hairline that stays at the head, so it is visible between
+   blocks; each block makes it flash brighter and wider for a moment */
+.ep-tick{position:absolute;top:0;height:100%;width:3px;background:rgba(255,255,255,.75);opacity:1;border-radius:2px;pointer-events:none;
+  box-shadow:0 0 6px rgba(255,255,255,.45)}
+.ep-tick.run{animation:epRipple 3.2s ease-out}
+@keyframes epRipple{
+  0%{opacity:1;transform:scaleY(1.9) scaleX(2.2);box-shadow:0 0 12px rgba(255,255,255,.95)}
+  55%{opacity:.85;transform:scaleY(1.2) scaleX(1.2)}
+  100%{opacity:1;transform:scaleY(1) scaleX(1)}}
 @media (prefers-reduced-motion: reduce){
   .ep-glow,.ep-tick.run{animation:none}
 }
@@ -197,18 +212,18 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
 </head>
 <body data-theme="legacy">
 <nav id="sidebar">
-  <h1>URnetwork Fleet Data &amp; Payouts</h1>
+  <h1>URWebDash</h1>
   <div class="nav-links">
-    <a href="#" data-section="wallet" onclick="return go('wallet')">&#128202; Data Stats</a>
+    <a href="#" data-section="wallet" class="active" onclick="return go('wallet')">&#128202; Data Stats</a>
     <a href="#" data-section="payout" onclick="return go('payout')">&#128176; Payout Stats</a>
-    <a href="#" data-section="bittensor" class="active" onclick="return go('bittensor')">&#9935; Bittensor Stats<span class="new">new</span></a>
+    <a href="#" data-section="bittensor" onclick="return go('bittensor')">&#9935; Bittensor Stats<span class="new">new</span></a>
     <a href="#" data-section="webhook" onclick="return go('webhook')">&#128276; Webhook</a>
   </div>
   <div class="nav-footer">chain 964 &middot; netuid 25<br><span id="theme-name">Legacy</span> theme</div>
 </nav>
 <main>
   <div class="topbar">
-    <div class="tb-group"><span class="tb-page" id="page-name">Bittensor Stats</span></div>
+    <div class="tb-group"><span class="tb-page" id="page-name">Data Stats</span></div>
     <div class="tb-group tb-right">
       <span class="field-label">Theme</span>
       <select id="theme-select" onchange="applyTheme(this.value)"></select>
@@ -218,7 +233,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     </div>
   </div>
 
-  <div id="section-wallet" class="section">
+  <div id="section-wallet" class="section active">
     <div class="header">
       <div><h2>&#128202; Data Statistics</h2>
       <p>Real-time tracking of data transfer earnings</p>
@@ -292,7 +307,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
       <tbody id="pay-table"></tbody></table></div>
   </div>
 
-  <div id="section-bittensor" class="section active">
+  <div id="section-bittensor" class="section">
     <div class="header">
       <div><h2>&#9935; Bittensor Stats</h2>
       <p>Subnet 25 earnings by epoch &mdash; points accrue, then alpha settles on chain 964</p>
@@ -331,7 +346,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     </div>
     <div class="cards">
       <div class="card"><div class="label">Webhook URL</div>
-        <input type="url" id="wh-url" value="https://discord.com/api/webhooks/****/****" readonly>
+        <input type="url" id="wh-url" placeholder="not configured" readonly>
         <div class="sub">masked on read &mdash; the URL is a bearer secret</div></div>
       <div class="card"><div class="label">Spike threshold (GB / 15m)</div>
         <input type="number" id="wh-threshold" value="1.00" step="0.25" min="0" style="width:100%;margin-top:8px">
@@ -379,7 +394,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
       <span class="info">Sending a test posts into the selected webhook in the selected style.</span>
       <button class="btn" onclick="whTest(this)">&#128260; Send test alert</button>
       <button class="btn primary" onclick="whSave(this)">&#128190; Save</button></div>
-    <div class="note">The default stays box-table so existing installs keep byte-identical messages. Stored in <code>notifications.json</code>, read from disk on every send, so the poller picks up a change without a restart.</div>
+    <div class="note">The webhook address comes from the dashboard's own configuration (an environment variable or a saved file) and is read on every send, so a change applies without a restart. The style options below change the preview only — the alert text is fixed.</div>
   </div>
 </main>
 
@@ -1383,7 +1398,17 @@ window.URFORMATS['bullets'] = {
 <script>
 const D = __D__;
 const HIST = __HIST__;
-const PAY = __PAY__;
+let PAY = __PAY__;
+/* the page is rendered on the server: if it went out before the cache was warm
+   the payout section has no rows, so ask again and re-render once */
+if (!PAY || !PAY.length) {
+  fetch('/api/payout-stats').then(r => r.json()).then(d => {
+    if (d && d.payments && d.payments.length) {
+      PAY = d.payments;
+      if (typeof renderPayoutRows === 'function') renderPayoutRows();
+    }
+  }).catch(() => {});
+}
 const TOKENS = {"legacy": {"name": "Legacy", "bg": "#111827", "panel": "#1f2937", "panel2": "#162032", "line": "#374151", "text": "#e5e7eb", "head": "#f9fafb", "muted": "#9ca3af", "faint": "#6b7280", "accent": "#10b981", "accent2": "#f59e0b", "accent3": "#3b82f6", "badge": "#065f46", "radius": "10px", "font": "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif", "mono": "'SF Mono','Fira Code',monospace", "labels": "uppercase", "navw": "220px", "chart": {"type": "area", "c1": "#10b981", "c2": "#f59e0b", "c3": "#3b82f6", "grid": "#1f2937", "tick": "#6b7280", "tension": 0.25, "points": 0}, "note": "The shipped dashboard, unchanged. Keeps the original line charts.", "accents": ["#10b981", "#87FB67", "#ED8FFF", "#638BFC", "#FF6C58", "#aa59f7", "#22D3EE", "#F5B03A", "#c0e635"]}, "hero": {"name": "Hero", "bg": "#0b1220", "panel": "#0d1526", "panel2": "#101a2e", "line": "#26395d", "text": "#e2e8f0", "head": "#eaf1fb", "muted": "#7c8aa5", "faint": "#5b6b88", "accent": "#3b82f6", "accent2": "#8b5cf6", "accent3": "#5fd6a4", "badge": "#12233f", "radius": "14px", "font": "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif", "mono": "ui-monospace,SFMono-Regular,Menlo,monospace", "labels": "uppercase", "navw": "224px", "chart": {"type": "area", "c1": "#3b82f6", "c2": "#8b5cf6", "c3": "#5fd6a4", "grid": "#152039", "tick": "#5b6b88", "tension": 0.35, "points": 0}, "note": "Epoch as the headline, gradient progress, quiet chips.", "accents": ["#638BFC", "#87FB67", "#ED8FFF", "#FF6C58", "#A855F7", "#22D3EE", "#F5B03A", "#c0e635"]}, "console": {"name": "Console", "bg": "#08090b", "panel": "#0d1013", "panel2": "#11161b", "line": "#2d3641", "text": "#c9d1d9", "head": "#f0f6fc", "muted": "#8b98a5", "faint": "#5c6873", "accent": "#3ecf8e", "accent2": "#e3b341", "accent3": "#2f81f7", "badge": "#0f2a22", "radius": "0px", "font": "ui-monospace,SFMono-Regular,Menlo,monospace", "mono": "ui-monospace,SFMono-Regular,Menlo,monospace", "labels": "uppercase", "navw": "210px", "chart": {"type": "bar", "c1": "#3ecf8e", "c2": "#e3b341", "c3": "#2f81f7", "grid": "#161b21", "tick": "#5c6873", "tension": 0, "points": 0}, "note": "Operator console: monospace, hard edges, bars instead of curves.", "accents": ["#87FB67", "#ED8FFF", "#638BFC", "#FF6C58", "#A855F7", "#22D3EE", "#F5B03A", "#c0e635"]}, "urnetwork": {"name": "URnetwork", "bg": "#101010", "panel": "#171717", "panel2": "#1c1c1c", "line": "#383838", "text": "#F8F8F8", "head": "#FFFFFF", "muted": "#989898", "faint": "#606060", "accent": "#638BFC", "accent2": "#87FB67", "accent3": "#ED8FFF", "badge": "#1B119A", "radius": "12px", "font": "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif", "mono": "ui-monospace,SFMono-Regular,Menlo,monospace", "labels": "uppercase", "navw": "228px", "chart": {"type": "line", "c1": "#638BFC", "c2": "#ED8FFF", "c3": "#87FB67", "grid": "#1e1e1e", "tick": "#5A5A5A", "tension": 0.3, "points": 2}, "note": "The house brand: black ground, blue primary, pink and green signals.", "accents": ["#ED8FFF", "#87FB67", "#638BFC", "#FF6C58", "#A855F7", "#22D3EE", "#F5B03A", "#c0e635"]}, "ledger": {"name": "Ledger", "bg": "#261b18", "panel": "#2f221e", "panel2": "#33251f", "line": "#594038", "text": "#f0e5d9", "head": "#fff5e9", "muted": "#cdb3a3", "faint": "#a76e50", "accent": "#df9e73", "accent2": "#f0c5a6", "accent3": "#aa7051", "badge": "#3d2b23", "radius": "6px", "font": "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif", "mono": "ui-monospace,SFMono-Regular,Menlo,monospace", "labels": "uppercase", "navw": "214px", "chart": {"type": "line", "c1": "#df9e73", "c2": "#f0c5a6", "c3": "#a76e50", "grid": "#3a2b25", "tick": "#a76e50", "tension": 0.15, "points": 1}, "note": "Table-first ledger in warm copper. Numbers lead, prose follows.", "accents": ["#F5B03A", "#87FB67", "#ED8FFF", "#638BFC", "#FF6C58", "#ac5df7", "#22D3EE", "#c0e635"]}, "editorial": {"name": "Editorial", "bg": "#17130f", "panel": "#2a231b", "panel2": "#241d16", "line": "#42392e", "text": "#e6dccb", "head": "#f3ead8", "muted": "#bfb29c", "faint": "#6d6252", "accent": "#d9694a", "accent2": "#e98a6c", "accent3": "#a69a86", "badge": "#33261d", "radius": "3px", "font": "Georgia,'Iowan Old Style','Palatino Linotype',serif", "mono": "ui-monospace,SFMono-Regular,Menlo,monospace", "labels": "none", "navw": "226px", "chart": {"type": "bar", "c1": "#d9694a", "c2": "#e98a6c", "c3": "#a69a86", "grid": "#33291f", "tick": "#6d6252", "tension": 0, "points": 0}, "note": "Sentence-led editorial in warm ink and brick, serif throughout.", "accents": ["#FF6C58", "#87FB67", "#ED8FFF", "#638BFC", "#A855F7", "#22D3EE", "#F5B03A", "#c0e635"]}, "tidal": {"name": "Tidal", "bg": "#102522", "panel": "#16302c", "panel2": "#193833", "line": "#31524a", "text": "#e2eee7", "head": "#f2fbf7", "muted": "#a7c2b5", "faint": "#537268", "accent": "#91d6bb", "accent2": "#a8eacb", "accent3": "#8fd0bb", "badge": "#1c3b35", "radius": "8px", "font": "Georgia,serif", "mono": "ui-monospace,SFMono-Regular,Menlo,monospace", "labels": "none", "navw": "222px", "chart": {"type": "area", "c1": "#91d6bb", "c2": "#a8eacb", "c3": "#8fd0bb", "grid": "#1f3c37", "tick": "#49645b", "tension": 0.4, "points": 0}, "note": "Airy weekly journal in deep green, serif, wide margins.", "accents": ["#87FB67", "#ED8FFF", "#638BFC", "#FF6C58", "#b065f8", "#22D3EE", "#F5B03A", "#c0e635"]}, "route": {"name": "Route", "bg": "#211725", "panel": "#2a1d2f", "panel2": "#2e1f33", "line": "#604669", "text": "#f0e7ef", "head": "#fdf4fb", "muted": "#c8afc6", "faint": "#7d5a84", "accent": "#dd9ccd", "accent2": "#e8b6dc", "accent3": "#c8afc6", "badge": "#38263e", "radius": "10px", "font": "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif", "mono": "ui-monospace,SFMono-Regular,Menlo,monospace", "labels": "uppercase", "navw": "216px", "chart": {"type": "bar", "c1": "#dd9ccd", "c2": "#e8b6dc", "c3": "#a06c96", "grid": "#33243a", "tick": "#76557d", "tension": 0, "points": 0}, "note": "Phase-first route with plum reward tiles.", "accents": ["#aa59f7", "#87FB67", "#ED8FFF", "#638BFC", "#FF6C58", "#22D3EE", "#F5B03A", "#c0e635"]}, "orbit": {"name": "Orbit", "bg": "#081a19", "panel": "#0b2120", "panel2": "#0e2725", "line": "#214340", "text": "#d6ebe7", "head": "#f1fffc", "muted": "#6fb5aa", "faint": "#3d6d65", "accent": "#34e0c0", "accent2": "#f0b26b", "accent3": "#a9f5e6", "badge": "#0f3330", "radius": "20px", "font": "ui-rounded,'SF Pro Rounded','Segoe UI',sans-serif", "mono": "ui-monospace,SFMono-Regular,Menlo,monospace", "labels": "uppercase", "navw": "224px", "chart": {"type": "area", "c1": "#34e0c0", "c2": "#6fb5aa", "c3": "#a9f5e6", "grid": "#123330", "tick": "#3c6a63", "tension": 0.45, "points": 3}, "note": "One hero ring drawn to block scale, soft rounded panels, teal and pink.", "accents": ["#22D3EE", "#87FB67", "#ED8FFF", "#638BFC", "#FF6C58", "#A855F7", "#F5B03A", "#c0e635"]}, "timeline": {"name": "Timeline", "bg": "#3a2745", "panel": "#452f52", "panel2": "#28161d", "line": "#6b4b52", "text": "#efdde0", "head": "#fff0f2", "muted": "#b99aa0", "faint": "#a68489", "accent": "#ff9db0", "accent2": "#8fd3c4", "accent3": "#b99aa0", "badge": "#3a1e26", "radius": "4px", "font": "'Avenir Next',Avenir,'Trebuchet MS',sans-serif", "mono": "ui-monospace,SFMono-Regular,Menlo,monospace", "labels": "uppercase", "navw": "218px", "chart": {"type": "bar", "c1": "#ff9db0", "c2": "#8fd3c4", "c3": "#b99aa0", "grid": "#331d24", "tick": "#a68489", "tension": 0, "points": 0}, "note": "Timeline-first in wine and rose; the block track leads.", "accents": ["#ED8FFF", "#87FB67", "#6b91fc", "#FF6C58", "#f978cc", "#22D3EE", "#F5B03A", "#c0e635"]}};
 
 /* ---------- nav ---------- */
@@ -1394,7 +1419,17 @@ function go(name){
   window.scrollTo(0,0);
   const label={wallet:'Data Stats',payout:'Payout Stats',bittensor:'Bittensor Stats',webhook:'Webhook'}[name]||'';
   const pn=document.getElementById('page-name'); if(pn) pn.textContent=label;
+  /* refresh and back should land where you were, not on the first section */
+  try{ history.replaceState(null,'','#'+name); }catch(_){}
+  try{ localStorage.setItem('section',name); }catch(_){}
   if(name==='wallet') requestAnimationFrame(()=>drawCharts());
+  /* the hero canvas sizes itself once at start; if that happened while this
+     section was hidden it measured 1x1 and every frame's single pixel was
+     stretched across the whole panel, which read as a colour strobe */
+  if(name==='bittensor') requestAnimationFrame(()=>{
+    window.__heroResize && window.__heroResize();
+    setTimeout(()=>{ window.__heroResize && window.__heroResize(); epResume(); }, 120);
+  });
   return false;
 }
 function fakeRefresh(btn){
@@ -1431,7 +1466,8 @@ for(let d=6;d>=0;d--){
   const endT=new Date(last.t).getTime()-d*86400000;
   const endRow=series.filter(r=>new Date(r.t).getTime()<=endT).pop();
   const startRow=series.filter(r=>new Date(r.t).getTime()<=endT-86400000).pop();
-  const delta=endRow&&startRow?endRow.paid-startRow.paid:0;
+  /* paid only moves when traffic settles; the day's growth is on the total */
+  const delta=endRow&&startRow?(endRow.paid+endRow.unpaid)-(startRow.paid+startRow.unpaid):0;
   const c=document.createElement('div');
   c.className='card';
   c.innerHTML='<div class="label">'+new Date(endT).toISOString().slice(5,10)+'</div>'+
@@ -1442,19 +1478,25 @@ const tbody=document.getElementById('history-table');
 recent.forEach((r,i)=>{
   const o=recent[i+1];
   const dPaid=o?r.paid-o.paid:0, dUnpaid=o?r.unpaid-o.unpaid:0;
+  /* paid only moves when traffic settles, so a window can be entirely flat while
+     unpaid climbs; the delta and the rate are on the TOTAL, which is what the
+     old page did */
+  const dTotal=dPaid+dUnpaid;
   const hours=o?(new Date(r.t)-new Date(o.t))/3600000:0.25;
   const tr=document.createElement('tr');
   tr.innerHTML='<td class="text-mono">'+fmtTime(r.t)+'</td>'+
     '<td class="text-right text-green">'+fmtGB(r.paid)+'</td>'+
     '<td class="text-right text-white text-mono">'+r.unpaid.toLocaleString()+'</td>'+
-    '<td class="text-right text-blue">+'+dPaid.toLocaleString()+'</td>'+
+    '<td class="text-right text-blue">+'+dTotal.toLocaleString()+'</td>'+
     '<td class="text-right text-yellow">'+fmtGB(r.unpaid)+'</td>'+
-    '<td class="text-right text-blue">+'+(dUnpaid/GB).toFixed(2)+'</td>'+
-    '<td class="text-right text-blue">'+(hours>0?(dPaid/hours/GB).toFixed(2):'0.00')+'</td>';
+    '<td class="text-right text-blue">+'+(dTotal/GB).toFixed(2)+'</td>'+
+    '<td class="text-right text-blue">'+(hours>0?(dTotal/hours/GB).toFixed(2):'0.00')+'</td>';
   tbody.appendChild(tr);
 });
 const payTable=document.getElementById('pay-table');
-PAY.slice(0,40).forEach((p,i)=>{
+function renderPayoutRows(){
+  payTable.innerHTML='';
+  PAY.slice(0,40).forEach((p,i)=>{
   const tr=document.createElement('tr');
   tr.innerHTML='<td>'+(i+1)+'</td>'+
     '<td class="text-right text-green">$'+(p.amount||0).toFixed(2)+' '+esc(p.type||'')+'</td>'+
@@ -1465,7 +1507,9 @@ PAY.slice(0,40).forEach((p,i)=>{
     '<td class="text-gray">'+(p.chain?esc(p.chain):'&mdash;')+'</td>'+
     '<td class="text-green">'+(p.completed?'&#9989; Completed':'&#9203; Pending')+'</td>';
   payTable.appendChild(tr);
-});
+  });
+}
+renderPayoutRows();
 
 /* ---------- charts ---------------------------------------------------------
    Base config is a port of the shipped dashboard's charts (line, tension .4,
@@ -1722,16 +1766,33 @@ function enhanceEpochBar(){
   if(!track) return;
   const fill=track.querySelector(':scope > i, :scope > .fill');
   if(!fill) return;
-  if(!fill.querySelector('.ep-glow')){
-    const g=document.createElement('span'); g.className='ep-glow'; fill.appendChild(g);
+  /* decorations live in a wrapper around the track: the track clips for its
+     rounded ends, and a bloom inside it shows only a slice */
+  let wrap = track.parentElement;
+  if(!wrap || !wrap.classList.contains('ep-wrap')){
+    wrap = document.createElement('div');
+    wrap.className = 'ep-wrap';
+    track.parentNode.insertBefore(wrap, track);
+    wrap.appendChild(track);
   }
-  if(!track.querySelector('.ep-tick')){
-    const tk=document.createElement('span'); tk.className='ep-tick'; track.appendChild(tk);
+  if(!wrap.querySelector('.ep-delta')){
+    const dl = document.createElement('span'); dl.className = 'ep-delta'; wrap.appendChild(dl);
+  }
+  if(!wrap.querySelector('.ep-glow')){
+    const g = document.createElement('span'); g.className = 'ep-glow'; wrap.appendChild(g);
+  }
+  if(!wrap.querySelector('.ep-tick')){
+    const tk = document.createElement('span'); tk.className = 'ep-tick'; wrap.appendChild(tk);
   }
   epLive={track, fill, pct:(D.epoch&&D.epoch.pct)||0,
           done:(D.epoch&&D.epoch.elapsedBlocks)||0,
           total:(D.epoch&&D.epoch.tBlocks)||0,
           left:(D.epoch&&D.epoch.leftBlocks)||0};
+  /* place both decorations now: waiting for the first 12s tick left the tick
+     sitting at the left edge, which read as "no animation at all" */
+  const host0=track.parentElement;
+  const gl0=host0.querySelector('.ep-glow'); if(gl0) gl0.style.left=Math.min(99,epLive.pct)+'%';
+  const tk0=host0.querySelector('.ep-tick'); if(tk0) tk0.style.left=Math.min(99,epLive.pct)+'%';
   if(epTimer) clearInterval(epTimer);
   /* one tick per block: 12s on chain. Kept as a single timer for whichever
      theme is mounted, and stopped when the page is hidden. */
@@ -1741,17 +1802,52 @@ function epTick(){
   if(!epLive) return;
   const bar=epLive;
   bar.done+=1; if(bar.left>0) bar.left-=1;
+  const before=bar.pct;
   if(bar.total>0) bar.pct=Math.min(100, bar.done/bar.total*100);
   bar.fill.style.width=bar.pct+'%';
-  const tk=bar.track.querySelector('.ep-tick');
-  if(tk){ tk.style.left=Math.min(99,bar.pct)+'%'; tk.classList.remove('run'); void tk.offsetWidth; tk.classList.add('run'); }
+  const host=bar.track.parentElement;
+
+  /* the block mark lands somewhere inside the filled part, not at the head:
+     at 37% the head barely moves per block, so a head-anchored flash is
+     indistinguishable from the glow */
+  const tk=host.querySelector('.ep-tick');
+  if(tk){
+    const span=Math.max(0.5, bar.pct-1.5);
+    const at=span*(0.15+Math.random()*0.85);
+    tk.style.left=at.toFixed(3)+'%';
+    tk.classList.remove('run'); void tk.offsetWidth; tk.classList.add('run');
+  }
+  const gl=host.querySelector('.ep-glow');
+  if(gl) gl.style.left=Math.min(99,bar.pct)+'%';
+
+  /* when the bar genuinely grows, say so: a flash down the fill plus the delta,
+     because 0.0007% of a week is invisible frame to frame */
+  const grew=bar.pct-before;
+  if(grew>0){
+    bar.fill.classList.remove('grew'); void bar.fill.offsetWidth; bar.fill.classList.add('grew');
+    const d=host.querySelector('.ep-delta');
+    if(d){ d.textContent='+'+grew.toFixed(4)+'%'; d.classList.remove('show'); void d.offsetWidth; d.classList.add('show'); }
+  }
+
   const box=bar.track.parentElement;
   if(box){
-    const span=[...box.querySelectorAll('span')].find(e=>/^\d+(\.\d+)?%$/.test(e.textContent.trim()));
-    if(span) span.textContent=bar.pct.toFixed(1)+'%';
+    const span=[...box.querySelectorAll('span')].find(e=>/^\d+(\.\d+)?%/.test(e.textContent.trim()));
+    if(span) span.textContent=bar.pct.toFixed(4)+'%';
   }
 }
-document.addEventListener('visibilitychange',()=>{ if(document.hidden){ if(epTimer){clearInterval(epTimer); epTimer=null;} } else if(epLive&&!epTimer){ epTimer=setInterval(epTick,12000); } });
+/* coming back to the tab or to the section has to restart BOTH the canvas loop
+   and the block timer; restarting one left the page looking frozen */
+function epResume(){
+  const sec=document.getElementById('section-bittensor');
+  if(!sec||!sec.classList.contains('active')) return;
+  window.__heroResize && window.__heroResize();
+  window.__heroStart && window.__heroStart(true);
+  if(epLive && !epTimer) epTimer=setInterval(epTick,12000);
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){ if(epTimer){clearInterval(epTimer); epTimer=null;} }
+  else epResume();
+});
 
 function setChartStyle(v){ chartStyle=v; drawCharts(); }
 function setWin(w,btn){
@@ -1893,7 +1989,12 @@ function startHeroSim(){
     ctx.beginPath();ctx.arc(hub.x,hub.y,hubR,0,Math.PI*2);ctx.strokeStyle=HERO_COLORS.ur;
     ctx.lineWidth=1.6;ctx.stroke();
   }
-  size(); reduce?staticFrame():start();
+  size();
+  /* a second call must produce a live loop: start() bails while heroRunning is
+     true, so a loop that had stopped scheduling frames looked "running" */
+  if(heroRaf){ cancelAnimationFrame(heroRaf); heroRaf=null; }
+  heroRunning=false;
+  reduce?staticFrame():start(true);
   window.__heroResize=()=>{size(); if(!reduce) { stop(); start(true); } else staticFrame();};
   window.__heroStop=()=>{ stop(); };
   window.addEventListener('resize',()=>{size(); if(reduce) staticFrame();});
@@ -2071,6 +2172,15 @@ function applyTheme(id){
 }
 loadPrefs();
 applyTheme(currentTheme||'legacy');
+/* refresh and back land where you were, not on the first section */
+(function restoreSection(){
+  const fromHash=(location.hash||'').replace('#','');
+  let want=fromHash;
+  if(!want || !document.getElementById('section-'+want)){
+    try{ want=localStorage.getItem('section')||''; }catch(_){ want=''; }
+  }
+  if(want && document.getElementById('section-'+want)) go(want);
+})();
 renderPrice();
 setHeroMode('band');
 startHeroSim();
@@ -2123,11 +2233,46 @@ function whRender(){
   mob.querySelector('.andline').style.display=(mobileOS==='android')?'block':'none';
 }
 whRender();
-function whTest(btn){
-  const l=btn.innerHTML; btn.disabled=true;
+/* these posted nothing: the button spun and reset, so a test "passed" without a
+   request leaving the browser. They now call the endpoints the server already
+   has, and report what came back. */
+async function whTest(btn){
+  const label=btn.innerHTML; btn.disabled=true;
   btn.innerHTML='<span class="spinner"></span> Sending\u2026';
-  setTimeout(()=>{btn.disabled=false;btn.innerHTML=l;},900);
+  const note=document.getElementById('wh-note');
+  try{
+    const res=await fetch('/api/webhook-test',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({}) /* empty: the server uses the address it has on file */});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok||data.error) throw new Error(data.error||('HTTP '+res.status));
+    if(note) note.textContent='Test sent to the stored webhook — check the channel.';
+  }catch(e){
+    if(note) note.textContent='Test failed: '+e.message;
+  }finally{
+    btn.disabled=false; btn.innerHTML=label;
+  }
 }
-function whSave(btn){const l=btn.innerHTML;btn.innerHTML='&#9989; Saved';setTimeout(()=>{btn.innerHTML=l;},1200);}
+async function whSave(btn){
+  const label=btn.innerHTML; btn.disabled=true; btn.innerHTML='&#128190; Saving\u2026';
+  const note=document.getElementById('wh-note');
+  const field=document.getElementById('wh-url');
+  const url=field?field.value:'';
+  try{
+    const res=await fetch('/api/webhook',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url:url})});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok||data.error) throw new Error(data.error||('HTTP '+res.status));
+    btn.innerHTML='&#9989; Saved';
+    if(note) note.textContent='Saved. New alerts use this style.';
+  }catch(e){
+    btn.innerHTML=label;
+    if(note) note.textContent='Save failed: '+e.message;
+  }finally{
+    btn.disabled=false;
+    setTimeout(()=>{btn.innerHTML=label;},1400);
+  }
+}
 </script>
 </body></html>
