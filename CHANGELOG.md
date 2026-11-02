@@ -2,16 +2,6 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
-## v0.1.0 - 2026-11-02
-
-### Added
-
-- Bittensor (SN25) section: live epoch and its block windows, epoch history with a points-by-epoch chart, and the alpha price converted into USD, EUR, GBP, JPY or CNY. The price comes from the GeckoTerminal subnet pool and the conversion from CoinGecko's TAO quotes; the quote is cached for a minute and a failed refresh keeps the last good one. Countdowns are computed in the page from block numbers so an open tab cannot show a stale one, and the chain head is estimated from the last finalized epoch's timestamps and labelled as such.
-
-### Fixed
-
-- The currency picker is built from the rates the feed returned, so a missing rate cannot label a USD value with another currency's symbol.
-
 ## v0.0.20 - 2026-11-02
 
 ### Added

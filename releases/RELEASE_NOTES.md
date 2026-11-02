@@ -1,43 +1,24 @@
-# v0.1.0
-
-### Features
-
-- **Bittensor (SN25) section.** A fourth tab in the dashboard showing the live epoch, its block windows, the epoch history and a points-by-epoch chart, alongside the alpha price in five currencies. The section is decoration-light on purpose: one small animation, and every number on it comes from the coordinator or a public pool quote.
-- **Alpha price, with conversion.** The coordinator carries no price, so the quote comes from the GeckoTerminal subnet pool for netuid 25, the same keyless feed ur.xyz resolves against. Currency conversion (USD, EUR, GBP, JPY, CNY) comes from CoinGecko's TAO quotes as a ratio to TAO-USD. The quote is cached for a minute and a failed refresh keeps serving the last good one rather than blanking the page.
-
-### Notes
-
-- **Countdowns are computed in the page, not stored.** They are derived from block numbers on every render, so a tab left open overnight cannot show a stale "commit in 4h" when the real answer is four days.
-- **The chain head is estimated.** The coordinator does not report it, so the page derives it from the last finalized epoch's timestamps and marks every derived figure `(est.)` rather than presenting a guess as fact. When the coordinator exposes a head, that estimate goes away.
-- **Alpha per epoch is not available yet.** The coordinator reports points and share basis points, not the alpha each epoch earned, so the table shows `—` in that column rather than a number it cannot know.
-- The existing Data Stats and Payout Stats pages are untouched.
-
-### Fixed
-
-- The dashboard's currency picker is built from the rates the feed actually returned, so a missing rate can no longer label a USD value with another currency's symbol.
-
-### Internal
-
-- Six tests cover the price parsing, the optional conversion path, the cache TTL, the backoff after a failed refresh, retention of earlier rates when a refresh loses its conversion, and the endpoint's response shape.
-
 # v0.0.20
 
 ### Features
 
-- **SN25 epoch earnings, server side.** The dashboard now records your Bittensor subnet 25 earnings alongside your traffic. A new `epoch_stats` table is keyed by epoch number rather than by time, because an epoch that is still open reports partial points and the row has to stay correctable until it closes; the time-keyed traffic table works the other way round, so the two never share a merge or cleanup path and neither can disturb the other. A single `sn_epoch_state` row holds the live epoch geometry.
-- **Two new endpoints.** `GET /api/epochs` returns the finalized epoch history with the live epoch attached; `POST /api/refresh-epochs` forces a fetch for the page's refresh button.
-- **Earning-window boundary derived, not assumed.** The coordinator reports the commit deadline and the finalize block but not the end of the earning window, so the boundary is computed as `start_block + t_epoch_blocks`, falling back to `commit - 1200` when the epoch length is missing. A wrong boundary would misreport how much of the window has been spent.
+- **Bittensor (SN25) section.** A fourth tab showing the live epoch and its block windows, the epoch history with a points-by-epoch chart, and the alpha price in five currencies.
+- **Alpha price with conversion.** The coordinator carries no price, so the quote comes from the GeckoTerminal subnet pool for netuid 25, the same keyless feed ur.xyz resolves against. Conversion (USD, EUR, GBP, JPY, CNY) comes from CoinGecko's TAO quotes. Cached for a minute; a failed refresh keeps the last good quote and says how old it is instead of pretending it is fresh.
+- **Epoch earnings recorded.** A new `epoch_stats` table keyed by epoch number, so an open epoch's partial points stay correctable, and one `sn_epoch_state` row for the live geometry. Hourly refresh; two endpoints, `GET /api/epochs` and `POST /api/refresh-epochs`.
 
-### Notes
+### Fixed
 
-- Epoch data refreshes hourly. An epoch is seven days long, so polling it on the 15-minute traffic cadence would be 672 identical requests a week. Traffic polling is unchanged.
-- `wallet_stats` is untouched: same grid, same cleanup, same cross-box merge.
-- New setting `EPOCH_FIRST_V2` (default `4`) marks the first epoch that settled under the v2 payout model, so earlier epochs are labelled `v1` rather than silently mislabelled.
-- The Bittensor page that displays this data follows in the next release; this one ships the data path and its endpoints. Nothing in the current UI changes.
+- Alpha was rendered 1e9 times too large: the coordinator reports it in rao and it was treated as whole tokens. Scaling now happens once, at the storage boundary.
+- A closed epoch could have its points overwritten by a later partial response. Closed epochs are now marked and frozen, including existing rows on upgrade.
+- A failed price refresh reported a stale quote as fresh, because the cache reset its timestamp on failure. It now keeps two clocks and reports the true age of the quote and of the exchange rates separately.
+- The price and epoch fetches held their locks across network calls, so a slow upstream queued every reader behind it, and a cold start against a dead upstream retried on every request.
+- The settlement label ignored the coordinator's own version and could carry an arbitrary string into the page's HTML. Only `v1` or `v2` leaves the server now.
+- The page froze its countdowns at load, hard-coded the epoch phase, and showed missing market data as confident zeros.
+- A poll failure left no trace, so an empty page claimed it had never polled.
 
 ### Internal
 
-- Seven tests cover the upsert semantics, the derived boundary, the settlement cutoff, and the endpoint against both an empty and a populated database. One caught a real defect during development: epoch timestamps were written as formatted strings into integer columns, so every read failed.
+- 107 tests before this release; the epoch and price paths add their own, including the rao conversion, the finalized freeze, a failed refresh keeping the real quote age, and the optional conversion path.
 
 # v0.0.4
 
