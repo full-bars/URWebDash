@@ -3,7 +3,7 @@
 ### Features
 
 - **SN25 epoch earnings, server side.** The dashboard now records your Bittensor subnet 25 earnings alongside your traffic. A new `epoch_stats` table is keyed by epoch number rather than by time, because an epoch that is still open reports partial points and the row has to stay correctable until it closes; the time-keyed traffic table works the other way round, so the two never share a merge or cleanup path and neither can disturb the other. A single `sn_epoch_state` row holds the live epoch geometry.
-- **Two new endpoints.** `GET /api/epochs` returns the finalized epoch history with the live epoch attached; `GET /api/refresh-epochs` forces a fetch for the page's refresh button.
+- **Two new endpoints.** `GET /api/epochs` returns the finalized epoch history with the live epoch attached; `POST /api/refresh-epochs` forces a fetch for the page's refresh button.
 - **Earning-window boundary derived, not assumed.** The coordinator reports the commit deadline and the finalize block but not the end of the earning window, so the boundary is computed as `start_block + t_epoch_blocks`, falling back to `commit - 1200` when the epoch length is missing. A wrong boundary would misreport how much of the window has been spent.
 
 ### Notes
