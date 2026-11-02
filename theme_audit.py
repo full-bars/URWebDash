@@ -22,7 +22,11 @@ import math
 import re
 import sys
 
-PATH = "/home/klets/ur/URWebDash-themed/index.html"
+import os
+
+# resolve next to the script so a fresh checkout works; an argument overrides
+PATH = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "index.html")
 
 
 def hex_to_rgb(h):
@@ -98,6 +102,8 @@ def separate(hex_colour, others, bg, min_de=22, target_contrast=4.5):
 def main():
     src = open(PATH).read()
     m = re.search(r"const TOKENS = (\{.*?\});\n", src, re.S)
+    if m is None:
+        sys.exit(f"{PATH}: no TOKENS declaration found")
     tokens = json.loads(m.group(1))
 
     changes = []
@@ -122,7 +128,7 @@ def main():
                 fixed.append(c3)
             t["accents"] = fixed
 
-    out = src[:m.start(1)] + json.dumps(tokens, ensure_ascii=False) + src[m.end(1):]
+    out = src[: m.start(1)] + json.dumps(tokens, ensure_ascii=False) + src[m.end(1) :]
     open(PATH, "w").write(out)
 
     print(f"{len(changes)} adjustments\n")

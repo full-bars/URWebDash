@@ -1937,9 +1937,15 @@ function applyTheme(id){
     document.body.style.setProperty('--head', ensureContrast(tk.head, tintedBg, 9));
     document.body.style.setProperty('--text', ensureContrast(tk.text, tintedBg, 7));
   }else{
-    /* no override: leave every token alone so the theme renders exactly as designed */
-    ['--bg','--panel','--panel2','--line','--accent','--accent2','--accent3','--head','--text']
-      .forEach(v=>document.body.style.removeProperty(v));
+    /* publish the tokens instead of falling back to the theme's own CSS block.
+       The stylesheet and TOKENS are two copies of one palette and the audit
+       rewrites only TOKENS, so the copy that wins has to be TOKENS or an
+       audited value never reaches the page. */
+    const tokenVars={'--bg':tk.bg,'--panel':tk.panel,'--panel2':tk.panel2,'--line':tk.line,
+                     '--text':tk.text,'--head':tk.head,'--muted':tk.muted,'--faint':tk.faint,
+                     '--accent2':tk.accent2,'--accent3':tk.accent3};
+    Object.entries(tokenVars).forEach(([k,v])=>{ if(v) document.body.style.setProperty(k,v); });
+    document.body.style.removeProperty('--accent');
   }
 
   let st=document.getElementById('theme-css');
