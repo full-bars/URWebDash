@@ -219,7 +219,15 @@ tr.ep-row-new{animation:epRowIn 1.9s ease-out}
 .price-strip{display:flex;gap:26px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin:0 0 14px;
 border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
 .price-strip .px{display:flex;flex-direction:column;gap:3px}
-.spark{width:180px;height:48px;margin-top:3px;display:block}
+.spark-band{display:flex;align-items:center;gap:18px;padding:0 16px 12px;margin:-4px 0 14px}
+.spark-meta{display:flex;flex-direction:column;gap:1px;min-width:104px}
+.spark-meta .sv{font-family:var(--mono);font-size:12px;color:var(--text)}
+.spark-meta .sv.dim{font-size:11px;color:var(--faint)}
+.spark-meta .sv b{font-weight:600;color:var(--muted)}
+.spark-band .k{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
+  font-family:var(--mono);white-space:nowrap}
+.spark{flex:1 1 auto;min-width:0;width:100%;height:52px;display:block}
+.spark-ranges{display:flex;gap:4px}
 .spark.empty{display:none}
 .spark-ranges{display:flex;gap:4px;margin-top:3px}
 .spark-ranges button{font:inherit;font-size:9.5px;letter-spacing:.04em;background:transparent;color:var(--faint);
@@ -390,18 +398,6 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
         <span class="k">&#945; price</span>
         <span class="v" id="alpha-price">&mdash;</span>
         <span class="d" id="alpha-change"></span>
-        <svg id="alpha-spark" class="spark" viewBox="0 0 180 48" preserveAspectRatio="none" aria-hidden="true">
-          <polygon id="alpha-spark-area" fill="var(--accent)" opacity=".12" points=""/>
-          <polyline id="alpha-spark-line" fill="none" stroke="var(--accent)" stroke-width="1.6"
-                    stroke-linejoin="round" stroke-linecap="round" points=""/>
-          <circle id="alpha-spark-dot" r="2.4" fill="var(--accent)" cx="0" cy="0"/>
-        </svg>
-        <div class="spark-ranges" id="spark-ranges">
-          <button data-r="1h" onclick="setPriceRange('1h')">1H</button>
-          <button data-r="24h" class="on" onclick="setPriceRange('24h')">24H</button>
-          <button data-r="7d" onclick="setPriceRange('7d')">7D</button>
-          <button data-r="30d" onclick="setPriceRange('30d')">30D</button>
-        </div>
       </div>
       <div class="px"><span class="k">Market cap</span><span class="v sm" id="alpha-mcap">&mdash;</span></div>
       <div class="px"><span class="k">TAO</span><span class="v sm" id="tao-price">&mdash;</span></div>
@@ -412,6 +408,25 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
           <option value="USD">USD</option><option value="EUR">EUR</option>
           <option value="GBP">GBP</option><option value="JPY">JPY</option><option value="CNY">CNY</option>
         </select>
+      </div>
+    </div>
+    <div class="spark-band">
+      <div class="spark-meta">
+        <span class="k">Trend &middot; <span id="spark-range-label">24H</span></span>
+        <span class="sv" id="spark-last">&mdash;</span>
+        <span class="sv dim">low <b id="spark-low">&mdash;</b></span>
+        <span class="sv dim">high <b id="spark-high">&mdash;</b></span>
+      </div>
+      <svg id="alpha-spark" class="spark" viewBox="0 0 600 56" preserveAspectRatio="none" aria-hidden="true">
+        <polygon id="alpha-spark-area" fill="var(--accent)" opacity=".12" points=""/>
+        <polyline id="alpha-spark-line" fill="none" stroke="var(--accent)" stroke-width="1.6"
+                  vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round" points=""/>
+      </svg>
+      <div class="spark-ranges" id="spark-ranges">
+        <button data-r="1h" onclick="setPriceRange('1h')">1H</button>
+        <button data-r="24h" class="on" onclick="setPriceRange('24h')">24H</button>
+        <button data-r="7d" onclick="setPriceRange('7d')">7D</button>
+        <button data-r="30d" onclick="setPriceRange('30d')">30D</button>
       </div>
     </div>
     <div class="hero-sim" id="hero-sim">
@@ -1942,6 +1957,7 @@ function setPriceRange(r){
   priceRange=r;
   try{ localStorage.setItem('urwebdash.pricerange', r); }catch(_){}
   document.querySelectorAll('#spark-ranges button').forEach(b=>b.classList.toggle('on', b.dataset.r===r));
+  const lbl=document.getElementById('spark-range-label'); if(lbl) lbl.textContent=r.toUpperCase();
   renderPriceSpark();
 }
 async function renderPriceSpark(){
@@ -1953,12 +1969,19 @@ async function renderPriceSpark(){
     const res=await fetch('/api/price-history?range='+encodeURIComponent(priceRange),{cache:'no-store'});
     if(res.ok) pts=await res.json();
   }catch(_){ return; }
-  if(!Array.isArray(pts)||pts.length<2){ svg.classList.add('empty'); return; }
+  if(!Array.isArray(pts)||pts.length<2){
+    /* the server warms ranges in the background, so an early visit can catch one
+       still empty: try again shortly instead of leaving a hole in the page */
+    if(!renderPriceSpark.tries) renderPriceSpark.tries=0;
+    if(renderPriceSpark.tries<3){ renderPriceSpark.tries++; setTimeout(renderPriceSpark, 4000); return; }
+    svg.classList.add('empty'); return;
+  }
+  renderPriceSpark.tries=0;
   svg.classList.remove('empty');
   const vals=pts.map(p=>p.close).filter(v=>typeof v==='number'&&v>0);
   if(vals.length<2){ svg.classList.add('empty'); return; }
   const min=Math.min(...vals), max=Math.max(...vals), span=(max-min)||1;
-  const W=180, H=48, pad=3;
+  const W=600, H=56, pad=4;
   const xy=vals.map((v,i)=>{
     const x=(i/(vals.length-1))*W;
     const y=H-pad-((v-min)/span)*(H-pad*2);
@@ -1970,6 +1993,11 @@ async function renderPriceSpark(){
   const area=document.getElementById('alpha-spark-area');
   if(area) area.setAttribute('points',
     '0,'+H+' '+xy.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')+' '+W+','+H);
+  const fmt=v=>'$'+v.toFixed(4);
+  const setTxt=(id,t)=>{const e=document.getElementById(id); if(e) e.textContent=t;};
+  setTxt('spark-last', fmt(vals[vals.length-1]));
+  setTxt('spark-low', fmt(min));
+  setTxt('spark-high', fmt(max));
   const dot=document.getElementById('alpha-spark-dot');
   if(dot){
     const last=xy[xy.length-1];

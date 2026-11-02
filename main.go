@@ -1142,6 +1142,9 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/epochs", handleEpochs(db, token))
 	mux.HandleFunc("/api/price", handlePrice)
 	mux.HandleFunc("/api/price-history", handlePriceHistory)
+	/* every range is fetched in the background and served from memory, so a page
+	   load never waits on the price API and never shows an empty chart */
+	go priceHistoryWarmer()
 	mux.HandleFunc("/api/refresh-epochs", handleRefreshEpochs(db, token))
 	mux.HandleFunc("/", handleIndex(db, token))
 
