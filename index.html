@@ -2450,7 +2450,12 @@ async function epLiveStats(){
   }catch(_){ /* a failed poll must not disturb the page */ }
   finally{ epPolling=false; }
 }
-setInterval(epLiveStats, 60000);
+/* the poller writes a row at the window boundary, so a minute between checks put
+   the page a whole cycle behind the alert that announced it. twenty seconds keeps
+   the row close behind, and a backgrounded tab throttles timers anyway, so coming
+   back to the tab refreshes at once instead of waiting out the interval. */
+setInterval(()=>{ if(!document.hidden) epLiveStats(); }, 20000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) epLiveStats(); });
 
 function epUnpaidGrowth(){
   const nodes=epUnpaidNodes();
