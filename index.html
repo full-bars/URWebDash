@@ -1593,6 +1593,9 @@ renderPayoutRows();
 function walletExtra(D){
   const w=(D&&D.wallet)||{};
   const bits=[];
+  /* SN25 alpha leads: it is the position that matters on this subnet, and TAO
+     free is usually the smaller number */
+  if(w.alphaKnown && typeof w.alphaStake==='number') bits.push('SN'+(w.netuid||25)+'a '+w.alphaStake.toFixed(2));
   if(w.balanceKnown && typeof w.taoFree==='number') bits.push('TAO free '+w.taoFree.toFixed(4));
   if(w.payout) bits.push('payout '+String(w.payout).slice(0,6)+'\u2026'+String(w.payout).slice(-4));
   return bits.join(' \u00b7 ');

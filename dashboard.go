@@ -67,6 +67,9 @@ type dashWallet struct {
 	ThroughEpoch int64   `json:"throughEpoch"`
 	TaoFree      float64 `json:"taoFree"`
 	BalanceKnown bool    `json:"balanceKnown"`
+	AlphaStake   float64 `json:"alphaStake"`
+	AlphaKnown   bool    `json:"alphaKnown"`
+	Netuid       int64   `json:"netuid"`
 }
 
 type dashAlpha struct {
