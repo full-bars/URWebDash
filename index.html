@@ -453,7 +453,9 @@ function money(usd, digits) {
   const shown = rate === null ? 'USD' : currency;
   const sym = FX_SYMBOLS[shown] || '$';
   const v = usd * (rate === null ? 1 : rate);
-  const d = digits === undefined ? 2 : digits;
+  /* a sub-cent price rendered at two decimals reads as zero */
+  let d = digits === undefined ? 2 : digits;
+  if (digits === undefined && Math.abs(v) < 0.01) d = 6;
   return sym + v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
