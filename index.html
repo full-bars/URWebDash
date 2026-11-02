@@ -147,6 +147,7 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
 .ep-grow-flash{animation:epHeadGrow 1.6s cubic-bezier(.2,.8,.2,1);display:inline-block}
 @keyframes epHeadGrow{0%{filter:none;transform:scale(1)}18%{filter:brightness(2) drop-shadow(0 0 16px currentColor);transform:scale(1.16)}60%{filter:brightness(1.3);transform:scale(1.03)}100%{filter:none;transform:scale(1)}}
 .ep-delta.ep-float{top:auto;bottom:-30px}
+.ep-delta.ep-big{font-size:26px;letter-spacing:.01em}
 .ep-arc-grow{animation:epArcGrow 1.6s ease-out}
 @keyframes epArcGrow{0%{filter:none}20%{filter:brightness(2.6) drop-shadow(0 0 16px #34e0c0)}100%{filter:none}}
 .ep-orb-glow{animation:epOrbBreathe 2.8s ease-in-out infinite;transform-origin:center;filter:blur(1px)}
@@ -165,11 +166,11 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
   100%{opacity:0;transform:translateX(-50%) translateY(-14px) scale(.96)}}
 #theme-mount .track > i,#theme-mount .track > .fill{position:relative;overflow:hidden}
 .ep-glow{position:absolute;top:50%;left:0;width:38px;height:38px;margin-top:-19px;margin-left:-19px;border-radius:50%;
-  background:radial-gradient(circle,rgba(167,243,208,.95) 0%,rgba(52,211,153,.75) 32%,rgba(52,211,153,.18) 60%,rgba(52,211,153,0) 78%);
+  background:radial-gradient(circle,rgba(var(--ep-glow-rgb,167,243,208),.95) 0%,rgba(var(--ep-glow-rgb,52,211,153),.7) 32%,rgba(var(--ep-glow-rgb,52,211,153),.16) 60%,rgba(var(--ep-glow-rgb,52,211,153),0) 78%);
   mix-blend-mode:screen;animation:epBreathe 2.6s ease-in-out infinite;pointer-events:none}
 /* a second, wider halo so the head reads as a light source rather than a dot */
 .ep-glow::after{content:"";position:absolute;inset:-14px;border-radius:50%;
-  background:radial-gradient(circle,rgba(52,211,153,.28),rgba(52,211,153,0) 70%);
+  background:radial-gradient(circle,rgba(var(--ep-glow-rgb,52,211,153),.28),rgba(var(--ep-glow-rgb,52,211,153),0) 70%);
   animation:epHalo 2.6s ease-in-out infinite}
 @keyframes epBreathe{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.45)}}
 @keyframes epHalo{0%,100%{opacity:.25;transform:scale(.85)}50%{opacity:.7;transform:scale(1.2)}}
@@ -1876,6 +1877,19 @@ function enhanceEpochBar(){
   if(!track) return;
   const fill=track.querySelector(':scope > i, :scope > .fill');
   if(!fill) return;
+  /* the head light should be the colour of the bar it leads, not a fixed mint */
+  const fillCol=getComputedStyle(fill).backgroundColor||'';
+  const m=fillCol.match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if(m && !/rgba\(0,\s*0,\s*0,\s*0\)/.test(fillCol) && m.slice(1).join(',')!=='0,0,0'){
+    track.style.setProperty('--ep-glow-rgb', m[1]+','+m[2]+','+m[3]);
+  } else {
+    /* some themes colour the fill through a class, so the computed value can be
+       transparent; take the theme accent instead of leaving the light black */
+    const acc=(getComputedStyle(document.body).getPropertyValue('--accent3')||
+               getComputedStyle(document.body).getPropertyValue('--accent')||'').trim();
+    const hm=acc.match(/^#([0-9a-f]{6})$/i);
+    if(hm){ const n=parseInt(hm[1],16); track.style.setProperty('--ep-glow-rgb', [(n>>16)&255,(n>>8)&255,n&255].join(',')); }
+  }
   /* decorations live in a wrapper around the track: the track clips for its
      rounded ends, and a bloom inside it shows only a slice */
   let wrap = track.parentElement;
@@ -1915,6 +1929,51 @@ function enhanceEpochBar(){
    there is no bar fill to flash. Read the percentage they print, and when it
    climbs, flash that element and float the delta beside it. */
 let epLastText=null;
+/* Unpaid data only changes when the poller brings new traffic. Remember the last
+   figure so the page can say "+47.3 GB" the moment it climbs, rather than
+   leaving a reader to compare two numbers. */
+const EP_UNPAID_KEY='ep-unpaid-gb';
+function epUnpaidNodes(){
+  const out=[];
+  const push=(el,gb)=>{ if(el&&isFinite(gb)) out.push({el:el,gb:gb}); };
+  const toGB=(num,unit)=>unit.toUpperCase()==='TB'?num*1024:num;
+  document.querySelectorAll('#theme-mount *, #section-wallet *').forEach(el=>{
+    if(el.children.length) return;
+    const t=(el.textContent||'').trim();
+    let m=t.match(/^([\d.]+)\s*(TB|GB)\s*unpaid/i);
+    if(m){ push(el, toGB(parseFloat(m[1]),m[2])); return; }
+    const lab=el.parentElement&&el.parentElement.textContent||'';
+    if(el.id==='c-unpaid' && /unpaid/i.test(lab)){
+      const v=t.match(/^([\d.]+)\s*(TB|GB)$/i);
+      if(v) push(el, toGB(parseFloat(v[1]),v[2]));
+    }
+  });
+  return out;
+}
+function epUnpaidGrowth(){
+  const nodes=epUnpaidNodes();
+  if(!nodes.length) return;
+  const now=Math.max.apply(null,nodes.map(n=>n.gb));
+  let prev=null;
+  try{ const raw=localStorage.getItem(EP_UNPAID_KEY); if(raw!==null) prev=parseFloat(raw); }catch(_){}
+  try{ localStorage.setItem(EP_UNPAID_KEY,String(now)); }catch(_){}
+  if(prev===null||!(now>prev+0.05)) return;
+
+  const grew=now-prev;
+  nodes.sort((a,b)=>b.gb-a.gb);
+  const host=nodes[0].el;
+  const cs=getComputedStyle(host);
+  if(cs.position==='static') host.style.position='relative';
+  host.classList.remove('ep-grow-flash'); void host.offsetWidth; host.classList.add('ep-grow-flash');
+
+  let d=host.querySelector('.ep-delta.ep-float.ep-big');
+  if(!d){ d=document.createElement('span'); d.className='ep-delta ep-float ep-big'; host.appendChild(d); }
+  d.textContent='+'+grew.toFixed(1)+' GB';
+  d.style.left='50%';
+  d.style.color='#fde68a';
+  d.classList.remove('show'); void d.offsetWidth; d.classList.add('show');
+}
+
 function epGrowthNoBar(){
   const mount=document.getElementById('theme-mount');
   if(!mount) return;
@@ -2023,13 +2082,28 @@ window.addEventListener('resize',()=>{clearTimeout(window.__rz);window.__rz=setT
 const HERO_COLORS={ur:'#ED8FFF',usd:'#87FB67',prov:'#0039DE',bg:'#101010',ui:'#D6E6F4'};
 let heroRunning=false, heroRaf=null;
 
+/* The canvas sits on a panel, and a panel is not always the page ground: on the
+   URnetwork theme it is darker, so painting the page colour made the animation
+   look like a lighter slab. Walk up from the canvas and take the first painted
+   background, falling back to the theme ground. */
+function heroGround(){
+  const c=document.getElementById('hero-canvas');
+  let el=c?c.parentElement:null;
+  while(el && el!==document.body){
+    const bg=getComputedStyle(el).backgroundColor;
+    if(bg && bg!=='transparent' && !/rgba\(0, 0, 0, 0\)/.test(bg)) return bg;
+    el=el.parentElement;
+  }
+  return (getComputedStyle(document.body).getPropertyValue('--bg')||'').trim()||'#101010';
+}
+
 function startHeroSim(){
   const canvas=document.getElementById('hero-canvas');
   const wrap=document.getElementById('hero-sim');
   if(!canvas||!wrap) return;
   const ctx=canvas.getContext('2d');
-  /* ground colour comes from the theme at paint time; reading it once here
-     pinned the canvas to whichever theme happened to be active on first run */
+  /* ground colour comes from whatever the canvas sits on */
+  const ground=heroGround(); if(ground) HERO_COLORS.bg=ground;
   const reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   let W=0,H=0,R=0,cx=0,cy=0,rot=0;
@@ -2257,7 +2331,7 @@ function applyTheme(id){
   /* the hero canvas paints its own ground: keep it on the theme's background so
      the animation never sits on a darker rectangle than the page */
   setTimeout(()=>{
-    const bg=(getComputedStyle(document.body).getPropertyValue('--bg')||'').trim();
+    const bg=heroGround();
     if(bg) HERO_COLORS.bg=bg;
     if(window.__heroStart) window.__heroStart(true);
   },0);
@@ -2370,6 +2444,7 @@ function applyTheme(id){
 loadPrefs();
 applyTheme(currentTheme||'legacy');
 /* refresh and back land where you were, not on the first section */
+setTimeout(epUnpaidGrowth, 400);
 (function restoreSection(){
   const fromHash=(location.hash||'').replace('#','');
   let want=fromHash;
