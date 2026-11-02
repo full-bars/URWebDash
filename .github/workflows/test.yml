@@ -25,6 +25,20 @@ jobs:
       - run: go vet ./...
       - run: test -z "$(gofmt -l .)" || (echo "unformatted files:"; gofmt -l .; exit 1)
       - run: go test -race -v -count=1 ./...
+      # Coverage floor. Raise it when the number rises; never lower it to make a
+      # branch pass — a drop means untested behaviour shipped.
+      - name: Coverage floor
+        run: |
+          go test -coverprofile=coverage.out -covermode=atomic ./...
+          pct=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}' | tr -d '%')
+          echo "coverage: ${pct}%"
+          awk -v p="$pct" 'BEGIN { if (p+0 < 58) { printf "coverage %.1f%% is below the 58%% floor\n", p; exit 1 } }'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: ignore
       # release-parity build check
       - run: go build -trimpath -ldflags "-s -w" -o /dev/null .
         env:
