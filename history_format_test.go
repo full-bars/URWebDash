@@ -145,11 +145,11 @@ eq('lag negative', lagNote('2026-11-02T21:45:00Z', '2026-11-02T21:40:00Z'), '');
 eq('lag missing updated_at', lagNote('2026-11-02T21:45:00Z', ''), '');
 
 // The poller writes UTC; the page shows the reader's clock.
-eq('fmtTime UTC->PT', fmtTime('2026-11-02T21:45:00Z'), '2026-11-02 01:45:00 PM');
-eq('fmtTime crosses midnight', fmtTime('2026-11-03T07:00:00Z'), '2026-11-02 11:00:00 PM');
+eq('fmtTime UTC->PT', fmtTime('2026-11-02T21:45:00Z'), 'Nov 2, 2026, 1:45:00 PM');
+eq('fmtTime crosses midnight', fmtTime('2026-11-03T07:00:00Z'), 'Nov 2, 2026, 11:00:00 PM');
 // Both sides of the DST fall-back: 08:30Z and 09:30Z are 01:30 local, an hour apart.
-eq('DST before', fmtTime('2026-11-01T08:30:00Z'), '2026-11-01 01:30:00 AM');
-eq('DST after', fmtTime('2026-11-01T09:30:00Z'), '2026-11-01 01:30:00 AM');
+eq('DST before', fmtTime('2026-11-01T08:30:00Z'), 'Nov 1, 2026, 1:30:00 AM');
+eq('DST after', fmtTime('2026-11-01T09:30:00Z'), 'Nov 1, 2026, 1:30:00 AM');
 // A stored value that is not a date must not render as "Invalid Date".
 eq('fmtTime junk', fmtTime('not-a-date'), 'not-a-date');
 
