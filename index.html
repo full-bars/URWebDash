@@ -242,7 +242,10 @@
     <div class="header">
       <h2>⚡ Bittensor Earnings</h2>
       <p>Subnet 25 epoch progress and the value of alpha</p>
-      <div class="sub">Epoch data: <span id="epoch-updated">—</span> · <span id="epoch-source">—</span></div>
+      <div class="sub">Epoch data: <span id="epoch-updated">—</span> · <span id="epoch-source">—</span>
+        <button id="epoch-refresh" onclick="refreshEpochs()"
+          style="margin-left:8px;background:#1f2937;border:1px solid #374151;color:#e5e7eb;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer">Refresh</button>
+      </div>
     </div>
 
     <div class="cards" id="price-cards">
@@ -270,7 +273,7 @@
     <div class="cards" id="epoch-cards">
       <div class="card"><div class="label">Epoch</div><div class="value white" id="epoch-n">—</div>
         <div class="note" id="epoch-phase" style="font-size:11px;color:#6b7280">—</div></div>
-      <div class="card"><div class="label">Window spent</div><div class="value blue" id="epoch-pct">—</div>
+      <div class="card"><div class="label">Epoch elapsed (est.)</div><div class="value blue" id="epoch-pct">—</div>
         <div class="note" id="epoch-blocks" style="font-size:11px;color:#6b7280">—</div></div>
       <div class="card"><div class="label">Commits in</div><div class="value yellow" id="epoch-commit">—</div></div>
       <div class="card"><div class="label">Claimable in</div><div class="value green" id="epoch-finalize">—</div></div>
@@ -415,7 +418,15 @@ if (navOverlay) navOverlay.addEventListener('click', () => {
 
 
 // ── Bittensor (SN25) ────────────────────────────────────────────────────────
-let epochData = null, priceData = null, pointsChart = null, currency = 'USD', bittensorLoaded = false;
+let epochData = null, priceData = null, priceMeta = {}, pointsChart = null, currency = 'USD', bittensorLoaded = false;
+let epochTimer = null;
+
+function humanAge(seconds) {
+  if (seconds < 90) return Math.round(seconds) + 's';
+  if (seconds < 5400) return Math.round(seconds / 60) + 'm';
+  if (seconds < 172800) return Math.round(seconds / 3600) + 'h';
+  return Math.round(seconds / 86400) + 'd';
+}
 
 const FX_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', JPY: 'JP¥', CNY: 'CN¥' };
 
@@ -436,11 +447,22 @@ function renderPrice() {
   if (!priceData) return;
   const p = priceData;
   document.getElementById('alpha-price').textContent = money(p.alpha_usd, 4);
-  document.getElementById('alpha-mcap').textContent = money(p.market_cap_usd, 0);
+  document.getElementById('alpha-mcap').textContent = p.market_cap_usd === null ? '—' : money(p.market_cap_usd, 0);
   document.getElementById('tao-price').textContent = money(p.tao_usd, 2);
   const ch = document.getElementById('alpha-change');
-  ch.textContent = (p.change_24h >= 0 ? '+' : '') + p.change_24h.toFixed(2) + '% 24h';
-  ch.style.color = p.change_24h >= 0 ? '#10b981' : '#ef4444';
+  if (p.change_24h === null || p.change_24h === undefined) {
+    ch.textContent = '24h change unavailable';
+    ch.style.color = '#6b7280';
+  } else {
+    ch.textContent = (p.change_24h >= 0 ? '+' : '') + p.change_24h.toFixed(2) + '% 24h';
+    ch.style.color = p.change_24h >= 0 ? '#10b981' : '#ef4444';
+  }
+  /* say how old the quote and its conversions are rather than implying fresh */
+  const age = priceMeta.quote_age_s || 0, fxAge = priceMeta.fx_age_s || 0;
+  const bits = [];
+  if (priceMeta.quote_is_old) bits.push('quote ' + humanAge(age) + ' old');
+  if (fxAge > 3600) bits.push('fx ' + humanAge(fxAge) + ' old');
+  ch.textContent += bits.length ? ' · ' + bits.join(' · ') : '';
 }
 
 async function loadEpochs() {
@@ -467,6 +489,7 @@ async function loadPrice() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const doc = await res.json();
     priceData = doc.price;
+    priceMeta = doc;
     const have = Object.keys(priceData.fx || {});
     const sel = document.getElementById('currency-select');
     if (sel && have.length) {
@@ -501,29 +524,50 @@ function renderEpochs() {
 
   if (ge) {
     document.getElementById('epoch-n').textContent = ge.epoch;
-    document.getElementById('epoch-phase').textContent = 'earning';
 
     /* The coordinator does not report the chain head, so it is estimated from
        the last finalized epoch's timestamps: epoch N+1 starts where N ended, and
        the epoch length is known, so elapsed time gives an approximate block.
        Labelled as an estimate; a head from the chain would replace this. */
-    const last = rows[0];
+    const last = rows.filter(function (r) { return r.finalized; })[0] || rows[0];
     const startMs = last && last.end_millis ? last.end_millis : Date.now();
     const spanMs = last && last.end_millis && last.start_millis ? (last.end_millis - last.start_millis) : 7 * 86400000;
     const elapsed = Math.max(0, Date.now() - startMs);
     const spent = Math.max(0, Math.min(1, elapsed / spanMs));
     const estHead = ge.start_block + Math.floor(elapsed / 1000 / 12);
+
+    /* the phase is a property of where the estimated block sits, not a label
+       baked into the page */
+    let phase = 'earning', commitTxt, finalTxt;
+    if (estHead >= ge.finalize_block) {
+      phase = 'finalized';
+      commitTxt = 'done'; finalTxt = 'done';
+    } else if (estHead >= ge.commit_deadline_block) {
+      phase = 'committing';
+      commitTxt = 'passed'; finalTxt = blocksToHuman(ge.finalize_block - estHead) + ' (est.)';
+    } else if (estHead >= ge.earning_end_block) {
+      phase = 'root posting';
+      commitTxt = blocksToHuman(ge.commit_deadline_block - estHead) + ' (est.)';
+      finalTxt = blocksToHuman(ge.finalize_block - estHead) + ' (est.)';
+    } else {
+      commitTxt = blocksToHuman(ge.commit_deadline_block - estHead) + ' (est.)';
+      finalTxt = blocksToHuman(ge.finalize_block - estHead) + ' (est.)';
+    }
     document.getElementById('epoch-pct').textContent = (spent * 100).toFixed(0) + '%';
+    document.getElementById('epoch-phase').textContent = phase;
     document.getElementById('epoch-blocks').textContent =
-      'est. block ' + estHead.toLocaleString() + ' · closes ' + ge.earning_end_block.toLocaleString();
-    document.getElementById('epoch-commit').textContent =
-      blocksToHuman(ge.commit_deadline_block - estHead) + ' (est.)';
-    document.getElementById('epoch-finalize').textContent =
-      blocksToHuman(ge.finalize_block - estHead) + ' (est.)';
+      'est. block ' + estHead.toLocaleString() + ' · earning ends ' + ge.earning_end_block.toLocaleString();
+    document.getElementById('epoch-commit').textContent = commitTxt;
+    document.getElementById('epoch-finalize').textContent = finalTxt;
   }
 
   const body = document.getElementById('epoch-table');
   if (!rows.length) {
+    const err = epochData && epochData.last_error;
+    const at = epochData && epochData.last_attempt;
+    document.getElementById('epoch-empty').innerHTML = '<div class="icon">⏳</div><p>' +
+      (err ? 'Last poll failed: ' + err.replace(/</g, '&lt;') : 'No epoch recorded yet. The first fetch runs when the dashboard starts.') +
+      (at ? '<br><span style="font-size:11px;color:#6b7280">last attempt ' + at + '</span>' : '') + '</p>';
     document.getElementById('epoch-empty').style.display = 'block';
     body.innerHTML = '';
   } else {
@@ -559,8 +603,16 @@ function renderEpochs() {
   }
 }
 
+function startEpochTicker() {
+  if (epochTimer) return;
+  epochTimer = setInterval(function () {
+    if (document.getElementById('section-bittensor').classList.contains('active')) renderEpochs();
+  }, 30000);
+}
+function stopEpochTicker() { if (epochTimer) { clearInterval(epochTimer); epochTimer = null; } }
+
 function loadBittensor() {
-  if (!bittensorLoaded) { bittensorLoaded = true; loadPrice(); loadEpochs(); }
+  if (!bittensorLoaded) { bittensorLoaded = true; loadPrice(); loadEpochs(); startEpochTicker(); }
   const n = document.getElementById('hero-net-name');
   if (n && (!n.textContent || n.textContent === '—')) {
     fetch(API + '/api/network').then(function (r) { return r.json(); })
@@ -573,7 +625,7 @@ function loadBittensor() {
 /* The hero: a slowly rotating sphere of providers with packets flowing into the
    settlement hub. Decoration only, so it costs one frame loop and stops when the
    section is not visible or the tab is hidden. */
-let heroRaf = null, heroRunning = false, heroWired = false, heroFrame = null;
+let heroRaf = null, heroRunning = false, heroWired = false, heroFrame = null, heroResize = null;
 function stopHero() {
   heroRunning = false;
   if (heroRaf) { cancelAnimationFrame(heroRaf); heroRaf = null; }
@@ -582,6 +634,7 @@ function startHero() {
   const canvas = document.getElementById('hero-canvas');
   if (!canvas) return;
   if (heroWired) {                       /* second visit: resume, never re-wire */
+    heroResize();                        /* a resize while the section was hidden would have zeroed it */
     if (!heroRunning && !document.hidden) { heroRunning = true; heroRaf = requestAnimationFrame(heroFrame); }
     return;
   }
@@ -649,7 +702,11 @@ function startHero() {
   heroFrame = frame;
   heroWired = true;
   heroRunning = true; heroRaf = requestAnimationFrame(frame);
-  window.addEventListener('resize', function () { size(); });
+  heroResize = function () {
+    if (!document.getElementById('section-bittensor').classList.contains('active')) return;
+    size();
+  };
+  window.addEventListener('resize', heroResize);
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) stopHero();
     else if (document.getElementById('section-bittensor').classList.contains('active') && heroWired) {
@@ -674,7 +731,7 @@ function switchSection(section) {
   if (target) target.classList.add('active');
   if (section === 'payout' && !payoutLoaded) loadPayouts();
   if (section === 'bittensor') loadBittensor();
-  else stopHero();
+  else { stopHero(); stopEpochTicker(); }
   if (section === 'webhook') { loadWebhookConfig(); loadSpikeThreshold(); }
   return false;
 }
