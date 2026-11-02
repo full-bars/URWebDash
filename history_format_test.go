@@ -158,6 +158,12 @@ eq('fmtGB2', fmtGB2(15871330000000), '15,871.33');
 eq('fmtGB alias', fmtGB(6128119780368), '6,128.12');
 eq('fmtBytes', fmtBytes(387040000000), '387.04 GB');
 
+// A duplicate timestamp must not divide by an epsilon and inflate the rate.
+eq('windowHours 15m', windowHours('2026-11-02T21:45:00Z', '2026-11-02T21:30:00Z'), 0.25);
+eq('windowHours duplicate', windowHours('2026-11-02T21:45:00Z', '2026-11-02T21:45:00Z'), 0.25);
+eq('windowHours backwards', windowHours('2026-11-02T21:45:00Z', '2026-11-02T22:00:00Z'), 0.25);
+eq('windowHours no prev', windowHours('2026-11-02T21:45:00Z', undefined), 0.25);
+
 // The day cards must not depend on the order the API returns rows in: the
 // initial render gets ASC, the live poll sorts DESC.
 const full = [];
@@ -304,6 +310,31 @@ eq('negative change bytes', negCells[3], '-5,000,000,000');
 eq('negative change GB', negCells[5], '-5.00');
 // thirty minutes since the previous window, so the hourly rate doubles the gap
 eq('negative gb per hour', negCells[6], '-10.00');
+
+// path 3 carries its own sign logic and is not covered by the paged assertions
+// epInsertRow recomputes the delta from the next row, so give it one that is
+// exactly 5 GB higher rather than relying on the paged path's change_bytes
+const negPrev = { created_at: '2026-11-02T21:30:00Z', updated_at: '2026-11-02T21:30:00Z',
+                  paid_bytes: 15871330000000, unpaid_bytes: 6128119780368 };
+const negLive = makeDom();
+epInsertRow(negative, [negative, negPrev]);
+const negLiveCells = cells(negLive.rows[0].innerHTML);
+eq('live negative change bytes', negLiveCells[3], '-5,000,000,000');
+eq('live negative change GB', negLiveCells[5], '-5.00');
+eq('live negative gb per hour', negLiveCells[6], '-10.00');
+
+// the last row on a page must take its rate from the next page's first row,
+// not fall back to the nominal window
+const many = [];
+for (let i = 0; i < 51; i++) {
+  const t = new Date(Date.UTC(2026, 10, 2, 0, 0, 0) + (50 - i) * 30 * 60000).toISOString();
+  many.push({ created_at: t, updated_at: t, paid_bytes: 0, unpaid_bytes: i * 5000000000, change_bytes: 5000000000 });
+}
+global.WALLETROWS = many;
+global.walletPage = 1;
+const pg = makeDom();
+renderWalletTable();
+eq('page boundary rate', cells(pg.rows[49].innerHTML)[6], '+10.00');
 
 if (fail) { console.log(fail + ' assertion(s) failed'); process.exit(1); }
 `

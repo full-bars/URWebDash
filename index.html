@@ -1621,6 +1621,14 @@ const fmtTime=s=>{
    minutes is the threshold; a normal fetch lands within seconds and must not be
    annotated, or every row reads as if it were retried. */
 const LATE_MS=120000;
+/* The gap between two samples in hours. Two rows sharing a timestamp would
+   otherwise divide by an epsilon and inflate the rate a hundredfold, so a
+   non-positive gap falls back to the nominal window. */
+function windowHours(t, prevT){
+  if(!prevT) return 0.25;
+  const h=(new Date(t)-new Date(prevT))/3600000;
+  return h>0?h:0.25;
+}
 function lagNote(createdAt,updatedAt){
   if(!createdAt||!updatedAt) return '';
   const c=new Date(createdAt), u=new Date(updatedAt);
@@ -1722,7 +1730,7 @@ recent.forEach((r,i)=>{
      unpaid climbs; the delta and the rate are on the TOTAL, which is what the
      old page did */
   const dTotal=dPaid+dUnpaid;
-  const hours=o?Math.max(0.01,(new Date(r.t)-new Date(o.t))/3600000):0.25;
+  const hours=windowHours(r.t, o&&o.t);
   const tr=document.createElement('tr');
   /* same helpers as the other two paths, so this first paint already looks like
      the render that replaces it instead of shifting a second later */
@@ -2270,7 +2278,7 @@ function renderWalletTable(){
        insert does it, so an irregular gap reports the real hourly rate and the
        two paths cannot print different numbers for one row */
     const prevRow=WALLETROWS[start+i+1]||null;
-    const hours=prevRow?Math.max(0.01,(new Date(r.created_at)-new Date(prevRow.created_at))/3600000):0.25;
+    const hours=windowHours(r.created_at, prevRow&&prevRow.created_at);
     const tr=document.createElement('tr');
     /* only a window the poller had to retry past its boundary is annotated;
        lagNote returns '' for a normal fetch */
@@ -2591,7 +2599,7 @@ function epInsertRow(r, raw){
   const dPaid=o?r.paid_bytes-o.paid_bytes:0, dUnpaid=o?r.unpaid_bytes-o.unpaid_bytes:0;
   const dTotal=dPaid+dUnpaid;
   const sign=dTotal>=0?'+':'';
-  const hours=o?Math.max(0.01,(new Date(r.created_at)-new Date(o.created_at))/3600000):0.25;
+  const hours=windowHours(r.created_at, o&&o.created_at);
   const tr=document.createElement('tr');
   tr.className='ep-row-new';
   tr.innerHTML='<td class="text-mono">'+esc(fmtTime(r.created_at))+lagNote(r.created_at,r.updated_at)+'</td>'+
