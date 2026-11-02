@@ -2,6 +2,12 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## Unreleased
+
+### Added
+
+- Bittensor (SN25) epoch earnings data path. A new `epoch_stats` table keyed by epoch number, never by time: an epoch that is still open reports partial points, so the row is overwritten until it closes, which is the opposite of the time-keyed traffic table. A single `sn_epoch_state` row carries the live epoch geometry, and the end of the earning window is derived from `t_epoch_blocks` because the coordinator reports the commit deadline but not that boundary. Epoch data refreshes hourly rather than on the 15-minute traffic cadence. New endpoints `GET /api/epochs` and `GET /api/refresh-epochs`. `wallet_stats` is untouched, so the existing poll grid, cleanup and merge paths are unchanged.
+
 ## v0.0.19 - 2026-10-12
 
 ### Fixed
