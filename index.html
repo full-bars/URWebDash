@@ -1552,7 +1552,7 @@ function go(name){
   const pn=document.getElementById('page-name'); if(pn) pn.textContent=label;
   /* the data table pages over the whole store, so it loads when the section is
      first opened rather than on every page load */
-  if(name==='data' && !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
+  if(name==='wallet' && !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
   /* refresh and back should land where you were, not on the first section */
   try{ history.replaceState(null,'','#'+name); }catch(_){}
   try{ localStorage.setItem('section',name); }catch(_){}
@@ -2122,6 +2122,11 @@ function sparkHoverInit(){
 sparkHoverInit();
 setInterval(sparkHoverInit, 3000);
 setTimeout(()=>{ if(typeof loadSpikeThreshold==='function') loadSpikeThreshold(); }, 1500);
+/* deep links land on a section without passing through go() */
+setTimeout(()=>{
+  if(document.getElementById('section-wallet')?.classList.contains('active') &&
+     !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
+}, 2200);
 
 
 /* ---------- paged history ---------- */
@@ -2579,7 +2584,7 @@ async function epLiveStats(){
 setInterval(()=>{ if(!document.hidden){
   epLiveStats();
   /* new windows land at the top, so only a viewer on page one needs a re-read */
-  if(WALLETROWS && walletPage===1 && document.getElementById('section-data')?.classList.contains('active')) loadAllHistory();
+  if(WALLETROWS && walletPage===1 && document.getElementById('section-wallet')?.classList.contains('active')) loadAllHistory();
 } }, 20000);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) epLiveStats(); });
 
