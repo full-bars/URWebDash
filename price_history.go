@@ -118,36 +118,85 @@ func handlePriceHistory(w http.ResponseWriter, r *http.Request) {
 		sel = "24h"
 	}
 
+	/* serve cache only: fetching on a page load is what made the chart appear and
+	   disappear, because the free API allows a handful of calls a minute and this
+	   endpoint is hit on every visit. The warmer below keeps the ranges fresh. */
 	priceHist.mu.Lock()
-	if pts, ok := priceHist.data[sel]; ok && len(pts) > 0 && time.Since(priceHist.at[sel]) < priceHistTTL(sel) {
-		priceHist.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(pts)
-		return
-	}
-	if until, parked := priceHist.blocked[sel]; parked && time.Now().Before(until) {
-		cached := priceHist.data[sel]
-		priceHist.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(cached)
-		return
-	}
+	pts, ok := priceHist.data[sel]
 	priceHist.mu.Unlock()
-
-	pts, err := fetchOHLCV(ohlcvRanges[sel])
-	if err != nil {
-		priceHist.mu.Lock()
-		/* park the range: a rate limit must not turn into a retry storm */
-		priceHist.blocked[sel] = time.Now().Add(5 * time.Minute)
-		cached := priceHist.data[sel]
-		priceHist.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(cached)
-		return
+	if !ok || len(pts) == 0 {
+		/* a short window can be cut from a longer cached one instead of asking
+		   the API again */
+		pts = deriveRange(sel)
 	}
+	encodePoints(w, pts)
+}
 
+/*
+deriveRange falls back to a coarser cached series: the last twelve hourly
+
+	points are the last half day, which is close enough for a trend line while the
+	real window is unavailable.
+*/
+func deriveRange(sel string) []pricePoint {
 	priceHist.mu.Lock()
-	priceHist.data[sel] = pts
-	priceHist.at[sel] = time.Now()
-	delete(priceHist.blocked, sel)
-	priceHist.mu.Unlock()
+	defer priceHist.mu.Unlock()
+	if sel != "1h" {
+		return nil
+	}
+	src := priceHist.data["24h"]
+	if len(src) < 2 {
+		return nil
+	}
+	n := 12
+	if len(src) < n {
+		n = len(src)
+	}
+	out := make([]pricePoint, n)
+	copy(out, src[len(src)-n:])
+	return out
+}
 
+/*
+priceHistoryWarmer fills every range in the background, one call at a time and
+
+	spaced out, so the endpoint never has to touch the network on a request.
+*/
+func priceHistoryWarmer() {
+	order := []string{"24h", "7d", "30d", "1h"}
+	for {
+		for _, sel := range order {
+			priceHist.mu.Lock()
+			fresh := time.Since(priceHist.at[sel]) < priceHistTTL(sel)
+			parked := time.Now().Before(priceHist.blocked[sel])
+			priceHist.mu.Unlock()
+			if fresh || parked {
+				continue
+			}
+			if pts, err := fetchOHLCV(ohlcvRanges[sel]); err == nil && len(pts) > 0 {
+				priceHist.mu.Lock()
+				priceHist.data[sel] = pts
+				priceHist.at[sel] = time.Now()
+				priceHist.mu.Unlock()
+			} else if err != nil {
+				priceHist.mu.Lock()
+				priceHist.blocked[sel] = time.Now().Add(90 * time.Second)
+				priceHist.mu.Unlock()
+			}
+			time.Sleep(12 * time.Second) /* stay under the API rate limit */
+		}
+		time.Sleep(time.Minute)
+	}
+}
+
+/*
+always an array: a nil slice marshals to null, which reads as a broken payload
+
+	to the chart rather than "no samples yet".
+*/
+func encodePoints(w http.ResponseWriter, pts []pricePoint) {
+	if pts == nil {
+		pts = []pricePoint{}
+	}
 	_ = json.NewEncoder(w).Encode(pts)
 }

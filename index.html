@@ -6,7 +6,7 @@
 <style>body[data-theme="legacy"]{--bg:#111827;--panel:#1f2937;--panel2:#162032;--line:#374151;--text:#e5e7eb;--head:#f9fafb;--muted:#9ca3af;--faint:#6b7280;--accent:#10b981;--accent2:#f59e0b;--accent3:#3b82f6;--badge:#065f46;--radius:10px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;--mono:'SF Mono','Fira Code',monospace;--labels:uppercase;--navw:220px}
 body[data-theme="hero"]{--bg:#0b1220;--panel:#0d1526;--panel2:#101a2e;--line:#1a2740;--text:#e2e8f0;--head:#eaf1fb;--muted:#7c8aa5;--faint:#5b6b88;--accent:#3b82f6;--accent2:#8b5cf6;--accent3:#5fd6a4;--badge:#12233f;--radius:14px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--labels:uppercase;--navw:224px}
 body[data-theme="console"]{--bg:#08090b;--panel:#0d1013;--panel2:#11161b;--line:#1c2229;--text:#c9d1d9;--head:#f0f6fc;--muted:#8b98a5;--faint:#5c6873;--accent:#3ecf8e;--accent2:#e3b341;--accent3:#2f81f7;--badge:#0f2a22;--radius:0px;--font:ui-monospace,SFMono-Regular,Menlo,monospace;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--labels:uppercase;--navw:210px}
-body[data-theme="urnetwork"]{--bg:#050505;--panel:#171717;--panel2:#1c1c1c;--line:#2a2a2a;--text:#F8F8F8;--head:#FFFFFF;--muted:#989898;--faint:#5A5A5A;--accent:#ED8FFF;--accent2:#87FB67;--accent3:#638BFC;--badge:#1B119A;--radius:12px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--labels:uppercase;--navw:228px}
+body[data-theme="urnetwork"]{--bg:#050505;--panel:#171717;--panel2:#1c1c1c;--line:#2a2a2a;--text:#F8F8F8;--head:#FFFFFF;--muted:#B0B0B0;--faint:#7C7C7C;--accent:#ED8FFF;--accent2:#87FB67;--accent3:#638BFC;--badge:#1B119A;--radius:12px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--labels:uppercase;--navw:228px}
 body[data-theme="ledger"]{--bg:#261b18;--panel:#2f221e;--panel2:#33251f;--line:#594038;--text:#f0e5d9;--head:#fff5e9;--muted:#cdb3a3;--faint:#a76e50;--accent:#df9e73;--accent2:#f0c5a6;--accent3:#a76e50;--badge:#3d2b23;--radius:6px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--labels:uppercase;--navw:214px}
 body[data-theme="editorial"]{--bg:#17130f;--panel:#2a231b;--panel2:#241d16;--line:#3b3329;--text:#e6dccb;--head:#f3ead8;--muted:#bfb29c;--faint:#6d6252;--accent:#d9694a;--accent2:#e98a6c;--accent3:#a69a86;--badge:#33261d;--radius:3px;--font:Georgia,'Iowan Old Style','Palatino Linotype',serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--labels:none;--navw:226px}
 body[data-theme="tidal"]{--bg:#102522;--panel:#16302c;--panel2:#193833;--line:#31524a;--text:#e2eee7;--head:#f2fbf7;--muted:#a7c2b5;--faint:#49645b;--accent:#91d6bb;--accent2:#a8eacb;--accent3:#8fd0bb;--badge:#1c3b35;--radius:8px;--font:Georgia,serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--labels:none;--navw:222px}
@@ -26,7 +26,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 nav{width:var(--navw);background:var(--panel);border-right:1px solid var(--line);padding:20px 0;flex-shrink:0;height:100vh;position:sticky;top:0;overflow-y:auto;z-index:50;display:flex;flex-direction:column;transition:background .18s}
 nav h1{font-size:15px;font-weight:700;color:var(--head);padding:0 18px 14px;border-bottom:1px solid var(--line);margin-bottom:8px;line-height:1.35}
 nav .nav-links{flex:1}
-nav a{display:flex;align-items:center;gap:10px;padding:10px 20px;color:var(--muted);text-decoration:none;font-size:14px;transition:all .15s}
+nav a{display:flex;align-items:center;gap:10px;padding:10px 20px;color:var(--muted);text-decoration:none;font-size:15px;transition:all .15s}
 nav a:hover{background:var(--panel2);color:var(--head)}
 nav a.active{background:var(--panel2);color:var(--head);border-left:3px solid var(--accent)}
 nav .new{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;background:var(--badge);color:var(--accent);border-radius:999px;padding:1px 6px;margin-left:auto}
@@ -34,12 +34,12 @@ nav .new{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;backgroun
 main{flex:1;padding:26px 30px;max-width:100%;min-width:0}
 .header{margin-bottom:18px;display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
 .header h2{font-size:22px;font-weight:700;color:var(--head);display:flex;align-items:center;gap:10px}
-.header p{color:var(--muted);margin-top:4px;font-size:14px}
+.header p{color:var(--muted);margin-top:4px;font-size:15px}
 .header .sub{color:var(--faint);font-size:12px;margin-top:2px}
 .header .right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:18px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;transition:background .18s,border-color .18s}
-.card .label{font-size:11px;color:var(--muted);text-transform:var(--labels);letter-spacing:.05em;margin-bottom:3px}
+.card .label{font-size:12px;color:var(--muted);text-transform:var(--labels);letter-spacing:.05em;margin-bottom:3px}
 .card .value{font-size:22px;font-weight:700;color:var(--head)}
 .card .value.green{color:var(--accent)}.card .value.yellow{color:var(--accent2)}
 .card .value.blue{color:var(--accent3)}.card .value.violet{color:var(--accent3)}
@@ -54,7 +54,7 @@ main{flex:1;padding:26px 30px;max-width:100%;min-width:0}
 .chart-title{color:var(--head);font-size:12px;font-weight:600;margin-bottom:8px;text-transform:var(--labels);letter-spacing:.05em}
 
 .toolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
-.toolbar .info{color:var(--faint);font-size:13px;margin-right:auto}
+.toolbar .info{color:var(--faint);font-size:14px;margin-right:auto}
 button.btn{padding:7px 14px;border-radius:calc(var(--radius) * .7);border:1px solid var(--line);background:var(--panel);color:var(--text);cursor:pointer;font-size:13px;font-family:inherit;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
 button.btn:hover{background:var(--panel2)}
 button.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--bg);font-weight:600}
@@ -88,7 +88,7 @@ select{cursor:pointer;padding:6px 10px;font-size:12.5px}
 .wh-tile .dot{width:10px;height:10px;border-radius:50%;border:1px solid var(--muted);flex-shrink:0}
 .wh-tile.on .dot{background:var(--accent);border-color:var(--accent)}
 .wh-tile .nm{font-size:13px;font-weight:600;color:var(--head)}
-.wh-tile .badge{margin-left:auto;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;padding:1px 6px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.wh-tile .badge{margin-left:auto;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:1px 6px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
 .badge.ok, .wh-tile .badge.ok{color:var(--accent);border-color:var(--accent)}
 .badge.bad, .wh-tile .badge.bad{color:var(--accent2);border-color:var(--accent2)}
 .wh-stage{border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);padding:14px}
@@ -219,14 +219,28 @@ tr.ep-row-new{animation:epRowIn 1.9s ease-out}
 .price-strip{display:flex;gap:26px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin:0 0 14px;
 border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
 .price-strip .px{display:flex;flex-direction:column;gap:3px}
-.spark{width:120px;height:26px;margin-top:2px;opacity:.9}
+.spark-band{display:flex;align-items:center;gap:18px;padding:0 16px 12px;margin:-4px 0 14px}
+.spark-meta{display:flex;flex-direction:column;gap:1px;min-width:104px}
+.spark-meta .sv{font-family:var(--mono);font-size:12px;color:var(--text)}
+.spark-meta .sv.dim{font-size:11px;color:var(--faint)}
+.spark-meta .sv b{font-weight:600;color:var(--muted)}
+.spark-band .k{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
+  font-family:var(--mono);white-space:nowrap}
+.spark-plot{position:relative;flex:1 1 auto;min-width:0}
+.spark{width:100%;height:56px;display:block}
+.spark-yaxis{position:absolute;right:2px;top:-2px;bottom:-2px;display:flex;flex-direction:column;
+  justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--faint);pointer-events:none}
+.spark-tip{position:absolute;z-index:5;pointer-events:none;opacity:0;transition:opacity .1s;
+  background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:3px 7px;
+  font-family:var(--mono);font-size:11px;color:var(--text);white-space:nowrap;transform:translate(-50%,-100%)}
+.spark-ranges{display:flex;gap:4px}
 .spark.empty{display:none}
 .spark-ranges{display:flex;gap:4px;margin-top:3px}
 .spark-ranges button{font:inherit;font-size:9.5px;letter-spacing:.04em;background:transparent;color:var(--faint);
   border:1px solid var(--line);border-radius:4px;padding:1px 5px;cursor:pointer}
 .spark-ranges button.on{color:var(--accent);border-color:var(--accent)}
 .price-strip .px.right{margin-left:auto;flex-direction:row;align-items:center;gap:9px}
-.price-strip .k{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:var(--mono)}
+.price-strip .k{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:var(--mono)}
 .price-strip .v{font-size:20px;color:var(--head);font-family:var(--mono);font-variant-numeric:tabular-nums}
 .price-strip .v.sm{font-size:14px;color:var(--text)}
 .price-strip .d{font-size:11px;font-family:var(--mono)}
@@ -390,15 +404,6 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
         <span class="k">&#945; price</span>
         <span class="v" id="alpha-price">&mdash;</span>
         <span class="d" id="alpha-change"></span>
-        <svg id="alpha-spark" class="spark" viewBox="0 0 120 26" preserveAspectRatio="none" aria-hidden="true">
-          <polyline id="alpha-spark-line" fill="none" stroke="var(--accent)" stroke-width="1.5" points=""/>
-        </svg>
-        <div class="spark-ranges" id="spark-ranges">
-          <button data-r="1h" onclick="setPriceRange('1h')">1H</button>
-          <button data-r="24h" class="on" onclick="setPriceRange('24h')">24H</button>
-          <button data-r="7d" onclick="setPriceRange('7d')">7D</button>
-          <button data-r="30d" onclick="setPriceRange('30d')">30D</button>
-        </div>
       </div>
       <div class="px"><span class="k">Market cap</span><span class="v sm" id="alpha-mcap">&mdash;</span></div>
       <div class="px"><span class="k">TAO</span><span class="v sm" id="tao-price">&mdash;</span></div>
@@ -409,6 +414,32 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
           <option value="USD">USD</option><option value="EUR">EUR</option>
           <option value="GBP">GBP</option><option value="JPY">JPY</option><option value="CNY">CNY</option>
         </select>
+      </div>
+    </div>
+    <div class="spark-band">
+      <div class="spark-meta">
+        <span class="k">Trend &middot; <span id="spark-range-label">24H</span></span>
+        <span class="sv" id="spark-last">&mdash;</span>
+        <span class="sv dim">low <b id="spark-low">&mdash;</b></span>
+        <span class="sv dim">high <b id="spark-high">&mdash;</b></span>
+      </div>
+      <div class="spark-plot" id="spark-plot">
+        <svg id="alpha-spark" class="spark" viewBox="0 0 600 56" preserveAspectRatio="none" aria-hidden="true">
+          <polygon id="alpha-spark-area" fill="var(--accent)" opacity=".12" points=""/>
+          <polyline id="alpha-spark-line" fill="none" stroke="var(--accent)" stroke-width="1.6"
+                    vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round" points=""/>
+          <line id="spark-guide" x1="0" y1="0" x2="0" y2="56" stroke="var(--line)" stroke-width="1"
+                vector-effect="non-scaling-stroke" opacity="0"/>
+          <circle id="spark-hover-dot" r="2.6" fill="var(--accent)" opacity="0"/>
+        </svg>
+        <div class="spark-yaxis"><span id="spark-y-max"></span><span id="spark-y-min"></span></div>
+        <div class="spark-tip" id="spark-tip"></div>
+      </div>
+      <div class="spark-ranges" id="spark-ranges">
+        <button data-r="1h" onclick="setPriceRange('1h')">1H</button>
+        <button data-r="24h" class="on" onclick="setPriceRange('24h')">24H</button>
+        <button data-r="7d" onclick="setPriceRange('7d')">7D</button>
+        <button data-r="30d" onclick="setPriceRange('30d')">30D</button>
       </div>
     </div>
     <div class="hero-sim" id="hero-sim">
@@ -780,10 +811,12 @@ window.URTHEMES['urnetwork'] = {
   border-top:1px solid rgba(214,230,244,.14);border-bottom:1px solid rgba(214,230,244,.14)}
 .th-urnetwork .cell{padding:20px 24px;border-right:1px solid rgba(214,230,244,.08)}
 .th-urnetwork .cell:last-child{border-right:0}
-.th-urnetwork .cell .k{font-family:'UR Mono',monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(214,230,244,.45)}
+/* 10px at 45% ink disappeared on the near-black ground; the label is still a
+   label, just readable */
+.th-urnetwork .cell .k{font-family:'UR Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(214,230,244,.72)}
 .th-urnetwork .cell .v{font-family:'UR Mono',monospace;font-size:26px;color:#F8F8F8;margin-top:7px;letter-spacing:-.01em}
 .th-urnetwork .cell .v.pink{color:var(--ur)}.th-urnetwork .cell .v.green{color:var(--usd)}
-.th-urnetwork .cell .s{font-size:11.5px;color:rgba(214,230,244,.5);margin-top:4px}
+.th-urnetwork .cell .s{font-size:12.5px;color:rgba(214,230,244,.66);margin-top:4px}
 .th-urnetwork .body{display:grid;grid-template-columns:1.05fr 1fr}
 .th-urnetwork .col{padding:24px}
 .th-urnetwork .col+.col{border-left:1px solid rgba(214,230,244,.1)}
@@ -1937,6 +1970,7 @@ function setPriceRange(r){
   priceRange=r;
   try{ localStorage.setItem('urwebdash.pricerange', r); }catch(_){}
   document.querySelectorAll('#spark-ranges button').forEach(b=>b.classList.toggle('on', b.dataset.r===r));
+  const lbl=document.getElementById('spark-range-label'); if(lbl) lbl.textContent=r.toUpperCase();
   renderPriceSpark();
 }
 async function renderPriceSpark(){
@@ -1948,20 +1982,91 @@ async function renderPriceSpark(){
     const res=await fetch('/api/price-history?range='+encodeURIComponent(priceRange),{cache:'no-store'});
     if(res.ok) pts=await res.json();
   }catch(_){ return; }
-  if(!Array.isArray(pts)||pts.length<2){ svg.classList.add('empty'); return; }
+  if(!Array.isArray(pts)||pts.length<2){
+    /* the server warms ranges in the background, so an early visit can catch one
+       still empty: try again shortly instead of leaving a hole in the page */
+    if(!renderPriceSpark.tries) renderPriceSpark.tries=0;
+    if(renderPriceSpark.tries<3){ renderPriceSpark.tries++; setTimeout(renderPriceSpark, 4000); return; }
+    svg.classList.add('empty'); return;
+  }
+  renderPriceSpark.tries=0;
   svg.classList.remove('empty');
   const vals=pts.map(p=>p.close).filter(v=>typeof v==='number'&&v>0);
   if(vals.length<2){ svg.classList.add('empty'); return; }
   const min=Math.min(...vals), max=Math.max(...vals), span=(max-min)||1;
-  const W=120, H=26;
-  line.setAttribute('points', vals.map((v,i)=>{
+  const W=600, H=56, pad=4;
+  const xy=vals.map((v,i)=>{
     const x=(i/(vals.length-1))*W;
-    const y=H-2-((v-min)/span)*(H-4);
-    return x.toFixed(1)+','+y.toFixed(1);
-  }).join(' '));
+    const y=H-pad-((v-min)/span)*(H-pad*2);
+    return [x,y];
+  });
+  line.setAttribute('points', xy.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' '));
+  /* a filled base makes the shape readable at a glance; the dot marks where the
+     price is now, which the line alone does not show */
+  const area=document.getElementById('alpha-spark-area');
+  if(area) area.setAttribute('points',
+    '0,'+H+' '+xy.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')+' '+W+','+H);
+  const fmt=v=>'$'+v.toFixed(4);
+  window.__sparkSeries={vals, xy, min, max, pts};
+  const setTxt=(id,t)=>{const e=document.getElementById(id); if(e) e.textContent=t;};
+  setTxt('spark-last', fmt(vals[vals.length-1]));
+  setTxt('spark-y-max', fmt(max));
+  setTxt('spark-y-min', fmt(min));
+  setTxt('spark-low', fmt(min));
+  setTxt('spark-high', fmt(max));
+  const dot=document.getElementById('alpha-spark-dot');
+  if(dot){
+    const last=xy[xy.length-1];
+    dot.setAttribute('cx',last[0].toFixed(1));
+    dot.setAttribute('cy',last[1].toFixed(1));
+  }
 }
 renderPriceSpark();
 setInterval(renderPriceSpark, 10*60*1000);
+
+
+/* ---------- hover readout ---------- */
+/* a line tells you the shape but not the number at a point, so the chart answers
+   the cursor: a guide line, a dot on the series, and the price with its time. */
+function sparkHoverInit(){
+  const plot=document.getElementById('spark-plot');
+  const svg=document.getElementById('alpha-spark');
+  if(!plot||!svg||plot.dataset.hover==='1') return;
+  plot.dataset.hover='1';
+  const tip=document.getElementById('spark-tip');
+  const guide=document.getElementById('spark-guide');
+  const dot=document.getElementById('spark-hover-dot');
+
+  function move(ev){
+    const s=window.__sparkSeries;
+    if(!s||!s.vals||s.vals.length<2) return;
+    const box=svg.getBoundingClientRect();
+    const rel=Math.min(Math.max(ev.clientX-box.left,0),box.width);
+    const i=Math.round((rel/box.width)*(s.vals.length-1));
+    const v=s.vals[i];
+    const t=s.pts?new Date(s.pts[i].t*1000):null;
+    guide.setAttribute('x1',(i/(s.vals.length-1))*600);
+    guide.setAttribute('x2',(i/(s.vals.length-1))*600);
+    guide.setAttribute('opacity','1');
+    if(dot&&s.xy&&s.xy[i]){
+      dot.setAttribute('cx',s.xy[i][0]); dot.setAttribute('cy',s.xy[i][1]); dot.setAttribute('opacity','1');
+    }
+    const when=t?t.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+    tip.textContent='$'+v.toFixed(4)+(when?' \u00b7 '+when:'');
+    tip.style.left=rel+'px';
+    tip.style.top=(s.xy&&s.xy[i]?s.xy[i][1]:10)+'px';
+    tip.style.opacity='1';
+  }
+  function leave(){
+    guide.setAttribute('opacity','0');
+    if(dot) dot.setAttribute('opacity','0');
+    tip.style.opacity='0';
+  }
+  svg.addEventListener('mousemove',move);
+  svg.addEventListener('mouseleave',leave);
+}
+sparkHoverInit();
+setInterval(sparkHoverInit, 3000);
 
 function renderPrice(){
   const p=D.price; if(!p) return;
