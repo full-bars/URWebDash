@@ -1808,17 +1808,20 @@ function chartOn(id,cfg){
   return new Chart(el,cfg);
 }
 function rateSeries(win){
-  /* 'all' has no back edge; 'gbd' rolls the same rows into calendar days so the
-     rate reads per day rather than per hour */
-  const back={'6h':6,'24h':24,'7d':168,'30d':720}[win];
-  const src = (win==='6h') ? recent.slice().reverse() : series;
-  if(win==='gbd'){
+  /* windows in hours; 'all' has no back edge and 'gbd' rolls a month into days.
+     a year of two-hour buckets is four thousand bars, which no chart can draw, so
+     the all-time view buckets by calendar day. */
+  const back={'6h':6,'24h':24,'7d':168,'30d':720,'gbd':720}[win];
+  const src=(win==='6h')?recent.slice().reverse():series;
+  const cut=back?new Date(last.t).getTime()-back*3600000:0;
+  const rows=src.filter(r=>!back||new Date(r.t).getTime()>=cut);
+  if(win==='all'||win==='gbd'){
     const days=new Map();
-    src.forEach(r=>{
+    rows.forEach(r=>{
       const k=new Date(r.t).toISOString().slice(0,10);
       const cur=days.get(k);
-      if(!cur) days.set(k,{first:r.t,last:r.t,total:r.paid+r.unpaid});
-      else { cur.last=r.t; cur.total=r.paid+r.unpaid; }
+      if(!cur) days.set(k,{t:r.t,total:r.paid+r.unpaid});
+      else { cur.t=r.t; cur.total=r.paid+r.unpaid; }
     });
     const keys=[...days.keys()].sort();
     let prev=null;
@@ -1827,10 +1830,8 @@ function rateSeries(win){
       const val=prev?((d.total-prev)/GB):0;
       prev=d.total;
       return {t:k, v:+val.toFixed(2)};
-    }).filter(x=>x.v!==0);
+    });
   }
-  const cut=back?new Date(last.t).getTime()-back*3600000:0;
-  const rows=src.filter(r=>!back||new Date(r.t).getTime()>=cut);
   return rows.map((r,i)=>{
     const o=rows[i-1], h=o?(new Date(r.t)-new Date(o.t))/3600000:0;
     const gb=o&&h>0?((r.paid+r.unpaid)-(o.paid+o.unpaid))/h/GB:0;
