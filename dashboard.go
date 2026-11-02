@@ -406,6 +406,13 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 		d.Wallet.TaoFree = bal.TaoFree
 		d.Wallet.BalanceKnown = true
 	}
+	/* the SN25 position is the number that matters on this subnet, so it is read
+	   independently of the free TAO: either can fail without hiding the other */
+	if a, ok := fetchAlphaStake(d.Wallet.Coldkey); ok {
+		d.Wallet.AlphaStake = a
+		d.Wallet.AlphaKnown = true
+		d.Wallet.Netuid = snNetuid
+	}
 	d.Legacy = dashLegacy{Usdc: usdcTotal, Count: legacyCount, Last: lastPay, Network: "SOL"}
 	return d, h, pays
 }

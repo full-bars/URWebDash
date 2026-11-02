@@ -1928,7 +1928,12 @@ function epOrbitMark(){
    done once per element so a re-render cannot double it up. */
 function epWalletBalance(){
   const w=(D&&D.wallet)||{};
-  if(!w.balanceKnown || typeof w.taoFree!=='number') return;
+  /* both figures ride along: the SN25 position is the one that matters here, and
+     the free TAO is the smaller number beside it */
+  const bits=[];
+  if(w.alphaKnown && typeof w.alphaStake==='number') bits.push('SN'+(w.netuid||25)+'a '+w.alphaStake.toFixed(2));
+  if(w.balanceKnown && typeof w.taoFree==='number') bits.push('TAO free '+w.taoFree.toFixed(4));
+  if(!bits.length) return;
   const key=String(w.coldkey||'');
   if(key.length<12) return;
   const head=key.slice(0,8), tail=key.slice(-6);
@@ -1939,7 +1944,7 @@ function epWalletBalance(){
     if(el.dataset.epBal==='1') return;
     const t=el.textContent||'';
     if(t.indexOf(head)>=0 || t.indexOf(tail)>=0){
-      el.textContent=t+' \u00b7 TAO '+w.taoFree.toFixed(4);
+      el.textContent=t+' \u00b7 '+bits.join(' \u00b7 ');
       el.dataset.epBal='1';
     }
   });
