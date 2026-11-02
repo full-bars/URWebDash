@@ -1592,10 +1592,37 @@ async function fakeRefresh(btn){
 
 /* ---------- data ---------- */
 const GB=1e9,TB=1e12;
-const fmtGB=b=>(b/GB).toLocaleString(undefined,{maximumFractionDigits:0});
+/* one GB format for every figure on the page. the history table was painted by
+   two renderers with different precision, so a refresh flipped the same row
+   between 15,871 and 15,871.33. */
+const fmtGB2=b=>(Number(b)/GB).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtGB=fmtGB2;
 const fmtTB=b=>(b/TB).toFixed(2)+' TB';
-const fmtBytes=b=>b>=TB?fmtTB(b):(b/GB).toFixed(1)+' GB';
-const fmtTime=s=>s.replace('T',' ').replace('Z','');
+const fmtBytes=b=>b>=TB?fmtTB(b):(b/GB).toFixed(2)+' GB';
+/* the poller writes UTC; a reader wants their own clock. resolve the zone once
+   and format through Intl so the timestamp and the fetched time agree. */
+const TZ=Intl.DateTimeFormat().resolvedOptions().timeZone;
+const fmtTime=s=>{
+  if(!s) return '\u2014';
+  const d=new Date(s);
+  if(isNaN(d)) return String(s);
+  const p=new Intl.DateTimeFormat('en-CA',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(d);
+  const g=t=>(p.find(x=>x.type===t)||{}).value||'';
+  return g('year')+'-'+g('month')+'-'+g('day')+' '+g('hour')+':'+g('minute')+':'+g('second');
+};
+/* a window is only late when the poller had to retry past its boundary. two
+   minutes is the threshold; a normal fetch lands within seconds and must not be
+   annotated, or every row reads as if it were retried. */
+const LATE_MS=120000;
+function lagNote(createdAt,updatedAt){
+  if(!createdAt||!updatedAt) return '';
+  const c=new Date(createdAt), u=new Date(updatedAt);
+  if(isNaN(c)||isNaN(u)) return '';
+  const ms=u-c;
+  if(ms<=LATE_MS) return '';
+  const mins=Math.round(ms/60000);
+  return ' \u00b7 fetched '+u.toLocaleTimeString('en-US',{timeZone:TZ,hour:'2-digit',minute:'2-digit'})+' (+'+mins+'m)';
+}
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const series=(HIST.series||[]).slice(), recent=HIST.recent||[];
 if(!series.length){ document.getElementById('history-table').innerHTML =
@@ -1623,26 +1650,56 @@ for(let d=0;d<=6;d++){
      refresh uses the same boundary; using a rolling 24h window here made the box
      show one figure from the render and another from the poll, which read as a
      flicker between two numbers. */
-  const isTodayCard=new Date(endT).toISOString().slice(0,10)===new Date(last.t).toISOString().slice(0,10);
-  let startRow;
-  if(isTodayCard){
-    const dayStart=Date.UTC(new Date(last.t).getUTCFullYear(), new Date(last.t).getUTCMonth(), new Date(last.t).getUTCDate());
-    startRow=series.filter(r=>new Date(r.t).getTime()<dayStart).pop();
-  } else {
-    startRow=series.filter(r=>new Date(r.t).getTime()<=endT-86400000).pop();
+  const isTodayCard=d===0;
+  /* today is painted from the FULL row list by paintDayCards, not from the
+     downsampled series: the two sources disagreed by a few GB, so the card
+     showed one number on load and another a second later. */
+  let delta=0, haveDelta=!isTodayCard;
+  if(!isTodayCard){
+    const startRow=series.filter(r=>new Date(r.t).getTime()<=endT-86400000).pop();
+    /* paid only moves when traffic settles; the day's growth is on the total */
+    delta=endRow&&startRow?(endRow.paid+endRow.unpaid)-(startRow.paid+startRow.unpaid):0;
   }
-  /* paid only moves when traffic settles; the day's growth is on the total */
-  const delta=endRow&&startRow?(endRow.paid+endRow.unpaid)-(startRow.paid+startRow.unpaid):0;
   const c=document.createElement('div');
   c.className='card';
   if(d===0) c.id='c-today';
   const dt=new Date(endT);
-  const isToday=dt.toISOString().slice(0,10)===new Date(last.t).toISOString().slice(0,10);
+  const isToday=dt.toDateString()===new Date(last.t).toDateString();
   const wd=dt.toLocaleDateString(undefined,{weekday:'short'});
   const md=dt.toLocaleDateString(undefined,{month:'short',day:'numeric'});
   c.innerHTML='<div class="label">'+wd+', '+md+(isToday?' \u00b7 today':'')+'</div>'+
-    '<div class="value '+(delta>=0?'green':'yellow')+'">'+(delta>=0?'+':'')+fmtBytes(delta)+'</div>';
+    '<div class="value '+(delta>=0?'green':'yellow')+'">'+(haveDelta?((delta>=0?'+':'')+fmtBytes(delta)):'\u2014')+'</div>';
   weekly.appendChild(c);
+}
+/* the day cards have ONE definition each, taken from the full row list, so the
+   initial render and the live poll cannot disagree. */
+const asRows=rows=>rows.map(r=>({t:r.created_at||r.t,paid:Number(r.paid_bytes!=null?r.paid_bytes:r.paid),unpaid:Number(r.unpaid_bytes!=null?r.unpaid_bytes:r.unpaid)}));
+function dayStartMs(t){ const d=new Date(t); return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
+function paintDayCards(rows){
+  if(!rows||!rows.length) return {day24:null,today:null};
+  const sorted=rows.slice().sort((a,b)=>new Date(b.t)-new Date(a.t));
+  const last=sorted[0], total=r=>r.paid+r.unpaid;
+  /* 24h: the sample nearest 24h back, from the full list */
+  const target=new Date(last.t).getTime()-86400000;
+  const prev=sorted.reduce((best,r)=>Math.abs(new Date(r.t)-target)<Math.abs(new Date(best.t)-target)?r:best,sorted[sorted.length-1]);
+  const has24h=sorted.some(r=>new Date(last.t)-new Date(r.t)>=23*3600000);
+  const day24=has24h?Math.max(0,total(last)-total(prev)):null;
+  const c24=document.getElementById('c-24h');
+  if(c24) c24.textContent=day24===null?'\u2014':('+'+fmtBytes(day24));
+  /* today: the newest sample strictly before local midnight */
+  const ds=dayStartMs(last.t);
+  const before=sorted.filter(r=>new Date(r.t).getTime()<ds);
+  const start=before.length?before[0]:null;
+  const today=start?Math.max(0,total(last)-total(start)):null;
+  const box=document.getElementById('c-today');
+  if(box){
+    const v=box.querySelector('.value');
+    if(v){
+      if(today===null){ v.textContent='\u2014'; }
+      else { v.textContent='+'+fmtBytes(today); v.className='value '+(today>=0?'green':'yellow'); }
+    }
+  }
+  return {day24,today};
 }
 const tbody=document.getElementById('history-table');
 recent.forEach((r,i)=>{
@@ -2192,27 +2249,22 @@ function renderWalletTable(){
   page.forEach(r=>{
     const d=Number(r.change_bytes||0);
     const tr=document.createElement('tr');
-    /* when the window was fetched, and how far behind the window it landed: a
-       lagging poll is visible in the table instead of being guessed at */
-    let lag='';
-    if(r.created_at&&r.updated_at){
-      const c=new Date(r.created_at), u=new Date(r.updated_at);
-      if(!isNaN(c)&&!isNaN(u)){
-        const mins=Math.round((u-c)/60000);
-        lag=' \u00b7 fetched '+u.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})+
-            ' ('+(mins>=0?'+':'')+mins+'m)';
-      }
-    }
+    /* only a window the poller had to retry past its boundary is annotated;
+       lagNote returns '' for a normal fetch */
+    const lag=lagNote(r.created_at,r.updated_at);
     tr.innerHTML='<td class="text-mono">'+esc(fmtTime(r.created_at))+lag+'</td>'+
-      '<td class="text-right text-green">'+(Number(r.paid_bytes)/GB).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
+      '<td class="text-right text-green">'+fmtGB2(r.paid_bytes)+'</td>'+
       '<td class="text-right text-white text-mono">'+Number(r.unpaid_bytes).toLocaleString()+'</td>'+
       '<td class="text-right text-blue">'+(d>=0?'+':'')+d.toLocaleString()+'</td>'+
-      '<td class="text-right text-yellow">'+(Number(r.unpaid_bytes)/GB).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
-      '<td class="text-right text-blue">'+(d>=0?'+':'')+(d/GB).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
-      '<td class="text-right text-blue">'+(d*4/GB).toFixed(2)+'</td>';
+      '<td class="text-right text-yellow">'+fmtGB2(r.unpaid_bytes)+'</td>'+
+      '<td class="text-right text-blue">'+(d>=0?'+':'')+fmtGB2(d)+'</td>'+
+      '<td class="text-right text-blue">'+fmtGB2(d*4)+'</td>';
     frag.appendChild(tr);
   });
   tbody.appendChild(frag);
+  /* the day cards are painted from the same full list, so they agree with the
+     live poll instead of flickering between two figures */
+  paintDayCards(asRows(WALLETROWS));
   if(!pager) return;
   pager.innerHTML='';
   const info=document.createElement('span');
@@ -2519,7 +2571,7 @@ function epInsertRow(r, raw){
   const hours=o?Math.max(0.01,(new Date(r.created_at)-new Date(o.created_at))/3600000):0.25;
   const tr=document.createElement('tr');
   tr.className='ep-row-new';
-  tr.innerHTML='<td class="text-mono">'+esc(fmtTime(r.created_at))+'</td>'+
+  tr.innerHTML='<td class="text-mono">'+esc(fmtTime(r.created_at))+lagNote(r.created_at,r.updated_at)+'</td>'+
     '<td class="text-right text-green">'+fmtGB(r.paid_bytes)+'</td>'+
     '<td class="text-right text-white text-mono">'+r.unpaid_bytes.toLocaleString()+'</td>'+
     '<td class="text-right text-blue">'+sign+dTotal.toLocaleString()+'</td>'+
@@ -2540,9 +2592,6 @@ async function epLiveStats(){
     const raw=(d.entries||[]).slice().sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
     if(!raw.length) return;
     const last={t:raw[0].created_at, paid:raw[0].paid_bytes, unpaid:raw[0].unpaid_bytes};
-    const dayAgo=new Date(last.t).getTime()-86400000;
-    const prev=raw.reduce((best,r)=>Math.abs(new Date(r.created_at)-dayAgo)<Math.abs(new Date(best.created_at)-dayAgo)?r:best, raw[0]);
-    const dayNow=Math.max(0,(last.paid+last.unpaid)-(prev.paid_bytes+prev.unpaid_bytes));
 
     /* rows are keyed by the newest timestamp already shown; advance newest before
        inserting so a thrown row cannot trap the poller in a repeat loop */
@@ -2565,37 +2614,21 @@ async function epLiveStats(){
     if(n.paid) n.paid.textContent=fmtTB(last.paid);
     if(n.unpaid) n.unpaid.textContent=fmtTB(last.unpaid);
     if(n.total) n.total.textContent=fmtTB(last.paid+last.unpaid);
-    const has24hLive=raw.some(r=>new Date(last.t)-new Date(r.created_at)>=23*3600000);
-    if(n.box) n.box.textContent=has24hLive?('+'+fmtBytes(dayNow)):'—';
 
-    if(has24hLive && epLastDay!==null && dayNow>epLastDay){
-      epFlair24h(dayNow-epLastDay);
+    /* the day cards come from the same full list the table uses, so the initial
+       render and this poll cannot show two different numbers for one day */
+    const cards=paintDayCards(asRows(raw));
+    if(cards.day24!==null && epLastDay!==null && cards.day24>epLastDay){
+      epFlair24h(cards.day24-epLastDay);
     }
-    epLastDay=has24hLive?dayNow:null;
-
-    /* today's own box moves for the same reason, so it gets the same flair */
-    /* "today" is a calendar day in UTC, which is the clock the poller writes on.
-       Local midnight landed on a data point and made the day read as zero, and
-       taking the last of the filtered array picked the OLDEST row, which made it
-       read as everything since install. Take the newest row strictly before the
-       UTC day boundary. */
-    const lt=new Date(last.t);
-    const dayStart=Date.UTC(lt.getUTCFullYear(), lt.getUTCMonth(), lt.getUTCDate());
-    const beforeDay=raw.filter(r=>new Date(r.created_at).getTime()<dayStart);
-    const todayStart=beforeDay.length?
-      beforeDay.reduce((a,b)=>new Date(a.created_at)>new Date(b.created_at)?a:b):null;
-    const todayNow=Math.max(0,(last.paid+last.unpaid)-
-      (todayStart?(todayStart.paid_bytes+todayStart.unpaid_bytes):0));
+    epLastDay=cards.day24;
     const todayBox=document.getElementById('c-today');
-    /* without a snapshot from before today there is no day figure at all; the
-       difference would otherwise be the lifetime total */
-    if(todayBox && todayStart){
-      if(epTodayDay!==dayStart){ epTodayDay=dayStart; epLastToday=null; }
-      const v=todayBox.querySelector('.value');
-      if(v) v.textContent='+'+fmtBytes(todayNow);
-      if(epLastToday!==null && todayNow>epLastToday) epFlairBox(todayBox,'+'+fmtBytes(todayNow-epLastToday));
-      epLastToday=todayNow;
+    const todayDay=dayStartMs(last.t);
+    if(epTodayDay!==todayDay){ epTodayDay=todayDay; epLastToday=null; }
+    if(cards.today!==null && epLastToday!==null && cards.today>epLastToday){
+      epFlairBox(todayBox,'+'+fmtBytes(cards.today-epLastToday));
     }
+    epLastToday=cards.today;
 
     /* rewrite converted wallet figures with current prices, but only when on screen */
     const mount=document.getElementById('theme-mount');
