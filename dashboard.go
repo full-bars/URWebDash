@@ -23,6 +23,7 @@ import (
 )
 
 type dashEpoch struct {
+	Known           bool    `json:"known"` // false when no epoch row exists
 	N               int64   `json:"n"`
 	NextEpoch       int64   `json:"nextEpoch"`
 	Phase           string  `json:"phase"`
@@ -307,7 +308,8 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 			phase = "root posting"
 		}
 		d.Epoch = dashEpoch{
-			N: sn.Epoch, NextEpoch: sn.Epoch + 1, Phase: phase,
+			Known: true,
+			N:     sn.Epoch, NextEpoch: sn.Epoch + 1, Phase: phase,
 			StartBlock: sn.StartBlock, EarningEndBlock: end,
 			CommitBlock: sn.CommitBlock, FinalizeBlock: sn.Finalize,
 			TBlocks: sn.TEpochBlock, BlockSeconds: blockSeconds,
@@ -432,9 +434,12 @@ func renderIndex(db *sql.DB, token string) []byte {
 		/* keep a stray "</script>" in any string from closing the block early */
 		return strings.ReplaceAll(string(b), "</", "<\\/")
 	}
-	out := indexHTML
-	out = strings.ReplaceAll(out, "__D__", enc(d))
-	out = strings.ReplaceAll(out, "__HIST__", enc(h))
-	out = strings.ReplaceAll(out, "__PAY__", enc(p))
+	/* one pass, so a placeholder that appears inside the data cannot be
+	   substituted again by a later step */
+	out := strings.NewReplacer(
+		"__D__", enc(d),
+		"__HIST__", enc(h),
+		"__PAY__", enc(p),
+	).Replace(indexHTML)
 	return []byte(out)
 }

@@ -123,6 +123,25 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
 .dc .iosok{display:none;font-size:10.5px;color:#4ade80;margin-top:6px}
 .dc .iosnote{font-size:10.5px;color:#5b9d78;margin-top:6px}
 .dc.ios .iosok{display:none}
+/* epoch bar: glow at the head, a ripple per block, a slow shimmer. The width
+   always stays the true percentage; these are decoration on top of it. */
+#theme-mount .track{position:relative}
+#theme-mount .track > i,#theme-mount .track > .fill{position:relative;overflow:hidden}
+#theme-mount .track > i::after,#theme-mount .track > .fill::after{
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.22) 45%,transparent 70%);
+  background-size:250% 100%;animation:epSweep 4.5s linear infinite}
+@keyframes epSweep{0%{background-position:130% 0}100%{background-position:-130% 0}}
+.ep-glow{position:absolute;top:50%;right:-7px;width:22px;height:22px;margin-top:-11px;border-radius:50%;
+  background:radial-gradient(circle,rgba(52,211,153,.9),rgba(52,211,153,0) 68%);
+  animation:epBreathe 3s ease-in-out infinite;pointer-events:none}
+@keyframes epBreathe{0%,100%{opacity:.35;transform:scale(.85)}50%{opacity:.95;transform:scale(1.15)}}
+.ep-tick{position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.95);opacity:0;border-radius:2px;pointer-events:none}
+.ep-tick.run{animation:epRipple 900ms ease-out}
+@keyframes epRipple{0%{opacity:.9;transform:scaleY(1.7)}100%{opacity:0;transform:scaleY(1)}}
+@media (prefers-reduced-motion: reduce){
+  #theme-mount .track > i::after,#theme-mount .track > .fill::after,.ep-glow,.ep-tick.run{animation:none}
+}
 .payload{background:var(--bg);border:1px solid var(--line);border-radius:calc(var(--radius) * .7);padding:10px 12px;font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:pre-wrap;margin-top:12px;max-height:180px;overflow:auto}
 .price-strip{display:flex;gap:26px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin:0 0 14px;
 border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
@@ -1394,11 +1413,14 @@ const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 const series=(HIST.series||[]).slice(), recent=HIST.recent||[];
 if(!series.length){ document.getElementById('history-table').innerHTML =
   '<tr><td colspan="7" class="text-gray" style="text-align:center;padding:28px">no data yet — the poller has not stored a window</td></tr>'; }
-const last=series[series.length-1];
+/* an empty series is a normal state (fresh install, poller not yet run): show
+   zeros rather than reading last.t off undefined, which used to throw here and
+   take the rest of the page down with it */
+const last=series.length?series[series.length-1]:{t:new Date(0).toISOString(),paid:0,unpaid:0};
 /* The series is downsampled, so an index offset is not a time offset: take the
    sample nearest 24h back by timestamp. */
 const dayAgoT=new Date(last.t).getTime()-86400000;
-const prev=series.reduce((best,r)=>Math.abs(new Date(r.t)-dayAgoT)<Math.abs(new Date(best.t)-dayAgoT)?r:best, series[0]);
+const prev=series.length?series.reduce((best,r)=>Math.abs(new Date(r.t)-dayAgoT)<Math.abs(new Date(best.t)-dayAgoT)?r:best, series[0]):last;
 document.getElementById('c-paid').textContent=fmtTB(last.paid);
 document.getElementById('c-unpaid').textContent=fmtTB(last.unpaid);
 document.getElementById('c-total').textContent=fmtTB(last.paid+last.unpaid);
@@ -1691,6 +1713,46 @@ function renderPrice(){
            ch.className='d '+(p.change24h>=0?'up':'down'); }
   }
 }
+/* ---------- epoch bar decoration ----------
+   Themes render the bar differently (an <i> in legacy, a .fill elsewhere), so
+   this decorates whichever one is present instead of editing ten templates. */
+let epTimer=null, epLive=null;
+function enhanceEpochBar(){
+  const track=document.querySelector('#theme-mount .track');
+  if(!track) return;
+  const fill=track.querySelector(':scope > i, :scope > .fill');
+  if(!fill) return;
+  if(!fill.querySelector('.ep-glow')){
+    const g=document.createElement('span'); g.className='ep-glow'; fill.appendChild(g);
+  }
+  if(!track.querySelector('.ep-tick')){
+    const tk=document.createElement('span'); tk.className='ep-tick'; track.appendChild(tk);
+  }
+  epLive={track, fill, pct:(D.epoch&&D.epoch.pct)||0,
+          done:(D.epoch&&D.epoch.elapsedBlocks)||0,
+          total:(D.epoch&&D.epoch.tBlocks)||0,
+          left:(D.epoch&&D.epoch.leftBlocks)||0};
+  if(epTimer) clearInterval(epTimer);
+  /* one tick per block: 12s on chain. Kept as a single timer for whichever
+     theme is mounted, and stopped when the page is hidden. */
+  epTimer=setInterval(epTick, 12000);
+}
+function epTick(){
+  if(!epLive) return;
+  const bar=epLive;
+  bar.done+=1; if(bar.left>0) bar.left-=1;
+  if(bar.total>0) bar.pct=Math.min(100, bar.done/bar.total*100);
+  bar.fill.style.width=bar.pct+'%';
+  const tk=bar.track.querySelector('.ep-tick');
+  if(tk){ tk.style.left=Math.min(99,bar.pct)+'%'; tk.classList.remove('run'); void tk.offsetWidth; tk.classList.add('run'); }
+  const box=bar.track.parentElement;
+  if(box){
+    const span=[...box.querySelectorAll('span')].find(e=>/^\d+(\.\d+)?%$/.test(e.textContent.trim()));
+    if(span) span.textContent=bar.pct.toFixed(1)+'%';
+  }
+}
+document.addEventListener('visibilitychange',()=>{ if(document.hidden){ if(epTimer){clearInterval(epTimer); epTimer=null;} } else if(epLive&&!epTimer){ epTimer=setInterval(epTick,12000); } });
+
 function setChartStyle(v){ chartStyle=v; drawCharts(); }
 function setWin(w,btn){
   windowSel=w;
@@ -1982,6 +2044,17 @@ function applyTheme(id){
   document.body.style.backgroundColor = tk.bg;
 
   document.getElementById('theme-mount').innerHTML=t.render(D);
+  setTimeout(enhanceEpochBar, 0);
+  /* with no epoch row the numbers would read as block 0 of epoch 0, which looks
+     like live chain state; say what it actually is instead */
+  if(D.epoch&&!D.epoch.known){
+    const warn=document.createElement('div');
+    warn.className='webhook-warning';
+    warn.style.margin='0 0 14px';
+    warn.textContent='No epoch data yet — the coordinator has not been reached, so the epoch figures below are blank, not zero.';
+    const mount=document.getElementById('theme-mount');
+    if(mount) mount.insertBefore(warn, mount.firstChild);
+  }
   document.getElementById('theme-name').textContent=t.name;
   document.getElementById('theme-meta').textContent=(tk.note||'');
   const pick=document.getElementById('accent-pick');
