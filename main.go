@@ -804,10 +804,6 @@ func runPolling() {
 		os.Exit(1)
 	}
 
-	/* the page is rendered on the server and makes no client fetch, so the
-	   payout cache has to be kept warm by the process itself */
-	startPayoutPrimer(token)
-
 	db, err := openDB()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
@@ -1088,7 +1084,7 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/epochs", handleEpochs(db, token))
 	mux.HandleFunc("/api/price", handlePrice)
 	mux.HandleFunc("/api/refresh-epochs", handleRefreshEpochs(db, token))
-	mux.HandleFunc("/", handleIndex(db, token))
+	mux.HandleFunc("/", handleIndex)
 
 	/* Epochs move on a seven-day clock, so they are refreshed once an hour
 	   rather than on the 15-minute traffic cadence. The first fetch runs in the
@@ -2096,15 +2092,11 @@ func handleNetworkName(token string) http.HandlerFunc {
 	}
 }
 
-func handleIndex(db *sql.DB, token string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		/* the page carries live data, so a cached copy would go stale silently */
-		w.Header().Set("Cache-Control", "no-store")
-		w.Write(renderIndex(db, token))
+func handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
 	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(indexHTML))
 }

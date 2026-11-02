@@ -1145,38 +1145,15 @@ func TestHandleWalletSummary_EmptyDB_DoesNotLogScanError(t *testing.T) {
 	}
 }
 
-func TestIndexRendersLiveDataIntoTheApprovedPage(t *testing.T) {
-	// The page is one static build that reads three objects; the server fills
-	// them per request. This pins the contract: no placeholder may survive, and
-	// the approved chrome (ten themes, the webhook format picker) must ship.
-	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "stats.db"))
-	db, err := openDB()
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	defer db.Close()
-	db.Exec(`DELETE FROM wallet_stats`)
-	if _, err := db.Exec(`INSERT INTO wallet_stats (paid_bytes, unpaid_bytes, created_at, updated_at)
-		VALUES (1500000000000, 500000000000, '2026-11-02T06:45:00Z', '2026-11-02T06:45:05Z')`); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	page := string(renderIndex(db, ""))
-	for _, placeholder := range []string{"__D__", "__HIST__", "__PAY__"} {
-		if strings.Contains(page, placeholder) {
-			// would fail if renderIndex stopped substituting one of the three
-			// objects, which leaves the page showing an empty dashboard
-			t.Fatalf("%s left unsubstituted in the served page", placeholder)
-		}
-	}
-	for _, want := range []string{"data-theme=\"hero\"", "data-theme=\"tidal\"", "id=\"theme-select\"", "wh-tiles"} {
-		if !strings.Contains(page, want) {
-			t.Errorf("approved page missing %s", want)
-		}
-	}
-	// the seeded traffic must reach the page, not a zero placeholder
-	if !strings.Contains(page, "1500000000000") {
-		t.Error("paid bytes from the database did not reach the page")
+func TestIndexHTML_ClearsErrorBannerAfterSuccessfulSummaryFetch(t *testing.T) {
+	// Regression test: loadWalletStats() previously left any error banner
+	// from a prior failed load on screen even after a subsequent successful
+	// fetch, because it only ever called showError() with a message, never
+	// to clear it. The fix calls showError(null) immediately after
+	// confirming summary.error is unset, before any DOM updates happen.
+	pattern := regexp.MustCompile(`(?s)if\s*\(summary\.error\)\s*throw new Error\(summary\.error\);\s*showError\(null\);\s*document\.getElementById\('paid-data'\)`)
+	if !pattern.MatchString(indexHTML) {
+		t.Fatalf("expected showError(null) to run in loadWalletStats() right after the summary.error check and before rendering paid-data")
 	}
 }
 
