@@ -91,10 +91,15 @@ func primePayoutCache(token string) (bool, error) {
 	payoutLastPoints = totalPoints
 	payoutCacheMu.Unlock()
 
-	/* fixture data must never reach the notification store: a recorded payment
-	   would fire a real payout alert and leave fake ids behind. Syncing is only
-	   for live coordinator reads. */
-	syncPayoutNotifyStore(resp.AccountPayments, strings.TrimSpace(os.Getenv("PAYOUT_FIXTURE_FILE")) == "")
+	/* Seed the store, never announce from it. The prime runs at startup and
+	   re-reads the whole payment list, so announcing here turns every restart
+	   into a burst of alerts for payments that are already known. Fixture data
+	   must not reach the store at all: a recorded payment would fire a real
+	   alert and leave fake ids behind. The regular poll is the announcer. */
+	if strings.TrimSpace(os.Getenv("PAYOUT_FIXTURE_FILE")) != "" {
+		return true, nil /* fixture data never reaches the store */
+	}
+	syncPayoutNotifyStore(resp.AccountPayments, false)
 	return true, nil
 }
 

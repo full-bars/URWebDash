@@ -1111,6 +1111,8 @@ func serveHTTP(port string) {
 		payoutCacheMu.RUnlock()
 	}
 	startPayoutPrimer(token)
+	/* every quote is also a point on the price chart, so it is stored as it is
+	   fetched rather than sampled on a second timer that could drift apart */
 	if doc, _, perr := cachedPrice(); perr != nil {
 		fmt.Printf("[price] startup fetch failed: %v\n", perr)
 	} else {
@@ -1139,6 +1141,7 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/spike-threshold", handleSpikeThreshold)
 	mux.HandleFunc("/api/epochs", handleEpochs(db, token))
 	mux.HandleFunc("/api/price", handlePrice)
+	mux.HandleFunc("/api/price-history", handlePriceHistory)
 	mux.HandleFunc("/api/refresh-epochs", handleRefreshEpochs(db, token))
 	mux.HandleFunc("/", handleIndex(db, token))
 
@@ -1889,7 +1892,8 @@ func maskWebhookURL(u string) string {
 // (handleWebhookTest calls this synchronously inside a request handler).
 // On transport failure the returned error may embed the full webhook URL
 // (with its secret token), so API handlers must not echo it to clients.
-func sendDiscordWebhook(url, content string) (int, error) {
+/* a variable so a test can capture the message instead of posting it */
+var sendDiscordWebhook = func(url, content string) (int, error) {
 	body, _ := json.Marshal(map[string]string{"content": content})
 	resp, err := httpClient.Post(url, "application/json", strings.NewReader(string(body)))
 	if err != nil {
@@ -2043,7 +2047,8 @@ func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 	}
 	url := discordWebhookURL()
 	var req struct {
-		URL string `json:"url"`
+		URL     string `json:"url"`
+		Content string `json:"content"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err == nil && strings.TrimSpace(req.URL) != "" {
 		url = strings.TrimSpace(req.URL)
@@ -2056,7 +2061,16 @@ func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "URL must start with https://discord.com/api/webhooks/")
 		return
 	}
-	content := "✅ **URWebDash test notification**\nWebhook is working. Payout and traffic-spike alerts will arrive here."
+	/* the page sends the selected format's payload so the test exercises the real
+	   message shape. The canned line is only the fallback for a caller that sends
+	   no content. */
+	content := strings.TrimSpace(req.Content)
+	if content == "" {
+		content = "✅ **URWebDash test notification**\nWebhook is working. Payout and traffic-spike alerts will arrive here."
+	}
+	if len(content) > 1900 {
+		content = content[:1900] /* Discord rejects a longer message */
+	}
 	status, err := sendDiscordWebhook(url, content)
 	if err != nil {
 		if status == 0 {
