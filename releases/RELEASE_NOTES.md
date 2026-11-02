@@ -1,3 +1,25 @@
+# v0.1.0
+
+### Features
+
+- **Bittensor (SN25) section.** A fourth tab in the dashboard showing the live epoch, its block windows, the epoch history and a points-by-epoch chart, alongside the alpha price in five currencies. The section is decoration-light on purpose: one small animation, and every number on it comes from the coordinator or a public pool quote.
+- **Alpha price, with conversion.** The coordinator carries no price, so the quote comes from the GeckoTerminal subnet pool for netuid 25, the same keyless feed ur.xyz resolves against. Currency conversion (USD, EUR, GBP, JPY, CNY) comes from CoinGecko's TAO quotes as a ratio to TAO-USD. The quote is cached for a minute and a failed refresh keeps serving the last good one rather than blanking the page.
+
+### Notes
+
+- **Countdowns are computed in the page, not stored.** They are derived from block numbers on every render, so a tab left open overnight cannot show a stale "commit in 4h" when the real answer is four days.
+- **The chain head is estimated.** The coordinator does not report it, so the page derives it from the last finalized epoch's timestamps and marks every derived figure `(est.)` rather than presenting a guess as fact. When the coordinator exposes a head, that estimate goes away.
+- **Alpha per epoch is not available yet.** The coordinator reports points and share basis points, not the alpha each epoch earned, so the table shows `—` in that column rather than a number it cannot know.
+- The existing Data Stats and Payout Stats pages are untouched.
+
+### Fixed
+
+- The dashboard's currency picker is built from the rates the feed actually returned, so a missing rate can no longer label a USD value with another currency's symbol.
+
+### Internal
+
+- Six tests cover the price parsing, the optional conversion path, the cache TTL, the backoff after a failed refresh, retention of earlier rates when a refresh loses its conversion, and the endpoint's response shape.
+
 # v0.0.20
 
 ### Features
