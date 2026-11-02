@@ -804,6 +804,36 @@ func runPolling() {
 		os.Exit(1)
 	}
 
+	/* the page is rendered on the server and makes no client fetch, so the
+	   payout cache has to be kept warm by the process itself. This runs in the
+	   background: a slow upstream prime must never delay the first stats poll
+	   past its window boundary, because that window is then lost for good. */
+	go func() {
+		if _, perr := primePayoutCache(token); perr != nil {
+			fmt.Printf("[payout] initial prime failed: %v\n", perr)
+		}
+	}()
+	go startPayoutPrimer(token)
+
+	/* the page reads the price cache without ever starting a fetch, so it has to
+	   be warm before the first visitor or the market strip renders as dashes */
+	go func() {
+		if doc, _, perr := cachedPrice(); perr != nil {
+			fmt.Printf("[price] initial fetch failed: %v\n", perr)
+		} else {
+			fmt.Printf("[price] warm: alpha $%.4f\n", doc.AlphaUSD)
+		}
+	}()
+	go func() {
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			if _, _, err := cachedPrice(); err != nil {
+				fmt.Printf("[price] refresh failed: %v\n", err)
+			}
+		}
+	}()
+
 	db, err := openDB()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
@@ -1070,6 +1100,32 @@ func serveHTTP(port string) {
 	}
 	defer db.Close()
 
+	/* the page renders on the server from caches and never starts a fetch for
+	   payouts or price, so both are warmed before the listener opens; without
+	   this the payout table and the market strip paint empty on a cold start */
+	if _, perr := primePayoutCache(token); perr != nil {
+		fmt.Printf("[payout] startup prime failed: %v\n", perr)
+	} else {
+		payoutCacheMu.RLock()
+		fmt.Printf("[payout] startup prime: %d payments\n", len(payoutCache))
+		payoutCacheMu.RUnlock()
+	}
+	startPayoutPrimer(token)
+	if doc, _, perr := cachedPrice(); perr != nil {
+		fmt.Printf("[price] startup fetch failed: %v\n", perr)
+	} else {
+		fmt.Printf("[price] startup warm: alpha $%.4f\n", doc.AlphaUSD)
+	}
+	go func() {
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			if _, _, err := cachedPrice(); err != nil {
+				fmt.Printf("[price] refresh failed: %v\n", err)
+			}
+		}
+	}()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/wallet-stats", handleWalletStats(db))
 	mux.HandleFunc("/api/wallet-summary", handleWalletSummary(db))
@@ -1084,7 +1140,7 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/epochs", handleEpochs(db, token))
 	mux.HandleFunc("/api/price", handlePrice)
 	mux.HandleFunc("/api/refresh-epochs", handleRefreshEpochs(db, token))
-	mux.HandleFunc("/", handleIndex)
+	mux.HandleFunc("/", handleIndex(db, token))
 
 	/* Epochs move on a seven-day clock, so they are refreshed once an hour
 	   rather than on the 15-minute traffic cadence. The first fetch runs in the
@@ -1214,7 +1270,10 @@ func handlePayoutStats(token string) http.HandlerFunc {
 		payoutCacheMu.RUnlock()
 
 		if needsRefresh {
-			if resp, err := fetchPayouts(token); err == nil {
+			/* payoutSource can report a failure as a field rather than a Go error;
+			   treating that as success caches an empty list and clears the last
+			   error, so the page reads as "no payouts" instead of "fetch failed" */
+			if resp, err := payoutSource(token); err == nil && resp.Error == nil {
 				pointEntries, _ := fetchPoints(token)
 				pointsByPayment := make(map[string]float64)
 				reliabilityByPayment := make(map[string]float64)
@@ -1331,7 +1390,7 @@ func handleRefreshPayout(token string) http.HandlerFunc {
 			return
 		}
 
-		resp, err := fetchPayouts(token)
+		resp, err := payoutSource(token)
 		if err != nil {
 			payoutCacheMu.Lock()
 			payoutLastError = err.Error()
@@ -2092,11 +2151,15 @@ func handleNetworkName(token string) http.HandlerFunc {
 	}
 }
 
-func handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
+func handleIndex(db *sql.DB, token string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		/* the page carries live data, so a cached copy would go stale silently */
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write(renderIndex(db, token))
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(indexHTML))
 }
