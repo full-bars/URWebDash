@@ -1084,7 +1084,7 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/epochs", handleEpochs(db, token))
 	mux.HandleFunc("/api/price", handlePrice)
 	mux.HandleFunc("/api/refresh-epochs", handleRefreshEpochs(db, token))
-	mux.HandleFunc("/", handleIndex)
+	mux.HandleFunc("/", handleIndex(db, token))
 
 	/* Epochs move on a seven-day clock, so they are refreshed once an hour
 	   rather than on the 15-minute traffic cadence. The first fetch runs in the
@@ -2092,11 +2092,15 @@ func handleNetworkName(token string) http.HandlerFunc {
 	}
 }
 
-func handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
+func handleIndex(db *sql.DB, token string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		/* the page carries live data, so a cached copy would go stale silently */
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write(renderIndex(db, token))
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(indexHTML))
 }

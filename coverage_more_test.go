@@ -39,7 +39,7 @@ func TestHandleStatusShape(t *testing.T) {
 // leaves every browser showing a blank tab.
 func TestHandleIndexServesPage(t *testing.T) {
 	rec := httptest.NewRecorder()
-	handleIndex(rec, httptest.NewRequest("GET", "/", nil))
+	handleIndex(nil, "")(rec, httptest.NewRequest("GET", "/", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d", rec.Code)
@@ -60,7 +60,7 @@ func TestHandleIndexServesPage(t *testing.T) {
 // missing asset becomes 200 with an HTML body.
 func TestHandleIndexRejectsOtherPaths(t *testing.T) {
 	rec := httptest.NewRecorder()
-	handleIndex(rec, httptest.NewRequest("GET", "/nope.js", nil))
+	handleIndex(nil, "")(rec, httptest.NewRequest("GET", "/nope.js", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("want 404, got %d", rec.Code)
 	}
