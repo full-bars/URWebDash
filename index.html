@@ -143,7 +143,10 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
 .hidebal:hover{color:var(--text);border-color:var(--accent)}
 .hidebal[data-hidden="1"]{color:var(--accent);border-color:var(--accent)}
 /* the balance pair gets its own line so it cannot break mid-figure */
-#theme-mount [data-ep-bal]{white-space:nowrap;display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+#theme-mount [data-ep-bal]{white-space:normal;overflow:visible;height:auto}
+#theme-mount .wallet-extra{white-space:normal}
+#theme-mount .wbal{white-space:nowrap;display:inline-block;font-size:1.18em;font-weight:600;letter-spacing:.01em}
+#theme-mount .wallet-extra{display:block;margin-top:3px;line-height:1.45}
 /* a point that just landed in the history table */
 tr.ep-row-new{animation:epRowIn 1.9s ease-out}
 @keyframes epRowIn{
@@ -2001,7 +2004,18 @@ function paintWalletBits(w, bits){
     if(el.dataset.epBal==='1') return;
     const t=el.textContent||'';
     if(t.indexOf(head)>=0 || t.indexOf(tail)>=0){
-      el.textContent=t+' \u00b7 '+bits.join(' \u00b7 ');
+      /* each figure is its own nowrap span: a narrow wallet block breaks
+         between SN25a and TAO instead of cutting the second one off */
+      el.textContent=t;
+      const wrap=document.createElement('span');
+      wrap.className='wallet-extra';
+      bits.forEach((b,i)=>{
+        const sp=document.createElement('span');
+        sp.className='wbal';
+        sp.textContent=(i?' \u00b7 ':' \u00b7 ')+b;
+        wrap.appendChild(sp);
+      });
+      el.appendChild(wrap);
       el.dataset.epBal='1';
     }
   });
