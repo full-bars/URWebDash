@@ -173,6 +173,11 @@ for (let i = 0; i < 96; i++) {
 }
 const stub = { textContent: '', className: '', querySelector: () => ({ textContent: '', className: '' }) };
 global.document = { getElementById: () => stub };
+/* the day cards refuse to repaint from older data, so each independent case
+   has to start from a clean guard */
+global.window = global;
+const fresh = () => { window.__cardsNewest = null; window.__cards = null; };
+fresh();
 const asc = paintDayCards(asRows(full));
 const desc = paintDayCards(asRows(full.slice().reverse()));
 eq('today ASC==DESC', asc.today, desc.today);
@@ -187,12 +192,21 @@ const fromMidnight = [
   { created_at: '2026-11-02T12:00:00Z', paid_bytes: 0, unpaid_bytes: 6000000000000 },
   { created_at: '2026-11-02T08:00:00Z', paid_bytes: 0, unpaid_bytes: 5000000000000 },
 ];
+fresh();
 eq('midnight sample is the baseline', paintDayCards(asRows(fromMidnight)).today, 1000000000000);
 
 // With no sample at or before local midnight there is no day figure at all;
 // the difference would otherwise be the lifetime total.
 const onlyToday = full.filter(r => new Date(r.created_at) > new Date('2026-11-02T08:00:00Z'));
+fresh();
 eq('no pre-midnight sample', paintDayCards(asRows(onlyToday)).today, null);
+
+// An older snapshot must not overwrite figures a newer read already painted.
+fresh();
+const newest = paintDayCards(asRows(full));
+const stale = paintDayCards(asRows(full.slice(0, 90)));
+eq('stale snapshot keeps today', stale.today, newest.today);
+eq('stale snapshot keeps 24h', stale.day24, newest.day24);
 
 if (fail) { console.log(fail + ' assertion(s) failed'); process.exit(1); }
 `

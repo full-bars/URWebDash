@@ -1697,6 +1697,15 @@ function paintDayCards(rows){
   if(!rows||!rows.length) return {day24:null,today:null};
   const sorted=rows.slice().sort((a,b)=>new Date(b.t)-new Date(a.t));
   const last=sorted[0], total=r=>r.paid+r.unpaid;
+  /* Two refresh paths run on the same timer, and a pager click re-renders from
+     the cached rows. Whichever finishes last used to win, so an older snapshot
+     could overwrite newer figures and the cards flickered backwards. Paint only
+     when the data is at least as new as what is already on screen. */
+  if(!window.__cards) window.__cards={day24:null,today:null};
+  if(window.__cardsNewest && new Date(last.t)<new Date(window.__cardsNewest)){
+    return {day24:window.__cards.day24, today:window.__cards.today};
+  }
+  window.__cardsNewest=last.t;
   /* 24h: the sample nearest 24h back, from the full list */
   const target=new Date(last.t).getTime()-86400000;
   const prev=sorted.reduce((best,r)=>Math.abs(new Date(r.t)-target)<Math.abs(new Date(best.t)-target)?r:best,sorted[sorted.length-1]);
@@ -1721,6 +1730,7 @@ function paintDayCards(rows){
       else { v.textContent='+'+fmtBytes(today); v.className='value '+(today>=0?'green':'yellow'); }
     }
   }
+  window.__cards={day24,today};
   return {day24,today};
 }
 const tbody=document.getElementById('history-table');
@@ -2261,6 +2271,10 @@ async function loadAllHistory(){
   }catch(_){ WALLETROWS=null; }
   walletPage=1;
   renderWalletTable();
+  /* Only a fresh read repaints the day cards. A pager click re-renders the
+     table from the same rows, and painting from there wrote stale figures over
+     the live ones. */
+  if(WALLETROWS) paintDayCards(asRows(WALLETROWS));
 }
 function renderWalletTable(){
   const tbody=document.getElementById('history-table');
@@ -2294,9 +2308,6 @@ function renderWalletTable(){
     frag.appendChild(tr);
   });
   tbody.appendChild(frag);
-  /* the day cards are painted from the same full list, so they agree with the
-     live poll instead of flickering between two figures */
-  paintDayCards(asRows(WALLETROWS));
   if(!pager) return;
   pager.innerHTML='';
   const info=document.createElement('span');
