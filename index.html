@@ -1829,7 +1829,9 @@ function rateSeries(win){
   /* windows in hours; 'all' has no back edge and 'gbd' rolls a month into days.
      a year of two-hour buckets is four thousand bars, which no chart can draw, so
      the all-time view buckets by calendar day. */
-  const back={'6h':6,'24h':24,'7d':168,'30d':720,'gbd':720}[win];
+  /* gbd reads the whole history as days, not the last thirty: the daily view is
+     the long view, and cutting it to a month hid the rest of the year. */
+  const back={'6h':6,'24h':24,'7d':168,'30d':720}[win];
   const src=(win==='6h')?recent.slice().reverse():series;
   const cut=back?new Date(last.t).getTime()-back*3600000:0;
   const rows=src.filter(r=>!back||new Date(r.t).getTime()>=cut);
