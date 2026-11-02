@@ -137,6 +137,7 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
   45%{box-shadow:0 0 26px 8px rgba(255,255,255,.35) inset;filter:brightness(1.35)}
   100%{box-shadow:0 0 0 0 rgba(255,255,255,0) inset;filter:brightness(1)}}
 /* a ring that bursts at the head each time the bar actually moves */
+.wallet-extra{opacity:.85}
 .ep-burst{position:absolute;top:50%;left:0;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;
   border:3px solid rgba(255,255,255,.95);opacity:0;pointer-events:none}
 .ep-burst.go{animation:epBurst 1.5s cubic-bezier(.2,.8,.2,1)}
@@ -611,6 +612,7 @@ window.URTHEMES['hero'] = {
       '<div class="cols">' +
         '<div class="card"><div class="k" style="margin-bottom:6px">Your account</div>' +
           '<div class="idr"><span class="kk">Wallet</span><span class="mono green">' + DS_SHORT(D.wallet.coldkey) + '</span></div>' +
+          (walletExtra(D)?'<div class="idr"><span class="kk">Balance</span><span class="mono">' + walletExtra(D) + '</span></div>':'') +
           '<div class="idr"><span class="kk">Consent</span><span>' + D.wallet.scope + ' · epoch ' + D.wallet.fromEpoch + ' → ' + DS_FMT(D.wallet.throughEpoch) + '</span></div>' +
           '<div class="idr"><span class="kk">α unclaimed</span><span class="dim">—</span></div>' +
           '<div class="idr"><span class="kk">Best epoch</span><span>' + D.points.bestEpoch + ' · ' + DS_FMT(D.points.bestPoints, 2) + ' pts</span></div>' +
@@ -684,6 +686,7 @@ window.URTHEMES['console'] = {
           '<div class="muted" style="margin-top:9px">Epoch ' + D.epoch.n + ' pays from ' + D.alpha.firstPayingEpoch + '; this epoch reads "' + D.alpha.thisEpoch + '".</div></div>' +
         '<div class="panel"><h2>Account <span>wallet attached</span></h2><div class="kv">' +
           '<div class="k">coldkey</div><div class="v g">' + DS_SHORT(D.wallet.coldkey) + '</div>' +
+          (walletExtra(D)?'<div class="k">balance</div><div class="v">' + walletExtra(D) + '</div>':'') +
           '<div class="k">consent</div><div class="v">' + D.wallet.scope + ' ' + D.wallet.fromEpoch + '→' + DS_FMT(D.wallet.throughEpoch) + '</div>' +
           '<div class="k">α unclaimed</div><div class="v d">—</div>' +
           '<div class="k">points total</div><div class="v">' + DS_FMT(D.points.total, 2) + '</div>' +
@@ -806,6 +809,7 @@ window.URTHEMES['urnetwork'] = {
           '<div class="note">Epochs 1–3 settled under v1, which paid only the verify cohort.</div></div>' +
         '<div class="col"><h3>Account</h3>' +
           '<div class="line"><span class="k">Coldkey</span><span class="v">' + DS_SHORT(D.wallet.coldkey) + '</span></div>' +
+          (walletExtra(D)?'<div class="line"><span class="k">Balance</span><span class="v">' + walletExtra(D) + '</span></div>':'') +
           '<div class="line"><span class="k">Consent</span><span class="v">' + D.wallet.scope + ' · ' + D.wallet.fromEpoch + '→' + DS_FMT(D.wallet.throughEpoch) + '</span></div>' +
           '<div class="line"><span class="k">Alpha unclaimed</span><span class="v">—</span></div>' +
           '<div class="line"><span class="k">Legacy USDC</span><span class="v">$' + DS_FMT(D.legacy.usdc, 2) + ' · ' + D.legacy.count + '</span></div>' +
@@ -1072,7 +1076,7 @@ window.URTHEMES = window.URTHEMES || {};
 <table><thead><tr><th>Epoch</th><th>Points</th><th></th><th>Share</th><th>Alpha</th><th>Settlement</th></tr></thead><tbody>${rows}</tbody></table>
 <p class="note">Bars are scaled to the best epoch (epoch ${p.bestEpoch}).</p>
 <div class="fn">
-<div><sup>1</sup>Wallet <span class="mono">${H.ck(w.coldkey)}</span>, consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</div>
+<div><sup>1</sup>Wallet <span class="mono">${H.ck(w.coldkey)}</span>${w.balanceKnown?` · <b>${w.taoFree.toFixed(4)} TAO</b>`:''}, consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</div>
 <div><sup>2</sup>Legacy: <b>$${H.n(l.usdc, 2)}</b> across <b>${l.count}</b> USDC payments on ${H.esc(l.network)}, last <b>${H.esc(l.last)}</b>.</div>
 <div><sup>3</sup>Traffic: <b>${H.n(t.paidTb, 2)} TB</b> paid, <b>${H.n(t.unpaidTb, 2)} TB</b> unpaid.</div>
 </div>
@@ -1181,7 +1185,7 @@ window.URTHEMES = window.URTHEMES || {};
 <p><b>${p.epochsWithPoints}</b> of <b>${p.epochsFinalized}</b> finalized epochs have points. Best: epoch <b>${p.bestEpoch}</b> with <b>${H.n(p.bestPoints, 2)}</b>.</p></div>
 <div class="pn"><h3>Alpha</h3><div class="num pk">${H.esc(a.thisEpoch)}</div>
 <p>Epoch <b>${a.firstPayingEpoch}</b> is the first epoch that can pay alpha. Earlier epochs show —.</p></div>
-<div class="pn"><h3>Wallet</h3><div class="num mono">${H.ck(w.coldkey)}</div>
+<div class="pn"><h3>Wallet</h3><div class="num mono">${H.ck(w.coldkey)}</div>${w.balanceKnown?`<div class="num" style="font-size:14px">${w.taoFree.toFixed(4)} TAO</div>`:''}
 <p>Consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</p></div>
 <div class="pn"><h3>Traffic</h3><div class="num">${H.n(t.paidTb, 2)}<small>TB paid</small></div>
 <p><b>${H.n(t.unpaidTb, 2)} TB</b> unpaid.</p></div>
@@ -1293,7 +1297,7 @@ window.URTHEMES = window.URTHEMES || {};
 <section><h2>Points</h2><div class="big">${H.n(p.total, 2)}<small>total</small></div>
 <p><b>${p.epochsWithPoints}</b> of <b>${p.epochsFinalized}</b> finalized epochs have points.</p><p>Best: epoch <b>${p.bestEpoch}</b>, <b>${H.n(p.bestPoints, 2)}</b>.</p></section>
 <section><h2>Alpha</h2><p><b>${H.esc(a.thisEpoch)}</b> for epoch ${e.n}.</p><p>Epoch <b>${a.firstPayingEpoch}</b> is the first that can pay alpha.</p></section>
-<section><h2>Wallet</h2><p class="mono">${H.ck(w.coldkey)}</p><p>consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b></p></section>
+<section><h2>Wallet</h2><p class="mono">${H.ck(w.coldkey)}</p>${w.balanceKnown?`<p><b>${w.taoFree.toFixed(4)} TAO</b> free</p>`:''}<p>consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b></p></section>
 <section><h2>Traffic</h2><p><b>${H.n(t.paidTb, 2)} TB</b> paid</p><p><b>${H.n(t.unpaidTb, 2)} TB</b> unpaid</p></section>
 <section><h2>Legacy</h2><p><b>$${H.n(l.usdc, 2)}</b> across <b>${l.count}</b> USDC payments on ${H.esc(l.network)}, last <b>${H.esc(l.last)}</b>.</p></section>
 </div></div></div></div>`;
@@ -1550,6 +1554,21 @@ function renderPayoutRows(){
   });
 }
 renderPayoutRows();
+
+/* balances and the payout wallet live beside the coldkey: the coldkey is the
+   Bittensor identity, the payout address is the Solana one that paid USDC */
+function walletExtra(D){
+  const w=(D&&D.wallet)||{};
+  const bits=[];
+  if(w.balanceKnown && typeof w.taoFree==='number') bits.push('TAO '+w.taoFree.toFixed(4));
+  if(w.payout) bits.push('payout '+String(w.payout).slice(0,6)+'\u2026'+String(w.payout).slice(-4));
+  return bits.join(' \u00b7 ');
+}
+function walletHTML(D,cls){
+  const extra=walletExtra(D);
+  if(!extra) return '';
+  return '<span class="'+(cls||'')+' wallet-extra">'+extra+'</span>';
+}
 
 /* ---------- charts ---------------------------------------------------------
    Base config is a port of the shipped dashboard's charts (line, tension .4,
@@ -1866,6 +1885,28 @@ function epOrbitMark(){
   mark.setAttribute('class','ep-orb-mark');
   svg.appendChild(mark);
   setTimeout(()=>mark.remove(), 1900);
+}
+
+/* Every theme prints the coldkey its own way. Rather than ten bespoke edits,
+   find the short coldkey in the rendered output and put the balance beside it;
+   done once per element so a re-render cannot double it up. */
+function epWalletBalance(){
+  const w=(D&&D.wallet)||{};
+  if(!w.balanceKnown || typeof w.taoFree!=='number') return;
+  const key=String(w.coldkey||'');
+  if(key.length<12) return;
+  const head=key.slice(0,8), tail=key.slice(-6);
+  const mount=document.getElementById('theme-mount');
+  if(!mount) return;
+  mount.querySelectorAll('*').forEach(el=>{
+    if(el.children.length) return;
+    if(el.dataset.epBal==='1') return;
+    const t=el.textContent||'';
+    if(t.indexOf(head)>=0 || t.indexOf(tail)>=0){
+      el.textContent=t+' \u00b7 TAO '+w.taoFree.toFixed(4);
+      el.dataset.epBal='1';
+    }
+  });
 }
 
 function enhanceEpochBar(){
@@ -2406,6 +2447,7 @@ function applyTheme(id){
   document.getElementById('theme-mount').innerHTML=t.render(D);
   setTimeout(enhanceEpochBar, 0);
   setTimeout(enhanceOrbit, 0);
+  setTimeout(epWalletBalance, 0);
   /* with no epoch row the numbers would read as block 0 of epoch 0, which looks
      like live chain state; say what it actually is instead */
   if(D.epoch&&!D.epoch.known){

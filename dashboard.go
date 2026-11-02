@@ -60,10 +60,13 @@ type dashEpochRow struct {
 }
 
 type dashWallet struct {
-	Coldkey      string `json:"coldkey"`
-	Scope        string `json:"scope"`
-	FromEpoch    int64  `json:"fromEpoch"`
-	ThroughEpoch int64  `json:"throughEpoch"`
+	Coldkey      string  `json:"coldkey"`
+	Payout       string  `json:"payout"`
+	Scope        string  `json:"scope"`
+	FromEpoch    int64   `json:"fromEpoch"`
+	ThroughEpoch int64   `json:"throughEpoch"`
+	TaoFree      float64 `json:"taoFree"`
+	BalanceKnown bool    `json:"balanceKnown"`
 }
 
 type dashAlpha struct {
@@ -372,8 +375,8 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 				lastPay = p.PaymentTime
 			}
 		}
-		if d.Wallet.Coldkey == "" && p.WalletAddress != "" {
-			d.Wallet.Coldkey = p.WalletAddress
+		if d.Wallet.Payout == "" && p.WalletAddress != "" {
+			d.Wallet.Payout = p.WalletAddress
 		}
 	}
 	if lastPay != "" {
@@ -382,6 +385,24 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 		}
 	}
 	d.Wallet.Scope = "network"
+	if rec, err := fetchSNWallet(token); err == nil && rec != nil {
+		d.Wallet.Coldkey = rec.ColdkeySS58
+		if rec.ConsentScope != "" {
+			d.Wallet.Scope = rec.ConsentScope
+		}
+		if rec.FromEpoch > 0 {
+			d.Wallet.FromEpoch = rec.FromEpoch
+		}
+		if rec.ThroughEpoch > 0 {
+			d.Wallet.ThroughEpoch = rec.ThroughEpoch
+		}
+	} else if err != nil {
+		fmt.Printf("[wallet] sn/wallet failed: %v\n", err)
+	}
+	if bal := fetchBalances(d.Wallet.Coldkey); bal.Known {
+		d.Wallet.TaoFree = bal.TaoFree
+		d.Wallet.BalanceKnown = true
+	}
 	d.Legacy = dashLegacy{Usdc: usdcTotal, Count: legacyCount, Last: lastPay, Network: "SOL"}
 	return d, h, pays
 }
