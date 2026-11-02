@@ -375,12 +375,13 @@ func TestImportJSON_MissingFile(t *testing.T) {
 
 func TestImportJSON_MalformedJSON(t *testing.T) {
 	if os.Getenv("BE_CHILD_IMPORT_MALFORMED") == "1" {
-		badFile := filepath.Join(os.TempDir(), fmt.Sprintf("malformed_%d.json", os.Getpid()))
+		scratch := os.Getenv("CHILD_SCRATCH")
+		badFile := filepath.Join(scratch, "malformed.json")
 		if err := os.WriteFile(badFile, []byte("{not-valid-json"), 0644); err != nil {
 			t.Fatal(err)
 		}
 		defer os.Remove(badFile)
-		childDB := filepath.Join(os.TempDir(), fmt.Sprintf("child_malformed_%d.db", os.Getpid()))
+		childDB := filepath.Join(scratch, "child.db")
 		os.Setenv("STATS_DB", childDB)
 		defer os.Remove(childDB)
 		importJSON(badFile)
@@ -389,8 +390,9 @@ func TestImportJSON_MalformedJSON(t *testing.T) {
 	}
 
 	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "parent.db"))
+	scratch := t.TempDir() /* t.TempDir cleans up even though the child exits abruptly */
 	cmd := exec.Command(os.Args[0], "-test.run=^TestImportJSON_MalformedJSON$")
-	cmd.Env = append(os.Environ(), "BE_CHILD_IMPORT_MALFORMED=1")
+	cmd.Env = append(os.Environ(), "BE_CHILD_IMPORT_MALFORMED=1", "CHILD_SCRATCH="+scratch)
 	out, err := cmd.CombinedOutput()
 	exitErr, ok := err.(*exec.ExitError)
 	if !ok || exitErr.ExitCode() != 1 {

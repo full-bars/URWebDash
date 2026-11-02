@@ -71,7 +71,10 @@ func TestHandleIndexRejectsOtherPaths(t *testing.T) {
 // special-case.
 func TestDiscordWebhookFileURL(t *testing.T) {
 	dir := t.TempDir()
+	/* stateDir prefers URWEBDASH_HOME over HOME: without pinning both, this test
+	   would write into a real operator's saved webhook file */
 	t.Setenv("HOME", dir)
+	t.Setenv("URWEBDASH_HOME", dir)
 	t.Setenv("DISCORD_WEBHOOK_URL", "")
 
 	if got := discordWebhookFileURL(); got != "" {
