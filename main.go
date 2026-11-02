@@ -2039,6 +2039,25 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 // webhookCSRFCheck first, and transport errors are returned as a generic
 // message so the webhook's secret token (which can appear inside a
 // transport error) is never echoed to the client.
+// sampleAlertMessage is the traffic-spike alert with stand-in figures: the test
+// button exists to show what lands in the channel, so it uses the real template.
+func sampleAlertMessage() string {
+	return fmt.Sprintf(
+		"🛫 **Traffic Spike**\n"+
+			"```\n"+
+			"┌──────────────────────┬────────────┐\n"+
+			"├──────────────────────┼────────────┤\n"+
+			"│ %-20s │ %10s │\n"+
+			"│ %-20s │ %10s │\n"+
+			"│ %-20s │ %10s │\n"+
+			"└──────────────────────┴────────────┘\n"+
+			"```",
+		"15m Delta", "+1.45 GB",
+		"Total Unpaid", "742.29 GB",
+		"At (UTC)", time.Now().UTC().Format("15:04:05"),
+	)
+}
+
 func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != "POST" {
@@ -2064,13 +2083,10 @@ func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "URL must start with https://discord.com/api/webhooks/")
 		return
 	}
-	/* the page sends the selected format's payload so the test exercises the real
-	   message shape. The canned line is only the fallback for a caller that sends
-	   no content. */
-	content := strings.TrimSpace(req.Content)
-	if content == "" {
-		content = "✅ **URWebDash test notification**\nWebhook is working. Payout and traffic-spike alerts will arrive here."
-	}
+	/* send the alert as it will actually arrive. The previews on the page are
+	   design studies with placeholder text, and an ANSI preview posts raw escape
+	   bytes that Discord renders as gibberish, so the test does not send them. */
+	content := sampleAlertMessage()
 	if len(content) > 1900 {
 		content = content[:1900] /* Discord rejects a longer message */
 	}
