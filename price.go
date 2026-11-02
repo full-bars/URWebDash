@@ -241,11 +241,27 @@ func cachedPrice() (priceDoc, time.Duration, error) {
 		}
 		return priceDoc{}, 0, err
 	}
-	/* an fx miss must not erase conversions learned on an earlier refresh */
-	if len(doc.Currencies) <= 1 && len(priceCache.doc.FX) > 1 {
-		doc.FX = priceCache.doc.FX
-		doc.Currencies = priceCache.doc.Currencies
-		doc.FXAt = priceCache.doc.FXAt
+	/* merge per currency: a partial fx answer keeps whatever it omits rather
+	   than erasing rates learned on an earlier refresh */
+	if len(priceCache.doc.FX) > 0 {
+		carried := false
+		for cur, rate := range priceCache.doc.FX {
+			if _, ok := doc.FX[cur]; !ok {
+				doc.FX[cur] = rate
+				carried = true
+			}
+		}
+		if carried {
+			if doc.FXAt.IsZero() {
+				doc.FXAt = priceCache.doc.FXAt
+			}
+			doc.Currencies = nil
+			for _, cur := range []string{"USD", "EUR", "GBP", "JPY", "CNY"} {
+				if _, ok := doc.FX[cur]; ok {
+					doc.Currencies = append(doc.Currencies, cur)
+				}
+			}
+		}
 	}
 	/* the age origin is the quote's own timestamp, not the moment the cache
 	   got around to storing it */

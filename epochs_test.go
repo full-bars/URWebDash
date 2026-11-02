@@ -58,8 +58,8 @@ func TestStoreEpochsOverwritesPartialPoints(t *testing.T) {
 func TestStoreEpochsKeepsEarlierAlpha(t *testing.T) {
 	db := testDB(t)
 	now := time.Now()
-	alpha := 1234.0
-	if err := storeEpochs(db, []epochRow{{Epoch: 3, Points: 1, Alpha: &alpha}}, now); err != nil {
+	alpha := int64(1234) // rao, as the coordinator reports it
+	if err := storeEpochs(db, []epochRow{{Epoch: 3, Points: 1, AlphaRao: &alpha}}, now); err != nil {
 		t.Fatalf("first: %v", err)
 	}
 	if err := storeEpochs(db, []epochRow{{Epoch: 3, Points: 2}}, now); err != nil {
@@ -67,7 +67,7 @@ func TestStoreEpochsKeepsEarlierAlpha(t *testing.T) {
 	}
 	rows, _ := readEpochs(db, 5)
 	/* stored as rao, read back as alpha */
-	if rows[0].Alpha == nil || *rows[0].Alpha != alpha/raoPerAlpha {
+	if rows[0].Alpha == nil || *rows[0].Alpha != float64(alpha)/raoPerAlpha {
 		t.Errorf("alpha lost: got %v", rows[0].Alpha)
 	}
 	if rows[0].Points != 2 {
@@ -153,8 +153,8 @@ func TestHandleEpochsEmptyDB(t *testing.T) {
 func TestHandleEpochsIncludesState(t *testing.T) {
 	db := testDB(t)
 	now := time.Now()
-	alpha := 88.0
-	storeEpochs(db, []epochRow{{Epoch: 7, Points: 10, Alpha: &alpha}}, now)
+	alpha := int64(88)
+	storeEpochs(db, []epochRow{{Epoch: 7, Points: 10, AlphaRao: &alpha}}, now)
 	if err := storeSNEpoch(db, snEpoch{Epoch: 8, StartBlock: 100, CommitBlock: 5200, TEpochBlock: 50400, Netuid: 25}, now); err != nil {
 		t.Fatalf("state: %v", err)
 	}
@@ -162,8 +162,8 @@ func TestHandleEpochsIncludesState(t *testing.T) {
 	handleEpochs(db, "unused").ServeHTTP(rec, httptest.NewRequest("GET", "/api/epochs", nil))
 
 	var body struct {
-		Epochs []epochRow `json:"epochs"`
-		SN     *snEpoch   `json:"sn_epoch"`
+		Epochs []epochView `json:"epochs"`
+		SN     *snEpoch    `json:"sn_epoch"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("json: %v", err)
@@ -182,8 +182,8 @@ func TestHandleEpochsIncludesState(t *testing.T) {
 // The coordinator reports rao; a caller of this package must receive alpha.
 func TestReadEpochsConvertsRaoToAlpha(t *testing.T) {
 	db := testDB(t)
-	rao := 1_234_500_000.0 // 1.2345 alpha, as stored
-	if err := storeEpochs(db, []epochRow{{Epoch: 5, Points: 1, Alpha: &rao}}, time.Now()); err != nil {
+	rao := int64(1_234_500_000) // 1.2345 alpha, as the coordinator reports it
+	if err := storeEpochs(db, []epochRow{{Epoch: 5, Points: 1, AlphaRao: &rao}}, time.Now()); err != nil {
 		t.Fatalf("store: %v", err)
 	}
 	rows, err := readEpochs(db, 5)

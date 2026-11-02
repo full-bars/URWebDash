@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -37,14 +38,28 @@ const raoPerAlpha = 1e9
 
 // epochRow is one finalized epoch as the dashboard cares about it.
 type epochRow struct {
+	Epoch       int64   `json:"epoch"`
+	Points      float64 `json:"points"`
+	ShareBps    int64   `json:"share_bps"`
+	AlphaRao    *int64  `json:"-"`          // as the coordinator reports it
+	Settlement  string  `json:"settlement"` // "v1" or "v2"
+	StartMillis int64   `json:"start_millis"`
+	EndMillis   int64   `json:"end_millis"`
+	Finalized   int64   `json:"finalized"` // 1 once the epoch has closed
+}
+
+// epochView is what the page receives: the same row with alpha in whole
+// tokens. Storage keeps rao, so a row can never be written back at the wrong
+// scale by accident.
+type epochView struct {
 	Epoch       int64    `json:"epoch"`
 	Points      float64  `json:"points"`
 	ShareBps    int64    `json:"share_bps"`
-	Alpha       *float64 `json:"alpha"`      // nil until the epoch's root lands
-	Settlement  string   `json:"settlement"` // "v1" or "v2"
+	Alpha       *float64 `json:"alpha"` // nil until the epoch's root lands
+	Settlement  string   `json:"settlement"`
 	StartMillis int64    `json:"start_millis"`
 	EndMillis   int64    `json:"end_millis"`
-	Finalized   int64    `json:"finalized"` // 1 once the epoch has closed
+	Finalized   int64    `json:"finalized"`
 }
 
 // snEpoch is the live epoch's block geometry.
@@ -184,8 +199,8 @@ func storeEpochs(db *sql.DB, rows []epochRow, now time.Time) error {
 	stamp := now.UTC().Format(time.RFC3339)
 	for _, r := range rows {
 		var alpha interface{}
-		if r.Alpha != nil {
-			alpha = int64(*r.Alpha)
+		if r.AlphaRao != nil {
+			alpha = *r.AlphaRao
 		}
 		finalized := 0
 		if r.EndMillis > 0 && r.EndMillis <= now.UnixMilli() {
@@ -254,7 +269,7 @@ func readSNEpoch(db *sql.DB) (snEpoch, time.Time, error) {
 	return e, ts, nil
 }
 
-func readEpochs(db *sql.DB, limit int) ([]epochRow, error) {
+func readEpochs(db *sql.DB, limit int) ([]epochView, error) {
 	if limit <= 0 {
 		limit = 104
 	}
@@ -264,9 +279,9 @@ func readEpochs(db *sql.DB, limit int) ([]epochRow, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	out := make([]epochRow, 0, limit)
+	out := make([]epochView, 0, limit)
 	for rows.Next() {
-		var r epochRow
+		var r epochView
 		var alpha sql.NullFloat64
 		if err := rows.Scan(&r.Epoch, &r.Points, &r.ShareBps, &alpha, &r.Settlement,
 			&r.StartMillis, &r.EndMillis, &r.Finalized); err != nil {
@@ -286,9 +301,10 @@ func readEpochs(db *sql.DB, limit int) ([]epochRow, error) {
 // keyed by number, and the v2 switch happened at a single epoch for the whole
 // subnet, so the caller passes the first v2 epoch once it is known.
 func settlementFor(epoch, firstV2 int64, fromCoordinator string) string {
-	/* the coordinator is the authority when it says something */
-	if fromCoordinator != "" {
-		return fromCoordinator
+	/* the coordinator is the authority when it says something, but only a
+	   value this layer recognises: it reaches the page's HTML */
+	if v := strings.ToLower(strings.TrimSpace(fromCoordinator)); v == "v1" || v == "v2" {
+		return v
 	}
 	if firstV2 > 0 && epoch >= firstV2 {
 		return "v2"
@@ -330,8 +346,8 @@ func fetchEpochs(token string, firstV2 int64) ([]epochRow, error) {
 			EndMillis:   e.EndMillis,
 		}
 		if e.AlphaRao != nil {
-			v := float64(*e.AlphaRao)
-			r.Alpha = &v
+			v := *e.AlphaRao
+			r.AlphaRao = &v
 		}
 		out = append(out, r)
 	}
@@ -411,15 +427,17 @@ func pollEpochs(db *sql.DB, token string, firstV2 int64) (err error) {
 	epochPollMu.Lock()
 	defer epochPollMu.Unlock()
 	defer func() { storeEpochAttempt(db, time.Now(), err) }()
+	/* fetch both before storing either: committing history and then failing on
+	   the state would leave a page showing epoch N+1 next to epoch N's geometry */
 	rows, err := fetchEpochs(token, firstV2)
 	if err != nil {
 		return err
 	}
-	if err := storeEpochs(db, rows, time.Now()); err != nil {
-		return err
-	}
 	state, err := fetchSNEpoch(token)
 	if err != nil {
+		return err
+	}
+	if err := storeEpochs(db, rows, time.Now()); err != nil {
 		return err
 	}
 	return storeSNEpoch(db, state, time.Now())

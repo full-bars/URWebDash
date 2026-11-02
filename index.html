@@ -418,6 +418,11 @@ if (navOverlay) navOverlay.addEventListener('click', () => {
 
 
 // ── Bittensor (SN25) ────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
 let epochData = null, priceData = null, priceMeta = {}, pointsChart = null, currency = 'USD', bittensorLoaded = false;
 let epochTimer = null;
 
@@ -441,10 +446,22 @@ function money(usd, digits) {
   return sym + v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
-function setCurrency(c) { currency = c; renderPrice(); }
+function setCurrency(c) {
+  currency = c;
+  const sel = document.getElementById('currency-select');
+  if (sel && sel.value !== c) sel.value = c;
+  renderPrice();
+}
 
 function renderPrice() {
   if (!priceData) return;
+  /* keep the control honest: if this currency has no rate, fall back to USD in
+     the select as well, not just in the values */
+  if (priceData.fx && priceData.fx[currency] === undefined && currency !== 'USD' && priceData.fx.USD !== undefined) {
+    currency = 'USD';
+    const sel = document.getElementById('currency-select');
+    if (sel) sel.value = 'USD';
+  }
   const p = priceData;
   document.getElementById('alpha-price').textContent = money(p.alpha_usd, 4);
   document.getElementById('alpha-mcap').textContent = p.market_cap_usd === null ? '—' : money(p.market_cap_usd, 0);
@@ -578,7 +595,7 @@ function renderEpochs() {
         '<td class="text-right text-mono">' + (r.points ? r.points.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '0') + '</td>' +
         '<td class="text-right">' + (r.share_bps / 100).toFixed(2) + '%</td>' +
         '<td class="text-right text-gray">' + (r.alpha === null ? '—' : r.alpha.toFixed(4)) + '</td>' +
-        '<td class="text-right"><span class="badge ' + (r.settlement === 'v2' ? 'ok' : '') + '">' + r.settlement + '</span></td>' +
+        '<td class="text-right"><span class="badge ' + (r.settlement === 'v2' ? 'ok' : '') + '">' + esc(r.settlement) + '</span></td>' +
         '<td class="text-right text-gray">' + closed + '</td></tr>';
     }).join('');
   }
