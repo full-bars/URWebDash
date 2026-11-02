@@ -1850,7 +1850,10 @@ function rateSeries(win){
   return rows.map((r,i)=>{
     const o=rows[i-1], h=o?(new Date(r.t)-new Date(o.t))/3600000:0;
     const gb=o&&h>0?((r.paid+r.unpaid)-(o.paid+o.unpaid))/h/GB:0;
-    return {t:r.t, v:+gb.toFixed(2)};
+    /* byte counters only climb. a drop means the coordinator reset one of them,
+       which is not negative traffic: drawing it as a downward bar invents a
+       −158 GB hour that never happened. */
+    return {t:r.t, v:gb>0?+gb.toFixed(2):0};
   });
 }
 function drawCharts(){
