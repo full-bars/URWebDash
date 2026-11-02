@@ -137,7 +137,13 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
   45%{box-shadow:0 0 26px 8px rgba(255,255,255,.35) inset;filter:brightness(1.35)}
   100%{box-shadow:0 0 0 0 rgba(255,255,255,0) inset;filter:brightness(1)}}
 /* a ring that bursts at the head each time the bar actually moves */
-.wallet-extra{opacity:.85}
+.wallet-extra{opacity:.85;white-space:nowrap}
+.hidebal{font:inherit;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;background:transparent;color:var(--muted);
+  border:1px solid var(--line);border-radius:999px;padding:4px 9px;cursor:pointer;margin-right:8px}
+.hidebal:hover{color:var(--text);border-color:var(--accent)}
+.hidebal[data-hidden="1"]{color:var(--accent);border-color:var(--accent)}
+/* the balance pair gets its own line so it cannot break mid-figure */
+#theme-mount [data-ep-bal]{white-space:nowrap;display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 /* a point that just landed in the history table */
 tr.ep-row-new{animation:epRowIn 1.9s ease-out}
 @keyframes epRowIn{
@@ -380,6 +386,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
       <div class="px"><span class="k">TAO</span><span class="v sm" id="tao-price">&mdash;</span></div>
       <div class="px right">
         <span class="k">Show values in</span>
+        <button id="hide-bal" class="hidebal" onclick="setHideBal(!hideBal)" title="Hide balances">Balances</button>
         <select id="currency" onchange="setCurrency(this.value)">
           <option value="USD">USD</option><option value="EUR">EUR</option>
           <option value="GBP">GBP</option><option value="JPY">JPY</option><option value="CNY">CNY</option>
@@ -880,7 +887,7 @@ window.URTHEMES = window.URTHEMES || {};
       wallet: esc(w.coldkey.slice(0, 8) + '…' + w.coldkey.slice(-6)),
       consent: esc(w.scope) + ' consent · epochs ' + num(w.fromEpoch, 0) + ' → ' + num(w.throughEpoch, 0),
       traffic: num(D.traffic.paidTb, 2) + ' TB paid · ' + num(D.traffic.unpaidTb, 2) + ' TB unpaid',
-      legacy: '$' + num(D.legacy.usdc, 2) + ' across ' + num(D.legacy.count, 0) + ' USDC payments on ' + esc(D.legacy.network) + ' · last ' + esc(D.legacy.last),
+      legacy: money(D.legacy.usdc) + ' across ' + num(D.legacy.count, 0) + ' USDC payments on ' + esc(D.legacy.network) + ' · last ' + esc(D.legacy.last),
       table: '<div class="scroll"><table><thead><tr><th>Epoch</th><th>Points</th><th>Share</th><th>Alpha</th><th>Settlement</th></tr></thead><tbody>' + rows + '</tbody></table></div>',
       bars: bars
     };
@@ -1576,7 +1583,7 @@ function renderPayoutRows(){
   PAY.slice(0,40).forEach((p,i)=>{
   const tr=document.createElement('tr');
   tr.innerHTML='<td>'+(i+1)+'</td>'+
-    '<td class="text-right text-green">$'+(p.amount||0).toFixed(2)+' '+esc(p.type||'')+'</td>'+
+    '<td class="text-right text-green">'+money(p.amount||0)+' '+esc(p.type||'')+'</td>'+
     '<td class="text-right text-gray">&mdash;</td>'+
     '<td class="text-right text-gray text-mono">'+(p.bytes?fmtBytes(p.bytes):'&mdash;')+'</td>'+
     '<td class="text-gray">'+((p.pay||p.create||'').slice(0,10))+'</td>'+
@@ -1827,7 +1834,12 @@ savePrefs=function(){
     }));
   }catch(e){}
 };
-let currency='USD';
+/* a privacy switch: hidden balances must survive a reload, or it is not privacy */
+/* var, not let: these are read from functions that live in another script
+   block, and a block-scoped binding is not visible there (it failed as
+   "hideBal is not defined" while the setter existed) */
+var hideBal=(()=>{ try{ return localStorage.getItem('urwebdash.hidebal')==='1'; }catch(_){ return false; } })();
+var currency=(()=>{ try{ return localStorage.getItem('urwebdash.currency')||'USD'; }catch(_){ return 'USD'; } })();
 function money(usd,digits){
   const rate=(D.fx||{})[currency]||1, sym=(D.fxSymbols||{})[currency]||'$';
   if(usd==null||!isFinite(usd)) return '—';
@@ -1836,7 +1848,33 @@ function money(usd,digits){
                                :{maximumFractionDigits:digits,minimumFractionDigits:digits};
   return sym+v.toLocaleString('en-US',opts);
 }
-function setCurrency(c){ currency=c; renderPrice(); }
+function setHideBal(v){
+  hideBal=!!v;
+  try{ localStorage.setItem('urwebdash.hidebal', hideBal?'1':'0'); }catch(_){}
+  const btn=document.getElementById('hide-bal'); if(btn) btn.dataset.hidden=hideBal?'1':'0';
+  document.querySelectorAll('#theme-mount [data-ep-bal]').forEach(el=>{
+    const t=el.textContent||'';
+    const cuts=[' \u00b7 SN',' \u00b7 TAO free'].map(x=>t.indexOf(x)).filter(i=>i>0);
+    if(cuts.length) el.textContent=t.slice(0,Math.min.apply(null,cuts));
+    delete el.dataset.epBal;
+  });
+  epWalletBalance();
+}
+function setCurrency(c){
+  currency=c; renderPrice();
+  /* the wallet line carries converted values, so it has to be rewritten too */
+  try{ localStorage.setItem('urwebdash.currency', c); }catch(_){}
+  const sel=document.getElementById('currency'); if(sel&&sel.value!==c) sel.value=c;
+  document.querySelectorAll('#theme-mount [data-ep-bal]').forEach(el=>{
+    const t=el.textContent||'';
+    const cut=t.indexOf(' \u00b7 SN'), cut2=t.indexOf(' \u00b7 TAO free');
+    const at=cut>=0?cut:(cut2>=0?cut2:-1);
+    if(at>0) el.textContent=t.slice(0,at);
+    delete el.dataset.epBal;
+  });
+  epWalletBalance();
+  if(typeof renderPayoutRows==='function') renderPayoutRows();
+}
 function renderPrice(){
   const p=D.price; if(!p) return;
   const set=(id,txt)=>{const el=document.getElementById(id);if(el)el.textContent=txt;};
@@ -1931,9 +1969,28 @@ function epWalletBalance(){
   /* both figures ride along: the SN25 position is the one that matters here, and
      the free TAO is the smaller number beside it */
   const bits=[];
-  if(w.alphaKnown && typeof w.alphaStake==='number') bits.push('SN'+(w.netuid||25)+'a '+w.alphaStake.toFixed(2));
-  if(w.balanceKnown && typeof w.taoFree==='number') bits.push('TAO free '+w.taoFree.toFixed(4));
+  const p=(D&&D.price)||{};
+  if(hideBal){
+    /* masked figures keep the line's shape without exposing a number */
+    if(w.alphaKnown) bits.push('SN'+(w.netuid||25)+'a \u2022\u2022\u2022\u2022');
+    if(w.balanceKnown) bits.push('TAO free \u2022\u2022\u2022\u2022');
+    if(!bits.length) return;
+    paintWalletBits(w, bits);
+    return;
+  }
+  if(w.alphaKnown && typeof w.alphaStake==='number'){
+    const usd=w.alphaStake*(p.alphaUsd||0);
+    bits.push('SN'+(w.netuid||25)+'a '+w.alphaStake.toFixed(2)+(p.alphaUsd?' ('+money(usd)+')':''));
+  }
+  if(w.balanceKnown && typeof w.taoFree==='number'){
+    const usd=w.taoFree*(p.taoUsd||0);
+    bits.push('TAO free '+w.taoFree.toFixed(4)+(p.taoUsd?' ('+money(usd)+')':''));
+  }
   if(!bits.length) return;
+  paintWalletBits(w, bits);
+}
+/* one place that writes the figures, so the masked and the real path cannot drift */
+function paintWalletBits(w, bits){
   const key=String(w.coldkey||'');
   if(key.length<12) return;
   const head=key.slice(0,8), tail=key.slice(-6);
@@ -2676,6 +2733,8 @@ function applyTheme(id){
   setTimeout(enhanceEpochBar, 0);
   setTimeout(enhanceOrbit, 0);
   setTimeout(epWalletBalance, 0);
+/* the button must show the remembered state, not only the state after a click */
+setTimeout(()=>{ const b=document.getElementById('hide-bal'); if(b) b.dataset.hidden=hideBal?'1':'0'; }, 0);
   setTimeout(epTextTrack, 0);
   /* with no epoch row the numbers would read as block 0 of epoch 0, which looks
      like live chain state; say what it actually is instead */
