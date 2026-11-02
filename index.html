@@ -1837,7 +1837,11 @@ function epOrbitMark(){
 }
 
 function enhanceEpochBar(){
-  const track=document.querySelector('#theme-mount .track');
+  /* the themes also use .track for the tiny per-epoch sparkline in the history
+     rows; decorating those put a floating block mid-page. Take the epoch bar:
+     the one that is not inside a row and has real height. */
+  const track=[...document.querySelectorAll('#theme-mount .track')]
+    .find(t=>!t.closest('.barrow') && t.getBoundingClientRect().height>0);
   if(!track) return;
   const fill=track.querySelector(':scope > i, :scope > .fill');
   if(!fill) return;
