@@ -219,6 +219,12 @@ tr.ep-row-new{animation:epRowIn 1.9s ease-out}
 .price-strip{display:flex;gap:26px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin:0 0 14px;
 border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
 .price-strip .px{display:flex;flex-direction:column;gap:3px}
+.spark{width:120px;height:26px;margin-top:2px;opacity:.9}
+.spark.empty{display:none}
+.spark-ranges{display:flex;gap:4px;margin-top:3px}
+.spark-ranges button{font:inherit;font-size:9.5px;letter-spacing:.04em;background:transparent;color:var(--faint);
+  border:1px solid var(--line);border-radius:4px;padding:1px 5px;cursor:pointer}
+.spark-ranges button.on{color:var(--accent);border-color:var(--accent)}
 .price-strip .px.right{margin-left:auto;flex-direction:row;align-items:center;gap:9px}
 .price-strip .k{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:var(--mono)}
 .price-strip .v{font-size:20px;color:var(--head);font-family:var(--mono);font-variant-numeric:tabular-nums}
@@ -384,6 +390,15 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
         <span class="k">&#945; price</span>
         <span class="v" id="alpha-price">&mdash;</span>
         <span class="d" id="alpha-change"></span>
+        <svg id="alpha-spark" class="spark" viewBox="0 0 120 26" preserveAspectRatio="none" aria-hidden="true">
+          <polyline id="alpha-spark-line" fill="none" stroke="var(--accent)" stroke-width="1.5" points=""/>
+        </svg>
+        <div class="spark-ranges" id="spark-ranges">
+          <button data-r="1h" onclick="setPriceRange('1h')">1H</button>
+          <button data-r="24h" class="on" onclick="setPriceRange('24h')">24H</button>
+          <button data-r="7d" onclick="setPriceRange('7d')">7D</button>
+          <button data-r="30d" onclick="setPriceRange('30d')">30D</button>
+        </div>
       </div>
       <div class="px"><span class="k">Market cap</span><span class="v sm" id="alpha-mcap">&mdash;</span></div>
       <div class="px"><span class="k">TAO</span><span class="v sm" id="tao-price">&mdash;</span></div>
@@ -638,7 +653,7 @@ window.URTHEMES['hero'] = {
       '<div class="cols">' +
         '<div class="card"><div class="k" style="margin-bottom:6px">Your account</div>' +
           '<div class="idr"><span class="kk">Wallet</span><span class="mono green">' + DS_SHORT(D.wallet.coldkey) + '</span></div>' +
-          (walletExtra(D)?'<div class="idr"><span class="kk">Balance</span><span class="mono">' + walletExtra(D) + '</span></div>':'') +
+          (walletExtra(D)?'<div class="idr"><span class="kk">Balance</span><span class="mono wh-tpl">' + walletExtra(D) + '</span></div>':'') +
           '<div class="idr"><span class="kk">Consent</span><span>' + D.wallet.scope + ' · epoch ' + D.wallet.fromEpoch + ' → ' + DS_FMT(D.wallet.throughEpoch) + '</span></div>' +
           '<div class="idr"><span class="kk">α unclaimed</span><span class="dim">—</span></div>' +
           '<div class="idr"><span class="kk">Best epoch</span><span>' + D.points.bestEpoch + ' · ' + DS_FMT(D.points.bestPoints, 2) + ' pts</span></div>' +
@@ -712,7 +727,7 @@ window.URTHEMES['console'] = {
           '<div class="muted" style="margin-top:9px">Epoch ' + D.epoch.n + ' pays from ' + D.alpha.firstPayingEpoch + '; this epoch reads "' + D.alpha.thisEpoch + '".</div></div>' +
         '<div class="panel"><h2>Account <span>wallet attached</span></h2><div class="kv">' +
           '<div class="k">coldkey</div><div class="v g">' + DS_SHORT(D.wallet.coldkey) + '</div>' +
-          (walletExtra(D)?'<div class="k">balance</div><div class="v">' + walletExtra(D) + '</div>':'') +
+          (walletExtra(D)?'<div class="k">balance</div><div class="v wh-tpl">' + walletExtra(D) + '</div>':'') +
           '<div class="k">consent</div><div class="v">' + esc(D.wallet.scope) + ' ' + D.wallet.fromEpoch + '→' + DS_FMT(D.wallet.throughEpoch) + '</div>' +
           '<div class="k">α unclaimed</div><div class="v d">—</div>' +
           '<div class="k">points total</div><div class="v">' + DS_FMT(D.points.total, 2) + '</div>' +
@@ -835,7 +850,7 @@ window.URTHEMES['urnetwork'] = {
           '<div class="note">Epochs 1–3 settled under v1, which paid only the verify cohort.</div></div>' +
         '<div class="col"><h3>Account</h3>' +
           '<div class="line"><span class="k">Coldkey</span><span class="v">' + DS_SHORT(D.wallet.coldkey) + '</span></div>' +
-          (walletExtra(D)?'<div class="line"><span class="k">Balance</span><span class="v">' + walletExtra(D) + '</span></div>':'') +
+          (walletExtra(D)?'<div class="line"><span class="k">Balance</span><span class="v wh-tpl">' + walletExtra(D) + '</span></div>':'') +
           '<div class="line"><span class="k">Consent</span><span class="v">' + D.wallet.scope + ' · ' + D.wallet.fromEpoch + '→' + DS_FMT(D.wallet.throughEpoch) + '</span></div>' +
           '<div class="line"><span class="k">Alpha unclaimed</span><span class="v">—</span></div>' +
           '<div class="line"><span class="k">Legacy USDC</span><span class="v">$' + DS_FMT(D.legacy.usdc, 2) + ' · ' + D.legacy.count + '</span></div>' +
@@ -1102,7 +1117,7 @@ window.URTHEMES = window.URTHEMES || {};
 <table><thead><tr><th>Epoch</th><th>Points</th><th></th><th>Share</th><th>Alpha</th><th>Settlement</th></tr></thead><tbody>${rows}</tbody></table>
 <p class="note">Bars are scaled to the best epoch (epoch ${p.bestEpoch}).</p>
 <div class="fn">
-<div><sup>1</sup>Wallet <span class="mono">${H.ck(w.coldkey)}</span>${w.balanceKnown?` · <b>${w.taoFree.toFixed(4)} TAO free</b>`:''}, consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</div>
+<div><sup>1</sup>Wallet <span class="mono">${H.ck(w.coldkey)}</span>${w.balanceKnown?` · <b class="wh-inline">${w.taoFree.toFixed(4)} TAO free</b>`:''}, consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</div>
 <div><sup>2</sup>Legacy: <b>$${H.n(l.usdc, 2)}</b> across <b>${l.count}</b> USDC payments on ${H.esc(l.network)}, last <b>${H.esc(l.last)}</b>.</div>
 <div><sup>3</sup>Traffic: <b>${H.n(t.paidTb, 2)} TB</b> paid, <b>${H.n(t.unpaidTb, 2)} TB</b> unpaid.</div>
 </div>
@@ -1211,7 +1226,7 @@ window.URTHEMES = window.URTHEMES || {};
 <p><b>${p.epochsWithPoints}</b> of <b>${p.epochsFinalized}</b> finalized epochs have points. Best: epoch <b>${p.bestEpoch}</b> with <b>${H.n(p.bestPoints, 2)}</b>.</p></div>
 <div class="pn"><h3>Alpha</h3><div class="num pk">${H.esc(a.thisEpoch)}</div>
 <p>Epoch <b>${a.firstPayingEpoch}</b> is the first epoch that can pay alpha. Earlier epochs show —.</p></div>
-<div class="pn"><h3>Wallet</h3><div class="num mono">${H.ck(w.coldkey)}</div>${w.balanceKnown?`<div class="num" style="font-size:14px">${w.taoFree.toFixed(4)} TAO free</div>`:''}
+<div class="pn"><h3>Wallet</h3><div class="num mono">${H.ck(w.coldkey)}</div>${w.balanceKnown?`<div class="num wh-inline" style="font-size:14px">${w.taoFree.toFixed(4)} TAO free</div>`:''}
 <p>Consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</p></div>
 <div class="pn"><h3>Traffic</h3><div class="num">${H.n(t.paidTb, 2)}<small>TB paid</small></div>
 <p><b>${H.n(t.unpaidTb, 2)} TB</b> unpaid.</p></div>
@@ -1323,7 +1338,7 @@ window.URTHEMES = window.URTHEMES || {};
 <section><h2>Points</h2><div class="big">${H.n(p.total, 2)}<small>total</small></div>
 <p><b>${p.epochsWithPoints}</b> of <b>${p.epochsFinalized}</b> finalized epochs have points.</p><p>Best: epoch <b>${p.bestEpoch}</b>, <b>${H.n(p.bestPoints, 2)}</b>.</p></section>
 <section><h2>Alpha</h2><p><b>${H.esc(a.thisEpoch)}</b> for epoch ${e.n}.</p><p>Epoch <b>${a.firstPayingEpoch}</b> is the first that can pay alpha.</p></section>
-<section><h2>Wallet</h2><p class="mono">${H.ck(w.coldkey)}</p>${w.balanceKnown?`<p><b>${w.taoFree.toFixed(4)} TAO free</b></p>`:''}<p>consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b></p></section>
+<section><h2>Wallet</h2><p class="mono">${H.ck(w.coldkey)}</p>${w.balanceKnown?`<p><b class="wh-inline">${w.taoFree.toFixed(4)} TAO free</b></p>`:''}<p>consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b></p></section>
 <section><h2>Traffic</h2><p><b>${H.n(t.paidTb, 2)} TB</b> paid</p><p><b>${H.n(t.unpaidTb, 2)} TB</b> unpaid</p></section>
 <section><h2>Legacy</h2><p><b>$${H.n(l.usdc, 2)}</b> across <b>${l.count}</b> USDC payments on ${H.esc(l.network)}, last <b>${H.esc(l.last)}</b>.</p></section>
 </div></div></div></div>`;
@@ -1874,6 +1889,19 @@ function money(usd,digits){
 /* the appended figures are their own nodes, so undoing them is a removal rather
    than a text search: the separators are non-breaking spaces, and searching for a
    plain one left the old figures in place. */
+/* the theme markup bakes its own balance line at render time, so masking only
+   the painted line left a second, real figure on the page. */
+function refreshInlineBalances(){
+  const w=(D&&D.wallet)||{};
+  document.querySelectorAll('#theme-mount .wh-inline').forEach(el=>{
+    el.textContent = hideBal ? '\u2022\u2022\u2022\u2022 TAO free'
+                             : (typeof w.taoFree==='number' ? w.taoFree.toFixed(4)+' TAO free' : '');
+  });
+}
+function refreshTemplateBalances(){
+  const v=walletExtra(D||{});
+  document.querySelectorAll('#theme-mount .wh-tpl').forEach(el=>{ el.textContent=v; });
+}
 function resetWalletPaint(){
   document.querySelectorAll('#theme-mount .wallet-extra').forEach(n=>n.remove());
   document.querySelectorAll('#theme-mount [data-ep-bal]').forEach(el=>{ delete el.dataset.epBal; });
@@ -1883,6 +1911,8 @@ function setHideBal(v){
   try{ localStorage.setItem('urwebdash.hidebal', hideBal?'1':'0'); }catch(_){}
   const btn=document.getElementById('hide-bal'); if(btn) btn.dataset.hidden=hideBal?'1':'0';
   resetWalletPaint();
+  refreshTemplateBalances();
+  refreshInlineBalances();
   epWalletBalance();
 }
 function setCurrency(c){
@@ -1893,9 +1923,46 @@ function setCurrency(c){
   try{ localStorage.setItem('urwebdash.currency', c); }catch(_){}
   const sel=document.getElementById('currency'); if(sel&&sel.value!==c) sel.value=c;
   resetWalletPaint();
+  refreshTemplateBalances();
+  refreshInlineBalances();
   epWalletBalance();
   if(typeof renderPayoutRows==='function') renderPayoutRows();
 }
+/* ---------- alpha price trend ---------- */
+/* One quote tells you nothing about direction, so the samples the server stores
+   are drawn as a line. A single point hides the chart rather than drawing a flat
+   line that implies a stable price. */
+let priceRange=(()=>{ try{ return localStorage.getItem('urwebdash.pricerange')||'24h'; }catch(_){ return '24h'; } })();
+function setPriceRange(r){
+  priceRange=r;
+  try{ localStorage.setItem('urwebdash.pricerange', r); }catch(_){}
+  document.querySelectorAll('#spark-ranges button').forEach(b=>b.classList.toggle('on', b.dataset.r===r));
+  renderPriceSpark();
+}
+async function renderPriceSpark(){
+  const svg=document.getElementById('alpha-spark'), line=document.getElementById('alpha-spark-line');
+  if(!svg||!line) return;
+  document.querySelectorAll('#spark-ranges button').forEach(b=>b.classList.toggle('on', b.dataset.r===priceRange));
+  let pts=[];
+  try{
+    const res=await fetch('/api/price-history?range='+encodeURIComponent(priceRange),{cache:'no-store'});
+    if(res.ok) pts=await res.json();
+  }catch(_){ return; }
+  if(!Array.isArray(pts)||pts.length<2){ svg.classList.add('empty'); return; }
+  svg.classList.remove('empty');
+  const vals=pts.map(p=>p.close).filter(v=>typeof v==='number'&&v>0);
+  if(vals.length<2){ svg.classList.add('empty'); return; }
+  const min=Math.min(...vals), max=Math.max(...vals), span=(max-min)||1;
+  const W=120, H=26;
+  line.setAttribute('points', vals.map((v,i)=>{
+    const x=(i/(vals.length-1))*W;
+    const y=H-2-((v-min)/span)*(H-4);
+    return x.toFixed(1)+','+y.toFixed(1);
+  }).join(' '));
+}
+renderPriceSpark();
+setInterval(renderPriceSpark, 10*60*1000);
+
 function renderPrice(){
   const p=D.price; if(!p) return;
   const set=(id,txt)=>{const el=document.getElementById(id);if(el)el.textContent=txt;};

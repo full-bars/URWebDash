@@ -1111,6 +1111,8 @@ func serveHTTP(port string) {
 		payoutCacheMu.RUnlock()
 	}
 	startPayoutPrimer(token)
+	/* every quote is also a point on the price chart, so it is stored as it is
+	   fetched rather than sampled on a second timer that could drift apart */
 	if doc, _, perr := cachedPrice(); perr != nil {
 		fmt.Printf("[price] startup fetch failed: %v\n", perr)
 	} else {
@@ -1139,6 +1141,7 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/spike-threshold", handleSpikeThreshold)
 	mux.HandleFunc("/api/epochs", handleEpochs(db, token))
 	mux.HandleFunc("/api/price", handlePrice)
+	mux.HandleFunc("/api/price-history", handlePriceHistory)
 	mux.HandleFunc("/api/refresh-epochs", handleRefreshEpochs(db, token))
 	mux.HandleFunc("/", handleIndex(db, token))
 
