@@ -1566,10 +1566,25 @@ function go(name){
   });
   return false;
 }
-function fakeRefresh(btn){
+/* this used to spin for 800ms and change nothing, which is worse than no button:
+   it told you the data was fresh when it was not. it asks the server to poll the
+   coordinator now, then re-reads what it just wrote. */
+async function fakeRefresh(btn){
   const label=btn.innerHTML; btn.disabled=true;
-  btn.innerHTML='<span class="spinner"></span> Refreshing...';
-  setTimeout(()=>{btn.disabled=false; btn.innerHTML=label;},800);
+  btn.innerHTML='<span class="spinner"></span> Refreshing\u2026';
+  let err='';
+  try{
+    const res=await fetch('/api/refresh',{method:'POST'});
+    const d=await res.json().catch(()=>({}));
+    if(!res.ok||d.error) throw new Error(d.error||('HTTP '+res.status));
+    await epLiveStats();
+    if(typeof WALLETROWS!=='undefined' && WALLETROWS) await loadAllHistory();
+  }catch(e){ err=e.message||'refresh failed'; }
+  finally{
+    btn.disabled=false;
+    btn.innerHTML=err ? ('\u26a0 '+err) : label;
+    if(err) setTimeout(()=>{ btn.innerHTML=label; }, 2500);
+  }
 }
 
 /* ---------- data ---------- */
