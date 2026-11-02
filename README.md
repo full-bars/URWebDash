@@ -164,6 +164,32 @@ Environment variables:
 | `SPIKE_THRESHOLD` | `1GB` | Per-window traffic delta that triggers an alert. Accepts `500M`, `0.5G`, `1.5GB`, plain bytes |
 | `PAYOUT_NOTIFY_STORE` | `~/.urwebdash/payout_notified.json` | Notification dedup store |
 | `HOST` | `127.0.0.1` | Listen address. Inside Docker set `0.0.0.0`; exposure is controlled by the port mapping |
+| `EPOCH_FIRST_V2` | `4` | First SN25 epoch that settled under the v2 payout model. Epochs at or after it are labelled `v2`, earlier ones `v1` |
+
+### Bittensor (SN25) data
+
+Two tables, separate from `wallet_stats`, which is never modified by this path:
+
+| Table | Key | Written |
+|---|---|---|
+| `epoch_stats` | epoch number | hourly, overwritten in place |
+| `sn_epoch_state` | single row | hourly |
+
+Epochs are keyed by number because an open epoch reports partial points; a row has to be
+correctable until the epoch closes. The traffic table is keyed by time for the opposite
+reason, so the two never share a merge or cleanup path.
+
+`/sn/epoch` reports `commit_deadline_block` and `finalize_block` but not the end of the
+earning window, so that boundary is derived as `start_block + t_epoch_blocks` (falling
+back to `commit - 1200` when the length is missing).
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/epochs` | Finalized epoch history plus the live epoch geometry |
+| `GET /api/refresh-epochs` | Forces a fetch, then returns the same document |
+
+Epoch data refreshes hourly rather than on the 15-minute traffic cadence: an epoch is
+seven days long, so the traffic interval would be 672 identical requests a week.
 
 Troubleshooting:
 
