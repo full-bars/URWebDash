@@ -7,6 +7,21 @@ All notable changes. Format loosely follows Keep a Changelog.
 ### Added
 
 - Bittensor (SN25) epoch earnings data path. A new `epoch_stats` table keyed by epoch number, never by time: an epoch that is still open reports partial points, so the row is overwritten until it closes, which is the opposite of the time-keyed traffic table. A single `sn_epoch_state` row carries the live epoch geometry, and the end of the earning window is derived from `t_epoch_blocks` because the coordinator reports the commit deadline but not that boundary. Epoch data refreshes hourly rather than on the 15-minute traffic cadence. New endpoints `GET /api/epochs` and `GET /api/refresh-epochs`. `wallet_stats` is untouched, so the existing poll grid, cleanup and merge paths are unchanged.
+- Ten themes over one data model. Each theme has its own palette, chart style and motion, chosen from a picker. The default stays Legacy and renders unchanged when no theme is chosen.
+- TAO free balance read from `System.Account` on finney. The storage key is built in-process (twox128 + blake2_128), so there is no chain client dependency.
+- SN25 alpha position read from the AlphaV2 share pool. The runtime removed `Stake`, `StakeInfo` and `StakeInfoV2`, so a position is shares. Alpha is shares × pool alpha / pool shares, using `TotalHotkeyAlpha` and `TotalHotkeySharesV2`. Share values are a decimal fixed point with a variable exponent.
+- Balances show a converted value in the selected currency. The selector offers USD, EUR, GBP, JPY and CNY. A missing exchange rate falls back to USD, shown with its own symbol.
+- A Balances button masks the figures. The choice is remembered across reloads.
+- The data stats page refreshes itself every minute. The 24h box and today's box flare with their delta when the figure climbs, and a new 15 minute row slides into the history table. Today is a UTC calendar day.
+
+### Changed
+
+- The weekly strip runs newest first, with today leading.
+
+### Fixed
+
+- The wallet panel showed the legacy USDC payout wallet as the Bittensor coldkey. The panel now reads the coldkey from `GET /sn/wallet`. The payout wallet is a Solana address, not a Bittensor one.
+- ss58 addresses are checksum-verified before use. A mistyped coldkey now fails instead of decoding to another account and reading a zero balance.
 
 ## v0.0.19 - 2026-10-12
 
