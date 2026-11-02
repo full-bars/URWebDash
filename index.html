@@ -219,6 +219,8 @@ tr.ep-row-new{animation:epRowIn 1.9s ease-out}
 .price-strip{display:flex;gap:26px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin:0 0 14px;
 border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
 .price-strip .px{display:flex;flex-direction:column;gap:3px}
+.hist-pager{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:12px}
+.pager-info{color:var(--muted);font-size:12.5px}
 .spark-band{display:flex;align-items:center;gap:18px;padding:0 16px 12px;margin:-4px 0 14px}
 .spark-meta{display:flex;flex-direction:column;gap:1px;min-width:104px}
 .spark-meta .sv{font-family:var(--mono);font-size:12px;color:var(--text)}
@@ -367,6 +369,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
       <th class="text-right">&#128230; Unpaid (GB)</th><th class="text-right">&#10133; Change (GB)</th>
       <th class="text-right">&#128640; GB/hr</th></tr></thead>
       <tbody id="history-table"></tbody></table></div>
+    <div id="table-pagination" class="hist-pager"></div>
     <div class="note">The 30 newest 15-minute windows of 34,534 stored rows. Charts and table are drawn from the theme's own palette.</div>
   </div>
 
@@ -1537,6 +1540,9 @@ function go(name){
   window.scrollTo(0,0);
   const label={wallet:'Data Stats',payout:'Payout Stats',bittensor:'Bittensor Stats',webhook:'Webhook'}[name]||'';
   const pn=document.getElementById('page-name'); if(pn) pn.textContent=label;
+  /* the data table pages over the whole store, so it loads when the section is
+     first opened rather than on every page load */
+  if(name==='data' && !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
   /* refresh and back should land where you were, not on the first section */
   try{ history.replaceState(null,'','#'+name); }catch(_){}
   try{ localStorage.setItem('section',name); }catch(_){}
@@ -2068,6 +2074,73 @@ function sparkHoverInit(){
 sparkHoverInit();
 setInterval(sparkHoverInit, 3000);
 
+
+/* ---------- paged history ---------- */
+const PAGE_SIZE=50; let walletPage=1, WALLETROWS=null;
+
+/* the page used to carry only the newest thirty windows, which hid a year of
+   stored history. the whole store is fetched once and paged, so every row is
+   reachable without putting tens of thousands of nodes in the document. */
+async function loadAllHistory(){
+  const tbody=document.getElementById('history-table');
+  if(!tbody) return;
+  try{
+    const res=await fetch('/api/wallet-stats',{cache:'no-store'});
+    const rows=await res.json();
+    /* the endpoint answers {count, entries}; older builds sent a bare array */
+    WALLETROWS=Array.isArray(rows)?rows:(rows&&Array.isArray(rows.entries)?rows.entries:[]);
+  }catch(_){ WALLETROWS=null; }
+  walletPage=1;
+  renderWalletTable();
+}
+function renderWalletTable(){
+  const tbody=document.getElementById('history-table');
+  const pager=document.getElementById('table-pagination');
+  if(!tbody||!WALLETROWS) return;
+  const total=WALLETROWS.length;
+  const pages=Math.ceil(total/PAGE_SIZE)||1;
+  if(walletPage>pages) walletPage=pages;
+  const start=(walletPage-1)*PAGE_SIZE;
+  const page=WALLETROWS.slice(start,start+PAGE_SIZE);
+  tbody.innerHTML='';
+  const frag=document.createDocumentFragment();
+  page.forEach(r=>{
+    const d=Number(r.change_bytes||0);
+    const tr=document.createElement('tr');
+    /* when the window was fetched, and how far behind the window it landed: a
+       lagging poll is visible in the table instead of being guessed at */
+    let lag='';
+    if(r.created_at&&r.updated_at){
+      const c=new Date(r.created_at), u=new Date(r.updated_at);
+      if(!isNaN(c)&&!isNaN(u)){
+        const mins=Math.round((u-c)/60000);
+        lag=' \u00b7 fetched '+u.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})+
+            ' ('+(mins>=0?'+':'')+mins+'m)';
+      }
+    }
+    tr.innerHTML='<td class="text-mono">'+esc(fmtTime(r.created_at))+lag+'</td>'+
+      '<td class="text-right text-green">'+(Number(r.paid_bytes)/GB).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
+      '<td class="text-right text-white text-mono">'+Number(r.unpaid_bytes).toLocaleString()+'</td>'+
+      '<td class="text-right text-blue">'+(d>=0?'+':'')+d.toLocaleString()+'</td>'+
+      '<td class="text-right text-yellow">'+(Number(r.unpaid_bytes)/GB).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
+      '<td class="text-right text-blue">'+(d>=0?'+':'')+(d/GB).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
+      '<td class="text-right text-blue">'+(d*4/GB).toFixed(2)+'</td>';
+    frag.appendChild(tr);
+  });
+  tbody.appendChild(frag);
+  if(!pager) return;
+  pager.innerHTML='';
+  const info=document.createElement('span');
+  info.className='pager-info';
+  info.textContent='Page '+walletPage+' of '+pages+' ('+total.toLocaleString()+' entries)';
+  const prev=document.createElement('button');
+  prev.className='btn btn-sm'; prev.textContent='\u25c0 Prev'; prev.disabled=walletPage<=1;
+  prev.onclick=()=>{ if(walletPage>1){ walletPage--; renderWalletTable(); } };
+  const next=document.createElement('button');
+  next.className='btn btn-sm'; next.textContent='Next \u25b6'; next.disabled=walletPage>=pages;
+  next.onclick=()=>{ if(walletPage<pages){ walletPage++; renderWalletTable(); } };
+  pager.appendChild(prev); pager.appendChild(info); pager.appendChild(next);
+}
 function renderPrice(){
   const p=D.price; if(!p) return;
   const set=(id,txt)=>{const el=document.getElementById(id);if(el)el.textContent=txt;};
@@ -2454,7 +2527,11 @@ async function epLiveStats(){
    the page a whole cycle behind the alert that announced it. twenty seconds keeps
    the row close behind, and a backgrounded tab throttles timers anyway, so coming
    back to the tab refreshes at once instead of waiting out the interval. */
-setInterval(()=>{ if(!document.hidden) epLiveStats(); }, 20000);
+setInterval(()=>{ if(!document.hidden){
+  epLiveStats();
+  /* new windows land at the top, so only a viewer on page one needs a re-read */
+  if(WALLETROWS && walletPage===1 && document.getElementById('section-data')?.classList.contains('active')) loadAllHistory();
+} }, 20000);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) epLiveStats(); });
 
 function epUnpaidGrowth(){
