@@ -2893,7 +2893,9 @@ async function whTest(btn){
   try{
     const res=await fetch('/api/webhook-test',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({}) /* empty: the server uses the address it has on file */});
+      /* send the selected format's own message, so the test shows the style the
+         channel will actually receive rather than a canned line */
+      body:JSON.stringify({content: (whCurrent&&whCurrent.payload)||''})});
     const data=await res.json().catch(()=>({}));
     if(!res.ok||data.error) throw new Error(data.error||('HTTP '+res.status));
     if(note) note.textContent='Test sent to the stored webhook — check the channel.';
