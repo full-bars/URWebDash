@@ -804,6 +804,10 @@ func runPolling() {
 		os.Exit(1)
 	}
 
+	/* the page is rendered on the server and makes no client fetch, so the
+	   payout cache has to be kept warm by the process itself */
+	startPayoutPrimer(token)
+
 	db, err := openDB()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)

@@ -161,7 +161,11 @@ background:var(--panel);border:1px solid var(--line);border-radius:var(--radius)
 .swatch{width:18px;height:18px;border-radius:50%;border:1px solid var(--line);cursor:pointer;padding:0;transition:transform .12s,box-shadow .12s}
 .swatch:hover{transform:scale(1.12)}
 .swatch.on{box-shadow:0 0 0 2px var(--panel),0 0 0 3px var(--head)}
-.swatch.orig{background:linear-gradient(135deg,var(--panel) 0 45%,var(--line) 45% 55%,var(--panel) 55% 100%);border-style:dashed}
+.swatch.orig{background:var(--accent);position:relative}
+/* the reset dot shows the theme's own accent, ringed so it is not mistaken for
+   another accent swatch (it used to be a grey gradient, which read as a
+   duplicate of a muted accent beside it) */
+.swatch.orig::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:1px dashed var(--muted);pointer-events:none}
 input[type=color]{width:26px;height:26px;padding:0;border:1px solid var(--line);border-radius:50%;background:none;cursor:pointer}
 input[type=color]::-webkit-color-swatch-wrapper{padding:2px}
 input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
@@ -1664,7 +1668,8 @@ savePrefs=function(){
 };
 let currency='USD';
 function money(usd,digits){
-  const rate=D.fx[currency]||1, sym=(D.fxSymbols||{})[currency]||'$';
+  const rate=(D.fx||{})[currency]||1, sym=(D.fxSymbols||{})[currency]||'$';
+  if(usd==null||!isFinite(usd)) return '—';
   const v=usd*rate;
   const opts=digits===undefined?{maximumFractionDigits:2,minimumFractionDigits:2}
                                :{maximumFractionDigits:digits,minimumFractionDigits:digits};
@@ -1674,12 +1679,17 @@ function setCurrency(c){ currency=c; renderPrice(); }
 function renderPrice(){
   const p=D.price; if(!p) return;
   const set=(id,txt)=>{const el=document.getElementById(id);if(el)el.textContent=txt;};
-  set('alpha-price',money(p.alphaUsd,4));
-  set('alpha-mcap',money(p.marketCapUsd,0));
-  set('tao-price',money(p.taoUsd,2));
+  /* no cached quote yet: show a dash rather than a confident $0.0000 */
+  const haveQuote=!!(p&&p.fetchedAt);
+  set('alpha-price',haveQuote?money(p.alphaUsd,4):'—');
+  set('alpha-mcap',haveQuote?money(p.marketCapUsd,0):'—');
+  set('tao-price',haveQuote?money(p.taoUsd,2):'—');
   const ch=document.getElementById('alpha-change');
-  if(ch){ ch.textContent=(p.change24h>=0?'+':'')+p.change24h.toFixed(2)+'% 24h';
-          ch.className='d '+(p.change24h>=0?'up':'down'); }
+  if(ch){
+    if(p.change24h==null){ ch.textContent='— 24h'; ch.className='d'; }
+    else { ch.textContent=(p.change24h>=0?'+':'')+p.change24h.toFixed(2)+'% 24h';
+           ch.className='d '+(p.change24h>=0?'up':'down'); }
+  }
 }
 function setChartStyle(v){ chartStyle=v; drawCharts(); }
 function setWin(w,btn){
@@ -1866,15 +1876,29 @@ function renderSwatches(){
   /* the theme's own accent is already the first dot ("Theme original"), so any
      list entry close to it would render as a duplicate. Compare channels and
      drop near-matches instead of trusting the hand-written lists. */
+  /* compare perceptually, not per channel: two pinks differing only in blue
+     pass a per-channel test and read as the same dot */
+  const lab=(h)=>{
+    h=h.replace('#','');
+    const f=(c)=>{c/=255;return c<=0.04045?c/12.92:Math.pow((c+0.055)/1.055,2.4);};
+    const r=f(parseInt(h.slice(0,2),16)),g=f(parseInt(h.slice(2,4),16)),b=f(parseInt(h.slice(4,6),16));
+    let x=(r*0.4124+g*0.3576+b*0.1805)/0.95047,
+        y=(r*0.2126+g*0.7152+b*0.0722),
+        z=(r*0.0193+g*0.1192+b*0.9505)/1.08883;
+    const t=(v)=>v>0.008856?Math.cbrt(v):7.787*v+16/116;
+    x=t(x);y=t(y);z=t(z);
+    return [116*y-16, 500*(x-y), 200*(y-z)];
+  };
   const closeTo=(a,b)=>{
-    const parse=h=>{h=h.replace('#','');return [parseInt(h.slice(0,2),16)/255,parseInt(h.slice(2,4),16)/255,parseInt(h.slice(4,6),16)/255];};
-    const A=parse(a),B=parse(b);
-    return Math.abs(A[0]-B[0])<0.10 && Math.abs(A[1]-B[1])<0.10 && Math.abs(A[2]-B[2])<0.10;
+    const A=lab(a),B=lab(b);
+    return Math.hypot(A[0]-B[0],A[1]-B[1],A[2]-B[2]) < 20;
   };
   const list=(t.accents||[t.accent]).filter(c=>!closeTo(c,t.accent));
   wrap.innerHTML='';
   const orig=document.createElement('button');
   orig.className='swatch orig'+(accentFor(currentTheme)===null?' on':'');
+  /* show the theme's untouched accent rather than a neutral fill */
+  orig.style.background=t.accent;
   orig.title='Theme original';
   orig.onclick=()=>{delete accentByTheme[currentTheme];applyTheme(currentTheme);};
   wrap.appendChild(orig);

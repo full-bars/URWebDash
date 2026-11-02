@@ -17,6 +17,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -191,8 +192,10 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 				d.AsOf = last.T
 				d.Traffic = dashTraffic{
 					PaidBytes: last.Paid, UnpaidBytes: last.Unpaid,
-					PaidTb:   float64(last.Paid) / 1e12,
-					UnpaidTb: float64(last.Unpaid) / 1e12,
+					/* two decimals: the theme templates print these directly into
+					   "N TB", so the payload carries the display value */
+					PaidTb:   round2(float64(last.Paid) / 1e12),
+					UnpaidTb: round2(float64(last.Unpaid) / 1e12),
 				}
 				h.RowsTotal = n
 				h.Range = []string{samples[0].T, last.T}
@@ -379,6 +382,12 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 	d.Wallet.Scope = "network"
 	d.Legacy = dashLegacy{Usdc: usdcTotal, Count: legacyCount, Last: lastPay, Network: "SOL"}
 	return d, h, pays
+}
+
+// round2 keeps a display figure at two decimals so a template that prints it
+// directly cannot show sixteen.
+func round2(v float64) float64 {
+	return math.Round(v*100) / 100
 }
 
 func percent(part, whole int64) float64 {
