@@ -196,13 +196,20 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 				}
 				h.RowsTotal = n
 				h.Range = []string{samples[0].T, last.T}
-				/* the long series is downsampled to 2-hourly steps so the page
-				   stays light; the recent list is the newest 30 samples */
+				/* the long series is downsampled to one sample per 2-hour bucket so
+				   the page stays light. Bucket by time, not by clock minute: the
+				   poll interval is configurable, and a 1h interval puts every
+				   sample on minute 0, which a minute-based filter would drop */
+				lastBucket := int64(-1)
 				for i, s := range samples {
-					ts, err := time.Parse(time.RFC3339, s.T)
-					if err == nil && (ts.Minute() == 45 || ts.Minute() == 30) && ts.Hour()%2 == 0 {
-						h.Series = append(h.Series, dashSample{T: s.T, Paid: s.Paid, Unpaid: s.Unpaid})
-					} else if i == n-1 {
+					keep := i == n-1
+					if ts, err := time.Parse(time.RFC3339, s.T); err == nil {
+						if b := ts.Unix() / 7200; b != lastBucket {
+							keep = true
+							lastBucket = b
+						}
+					}
+					if keep {
 						h.Series = append(h.Series, dashSample{T: s.T, Paid: s.Paid, Unpaid: s.Unpaid})
 					}
 				}
@@ -269,8 +276,14 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 			end = sn.earningEndBlock()
 		}
 		startMs := time.Now()
-		if len(epochs) > 0 && epochs[0].EndMillis > 0 {
-			startMs = time.UnixMilli(epochs[0].EndMillis)
+		/* anchor to the epoch before the live one: the newest stored row may be
+		   the open epoch, whose end_millis is in the future, which would pin the
+		   estimate at the start block */
+		for _, e := range epochs {
+			if e.Epoch == sn.Epoch-1 && e.EndMillis > 0 {
+				startMs = time.UnixMilli(e.EndMillis)
+				break
+			}
 		}
 		elapsed := time.Since(startMs)
 		if elapsed < 0 {
@@ -309,8 +322,9 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 		}
 	}
 
-	/* price */
-	if doc, _, err := cachedPrice(); err == nil {
+	/* price: read the cache only. A cold cache leaves the section empty rather
+	   than making the request wait on two upstreams */
+	if doc, _, ok := peekPrice(); ok {
 		d.Price = dashPrice{
 			AlphaUSD: doc.AlphaUSD, TaoUSD: doc.TAOUSD, Change24h: doc.Change24h,
 			MarketCap: doc.MarketCap, FDV: doc.FDV, Pool: doc.Pool,
@@ -325,7 +339,13 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 	var usdcTotal float64
 	var legacyCount int
 	var lastPay string
-	for _, p := range payoutCache {
+	/* the refresh handler replaces this slice under payoutCacheMu, and this
+	   runs on the request goroutine: copy the header under the lock */
+	payoutCacheMu.RLock()
+	payouts := make([]payoutRecord, len(payoutCache))
+	copy(payouts, payoutCache)
+	payoutCacheMu.RUnlock()
+	for _, p := range payouts {
 		chain := p.Blockchain
 		if chain == "" {
 			chain = "SOL"

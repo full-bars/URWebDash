@@ -196,6 +196,18 @@ func fetchPrice() (priceDoc, error) {
 // made with the lock released: a slow upstream must not queue every reader
 // behind it, and a reader that arrives mid-refresh gets the previous quote and
 // its true age instead of waiting.
+// peekPrice returns whatever is already cached without ever starting a fetch.
+// The page render uses this: a cold cache must render an empty price section,
+// not hold the whole dashboard for the pool and fx timeouts.
+func peekPrice() (priceDoc, time.Duration, bool) {
+	priceCache.mu.Lock()
+	defer priceCache.mu.Unlock()
+	if priceCache.doc.AlphaUSD <= 0 {
+		return priceDoc{}, 0, false
+	}
+	return priceCache.doc, time.Since(priceCache.at), true
+}
+
 func cachedPrice() (priceDoc, time.Duration, error) {
 	priceCache.mu.Lock()
 	age := time.Since(priceCache.at)
