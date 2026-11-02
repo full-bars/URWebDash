@@ -1404,7 +1404,9 @@ window.URFORMATS['box-table'] = {
   id: 'box-table', name: 'Box table', iosSafe: false,
   note: 'Current default, unchanged. U+2500 box glyphs inside a code block; iOS has no such glyphs in its monospace face, so the columns shear. Also ships a dangling divider: the separator row follows the top border with no header between them.',
   html: '<div class="uf-box-table"><b>\u{1F6EB} Traffic Spike</b><pre style="background:#2b2d31;border-radius:5px;padding:8px 10px;margin:6px 0 0;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.35;color:#dbdee1;overflow-x:auto">\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n\u2502 15m Delta            \u2502   +1.45 GB \u2502\n\u2502 Total Unpaid         \u2502  742.29 GB \u2502\n\u2502 At (UTC)             \u2502   01:15:01 \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518</pre></div>',
-  payload: '\u{1F6EB} **Traffic Spike**\n```\n\u250C\u2500\u2500\u252C\u2500\u2500\u2510 … box table, 37 cols …\n\u2514\u2500\u2500\u2534\u2500\u2500\u2518\n```'
+  /* the test button posts this, so it has to be the whole table the alerter
+     sends, not an abbreviated sketch of it */
+  payload: '🛫 **Traffic Spike**\n```\n┌──────────────────────┬────────────┐\n├──────────────────────┼────────────┤\n│ 15m Delta            │   +1.45 GB │\n│ Total Unpaid         │  742.29 GB │\n│ At (UTC)             │   01:15:01 │\n└──────────────────────┴────────────┘\n```'
 };
 
 window.URFORMATS['ascii-table'] = {

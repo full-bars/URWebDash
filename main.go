@@ -2068,6 +2068,33 @@ func sampleAlertBody() string {
 	return string(out)
 }
 
+// sanitizePreview drops ANSI escape sequences from a preview payload. Discord
+// does not interpret them, so a format carrying terminal colour codes would post
+// raw garbage into the channel; everything else is passed through untouched.
+func sanitizePreview(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] != 0x1b {
+			b.WriteByte(s[i])
+			continue
+		}
+		j := i + 1
+		if j < len(s) && s[j] == '[' {
+			j++
+			for j < len(s) && !(s[j] >= 0x40 && s[j] <= 0x7e) {
+				j++
+			}
+		}
+		i = j
+	}
+	return strings.TrimSpace(b.String())
+}
+
 func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != "POST" {
@@ -2082,7 +2109,7 @@ func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 		URL     string `json:"url"`
 		Content string `json:"content"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err == nil && strings.TrimSpace(req.URL) != "" {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16384)).Decode(&req); err == nil && strings.TrimSpace(req.URL) != "" {
 		url = strings.TrimSpace(req.URL)
 	}
 	if url == "" {
@@ -2093,10 +2120,20 @@ func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "URL must start with https://discord.com/api/webhooks/")
 		return
 	}
-	/* send the alert as it will actually arrive. The previews on the page are
-	   design studies with placeholder text, and an ANSI preview posts raw escape
-	   bytes that Discord renders as gibberish, so the test does not send them. */
+	/* Send the body for the format the operator selected. The button exists so
+	   the channel can be checked against the preview, and a canned sample cannot
+	   show whether the chosen style survived Discord. Two shapes arrive: an
+	   embed format sends a JSON object, every other format sends markdown
+	   content. ANSI escapes are stripped — Discord prints them literally, so a
+	   preview that carries terminal colour codes would post gibberish. */
 	body := sampleAlertBody()
+	if c := sanitizePreview(req.Content); c != "" {
+		if strings.HasPrefix(c, "{") && json.Valid([]byte(c)) {
+			body = c
+		} else if b, err := json.Marshal(map[string]string{"content": c}); err == nil {
+			body = string(b)
+		}
+	}
 	status, err := sendDiscordWebhookJSON(url, body)
 	if err != nil {
 		if status == 0 {
