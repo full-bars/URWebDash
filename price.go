@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -119,6 +120,23 @@ func floatPtr(f float64, ok bool) *float64 {
 	return &f
 }
 
+func finite(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) }
+
+/* a feed can carry NaN or Inf through a parse without failing it */
+func floatPtrIfFinite(f float64, ok bool) *float64 {
+	if !ok || !finite(f) {
+		return nil
+	}
+	return &f
+}
+
+func finiteOr(f float64, ok bool) float64 {
+	if !ok || !finite(f) {
+		return 0
+	}
+	return f
+}
+
 // fetchPrice reads the pool quote and the fx quotes. The pool call is required;
 // fx is optional, because a price without conversion is still useful and the fx
 // endpoint is the one more likely to be rate limited.
@@ -129,19 +147,20 @@ func fetchPrice() (priceDoc, error) {
 	}
 	a := pool.Data.Attributes
 	alpha, alphaOK := parseFloat(a.BasePrice)
-	if !alphaOK || alpha <= 0 {
-		return priceDoc{}, fmt.Errorf("pool quote: alpha price missing")
+	if !alphaOK || alpha <= 0 || !finite(alpha) {
+		return priceDoc{}, fmt.Errorf("pool quote: alpha price missing or non-finite")
 	}
-	tao, _ := parseFloat(a.QuotePrice)
+	tao, taoOK := parseFloat(a.QuotePrice)
 	chg, chgOK := parseFloat(a.Change.H24)
 	mc, mcOK := parseFloat(a.MarketCap)
 	fdv, fdvOK := parseFloat(a.FDV)
+	tao = finiteOr(tao, taoOK)
 	doc := priceDoc{
 		AlphaUSD:   alpha,
 		TAOUSD:     tao,
-		Change24h:  floatPtr(chg, chgOK),
-		MarketCap:  floatPtr(mc, mcOK),
-		FDV:        floatPtr(fdv, fdvOK),
+		Change24h:  floatPtrIfFinite(chg, chgOK),
+		MarketCap:  floatPtrIfFinite(mc, mcOK),
+		FDV:        floatPtrIfFinite(fdv, fdvOK),
 		Pool:       a.Name,
 		Source:     "geckoterminal pool 0-25",
 		FetchedAt:  time.Now().UTC().Format(time.RFC3339),
@@ -228,7 +247,13 @@ func cachedPrice() (priceDoc, time.Duration, error) {
 		doc.Currencies = priceCache.doc.Currencies
 		doc.FXAt = priceCache.doc.FXAt
 	}
-	priceCache.doc, priceCache.at, priceCache.fail = doc, time.Now(), ""
+	/* the age origin is the quote's own timestamp, not the moment the cache
+	   got around to storing it */
+	at := doc.QuotedAt
+	if at.IsZero() {
+		at = time.Now()
+	}
+	priceCache.doc, priceCache.at, priceCache.fail = doc, at, ""
 	return doc, 0, nil
 }
 

@@ -95,6 +95,11 @@ func ensureEpochSchema(db *sql.DB) error {
 			finalized INTEGER NOT NULL DEFAULT 0,
 			updated_at TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS epoch_poll_state (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			last_attempt TEXT NOT NULL DEFAULT '',
+			last_error TEXT NOT NULL DEFAULT ''
+		)`,
 		`CREATE TABLE IF NOT EXISTS sn_epoch_state (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			epoch INTEGER NOT NULL DEFAULT 0,
@@ -118,12 +123,16 @@ func ensureEpochSchema(db *sql.DB) error {
 	/* add the columns a pre-existing database will not have */
 	for _, c := range []struct{ table, col, decl string }{
 		{"epoch_stats", "finalized", "INTEGER NOT NULL DEFAULT 0"},
-		{"sn_epoch_state", "last_attempt", "TEXT NOT NULL DEFAULT ''"},
-		{"sn_epoch_state", "last_error", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		if err := addColumnIfMissing(db, c.table, c.col, c.decl); err != nil {
 			return err
 		}
+	}
+	/* epochs stored before the marker existed are closed by the clock */
+	if _, err := db.Exec(`UPDATE epoch_stats SET finalized = 1
+		WHERE finalized = 0 AND end_millis > 0 AND end_millis <= ?`,
+		time.Now().UnixMilli()); err != nil {
+		return fmt.Errorf("epoch schema: backfill finalized: %w", err)
 	}
 	return nil
 }
@@ -161,7 +170,7 @@ func storeEpochs(db *sql.DB, rows []epochRow, now time.Time) error {
 			/* once an epoch has closed its points are final: a later poll (or a
 			   partial response) must not overwrite them */
 			points=CASE WHEN epoch_stats.finalized=1 THEN epoch_stats.points ELSE excluded.points END,
-			share_bps=excluded.share_bps,
+			share_bps=CASE WHEN epoch_stats.finalized=1 THEN epoch_stats.share_bps ELSE excluded.share_bps END,
 			alpha_rao=COALESCE(excluded.alpha_rao, epoch_stats.alpha_rao),
 			settlement=excluded.settlement,
 			start_millis=excluded.start_millis,
@@ -212,8 +221,10 @@ func storeEpochAttempt(db *sql.DB, at time.Time, err error) {
 	if err != nil {
 		msg = err.Error()
 	}
-	db.Exec(`INSERT INTO sn_epoch_state (id, fetched_at, last_attempt, last_error)
-		VALUES (1, '', ?, ?)
+	/* its own table: an attempt is not a fetched epoch, and writing one into
+	   sn_epoch_state would serve a zero epoch to the page */
+	db.Exec(`INSERT INTO epoch_poll_state (id, last_attempt, last_error)
+		VALUES (1, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			last_attempt=excluded.last_attempt, last_error=excluded.last_error`,
 		at.UTC().Format(time.RFC3339), msg)
@@ -221,7 +232,7 @@ func storeEpochAttempt(db *sql.DB, at time.Time, err error) {
 
 func readEpochAttempt(db *sql.DB) (time.Time, string) {
 	var at, msg string
-	if err := db.QueryRow(`SELECT last_attempt, last_error FROM sn_epoch_state WHERE id = 1`).Scan(&at, &msg); err != nil {
+	if err := db.QueryRow(`SELECT last_attempt, last_error FROM epoch_poll_state WHERE id = 1`).Scan(&at, &msg); err != nil {
 		return time.Time{}, ""
 	}
 	ts, _ := time.Parse(time.RFC3339, at)
@@ -338,6 +349,12 @@ func fetchSNEpoch(token string) (snEpoch, error) {
 	if e.Epoch <= 0 || e.StartBlock <= 0 || e.CommitBlock <= e.StartBlock || e.Finalize <= e.CommitBlock {
 		return snEpoch{}, fmt.Errorf("sn/epoch: implausible geometry (epoch %d, start %d, commit %d, finalize %d)",
 			e.Epoch, e.StartBlock, e.CommitBlock, e.Finalize)
+	}
+	/* the earning boundary is derived, so it gets its own check: a bad
+	   t_epoch_blocks would otherwise place it outside the epoch */
+	if end := e.earningEndBlock(); end <= e.StartBlock || end > e.CommitBlock {
+		return snEpoch{}, fmt.Errorf("sn/epoch: derived earning end %d outside (%d, %d]",
+			end, e.StartBlock, e.CommitBlock)
 	}
 	return e, nil
 }

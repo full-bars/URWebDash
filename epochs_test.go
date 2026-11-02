@@ -274,3 +274,45 @@ func TestOpenEpochStillUpdates(t *testing.T) {
 		t.Errorf("open epoch marked finalized")
 	}
 }
+
+// Recording a poll attempt must not fabricate a fetched epoch: the page would
+// read epoch 0 with a zero window.
+func TestPollAttemptDoesNotCreateEpochState(t *testing.T) {
+	db := testDB(t)
+	storeEpochAttempt(db, time.Now(), fmt.Errorf("boom"))
+	if _, _, err := readSNEpoch(db); err == nil {
+		t.Fatal("a poll attempt created an epoch state row")
+	}
+	if at, msg := readEpochAttempt(db); at.IsZero() || msg != "boom" {
+		t.Errorf("attempt not recorded: %v %q", at, msg)
+	}
+}
+
+// A finalized epoch's share is as final as its points.
+func TestFinalizedShareIsFrozen(t *testing.T) {
+	db := testDB(t)
+	past := time.Now().Add(-48 * time.Hour).UnixMilli()
+	storeEpochs(db, []epochRow{{Epoch: 3, Points: 10, ShareBps: 940, StartMillis: past - 604800000, EndMillis: past}}, time.Now())
+	storeEpochs(db, []epochRow{{Epoch: 3, Points: 10, ShareBps: 0, StartMillis: past - 604800000, EndMillis: past}}, time.Now())
+	rows, _ := readEpochs(db, 5)
+	if rows[0].ShareBps != 940 {
+		t.Errorf("finalized share overwritten: %d", rows[0].ShareBps)
+	}
+}
+
+// Rows stored before the marker existed are backfilled as finalized.
+func TestSchemaBackfillsFinalized(t *testing.T) {
+	db := testDB(t)
+	past := time.Now().Add(-72 * time.Hour).UnixMilli()
+	if _, err := db.Exec(`INSERT INTO epoch_stats (epoch, points, start_millis, end_millis, finalized, updated_at)
+		VALUES (2, 5, ?, ?, 0, '')`, past-604800000, past); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	if err := ensureEpochSchema(db); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	rows, _ := readEpochs(db, 5)
+	if rows[0].Finalized != 1 {
+		t.Errorf("closed epoch not backfilled: %d", rows[0].Finalized)
+	}
+}
