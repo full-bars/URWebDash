@@ -226,7 +226,13 @@ border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)
 .spark-meta .sv b{font-weight:600;color:var(--muted)}
 .spark-band .k{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
   font-family:var(--mono);white-space:nowrap}
-.spark{flex:1 1 auto;min-width:0;width:100%;height:52px;display:block}
+.spark-plot{position:relative;flex:1 1 auto;min-width:0}
+.spark{width:100%;height:56px;display:block}
+.spark-yaxis{position:absolute;right:2px;top:-2px;bottom:-2px;display:flex;flex-direction:column;
+  justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--faint);pointer-events:none}
+.spark-tip{position:absolute;z-index:5;pointer-events:none;opacity:0;transition:opacity .1s;
+  background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:3px 7px;
+  font-family:var(--mono);font-size:11px;color:var(--text);white-space:nowrap;transform:translate(-50%,-100%)}
 .spark-ranges{display:flex;gap:4px}
 .spark.empty{display:none}
 .spark-ranges{display:flex;gap:4px;margin-top:3px}
@@ -417,11 +423,18 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
         <span class="sv dim">low <b id="spark-low">&mdash;</b></span>
         <span class="sv dim">high <b id="spark-high">&mdash;</b></span>
       </div>
-      <svg id="alpha-spark" class="spark" viewBox="0 0 600 56" preserveAspectRatio="none" aria-hidden="true">
-        <polygon id="alpha-spark-area" fill="var(--accent)" opacity=".12" points=""/>
-        <polyline id="alpha-spark-line" fill="none" stroke="var(--accent)" stroke-width="1.6"
-                  vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round" points=""/>
-      </svg>
+      <div class="spark-plot" id="spark-plot">
+        <svg id="alpha-spark" class="spark" viewBox="0 0 600 56" preserveAspectRatio="none" aria-hidden="true">
+          <polygon id="alpha-spark-area" fill="var(--accent)" opacity=".12" points=""/>
+          <polyline id="alpha-spark-line" fill="none" stroke="var(--accent)" stroke-width="1.6"
+                    vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round" points=""/>
+          <line id="spark-guide" x1="0" y1="0" x2="0" y2="56" stroke="var(--line)" stroke-width="1"
+                vector-effect="non-scaling-stroke" opacity="0"/>
+          <circle id="spark-hover-dot" r="2.6" fill="var(--accent)" opacity="0"/>
+        </svg>
+        <div class="spark-yaxis"><span id="spark-y-max"></span><span id="spark-y-min"></span></div>
+        <div class="spark-tip" id="spark-tip"></div>
+      </div>
       <div class="spark-ranges" id="spark-ranges">
         <button data-r="1h" onclick="setPriceRange('1h')">1H</button>
         <button data-r="24h" class="on" onclick="setPriceRange('24h')">24H</button>
@@ -1994,8 +2007,11 @@ async function renderPriceSpark(){
   if(area) area.setAttribute('points',
     '0,'+H+' '+xy.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')+' '+W+','+H);
   const fmt=v=>'$'+v.toFixed(4);
+  window.__sparkSeries={vals, xy, min, max, pts};
   const setTxt=(id,t)=>{const e=document.getElementById(id); if(e) e.textContent=t;};
   setTxt('spark-last', fmt(vals[vals.length-1]));
+  setTxt('spark-y-max', fmt(max));
+  setTxt('spark-y-min', fmt(min));
   setTxt('spark-low', fmt(min));
   setTxt('spark-high', fmt(max));
   const dot=document.getElementById('alpha-spark-dot');
@@ -2007,6 +2023,50 @@ async function renderPriceSpark(){
 }
 renderPriceSpark();
 setInterval(renderPriceSpark, 10*60*1000);
+
+
+/* ---------- hover readout ---------- */
+/* a line tells you the shape but not the number at a point, so the chart answers
+   the cursor: a guide line, a dot on the series, and the price with its time. */
+function sparkHoverInit(){
+  const plot=document.getElementById('spark-plot');
+  const svg=document.getElementById('alpha-spark');
+  if(!plot||!svg||plot.dataset.hover==='1') return;
+  plot.dataset.hover='1';
+  const tip=document.getElementById('spark-tip');
+  const guide=document.getElementById('spark-guide');
+  const dot=document.getElementById('spark-hover-dot');
+
+  function move(ev){
+    const s=window.__sparkSeries;
+    if(!s||!s.vals||s.vals.length<2) return;
+    const box=svg.getBoundingClientRect();
+    const rel=Math.min(Math.max(ev.clientX-box.left,0),box.width);
+    const i=Math.round((rel/box.width)*(s.vals.length-1));
+    const v=s.vals[i];
+    const t=s.pts?new Date(s.pts[i].t*1000):null;
+    guide.setAttribute('x1',(i/(s.vals.length-1))*600);
+    guide.setAttribute('x2',(i/(s.vals.length-1))*600);
+    guide.setAttribute('opacity','1');
+    if(dot&&s.xy&&s.xy[i]){
+      dot.setAttribute('cx',s.xy[i][0]); dot.setAttribute('cy',s.xy[i][1]); dot.setAttribute('opacity','1');
+    }
+    const when=t?t.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+    tip.textContent='$'+v.toFixed(4)+(when?' \u00b7 '+when:'');
+    tip.style.left=rel+'px';
+    tip.style.top=(s.xy&&s.xy[i]?s.xy[i][1]:10)+'px';
+    tip.style.opacity='1';
+  }
+  function leave(){
+    guide.setAttribute('opacity','0');
+    if(dot) dot.setAttribute('opacity','0');
+    tip.style.opacity='0';
+  }
+  svg.addEventListener('mousemove',move);
+  svg.addEventListener('mouseleave',leave);
+}
+sparkHoverInit();
+setInterval(sparkHoverInit, 3000);
 
 function renderPrice(){
   const p=D.price; if(!p) return;
