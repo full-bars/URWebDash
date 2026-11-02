@@ -805,19 +805,25 @@ func runPolling() {
 	}
 
 	/* the page is rendered on the server and makes no client fetch, so the
-	   payout cache has to be kept warm by the process itself */
-	if _, perr := primePayoutCache(token); perr != nil {
-		fmt.Printf("[payout] initial prime failed: %v\n", perr)
-	}
-	startPayoutPrimer(token)
+	   payout cache has to be kept warm by the process itself. This runs in the
+	   background: a slow upstream prime must never delay the first stats poll
+	   past its window boundary, because that window is then lost for good. */
+	go func() {
+		if _, perr := primePayoutCache(token); perr != nil {
+			fmt.Printf("[payout] initial prime failed: %v\n", perr)
+		}
+	}()
+	go startPayoutPrimer(token)
 
 	/* the page reads the price cache without ever starting a fetch, so it has to
 	   be warm before the first visitor or the market strip renders as dashes */
-	if doc, _, perr := cachedPrice(); perr != nil {
-		fmt.Printf("[price] initial fetch failed: %v\n", perr)
-	} else {
-		fmt.Printf("[price] warm: alpha $%.4f\n", doc.AlphaUSD)
-	}
+	go func() {
+		if doc, _, perr := cachedPrice(); perr != nil {
+			fmt.Printf("[price] initial fetch failed: %v\n", perr)
+		} else {
+			fmt.Printf("[price] warm: alpha $%.4f\n", doc.AlphaUSD)
+		}
+	}()
 	go func() {
 		t := time.NewTicker(10 * time.Minute)
 		defer t.Stop()
@@ -1264,7 +1270,10 @@ func handlePayoutStats(token string) http.HandlerFunc {
 		payoutCacheMu.RUnlock()
 
 		if needsRefresh {
-			if resp, err := payoutSource(token); err == nil {
+			/* payoutSource can report a failure as a field rather than a Go error;
+			   treating that as success caches an empty list and clears the last
+			   error, so the page reads as "no payouts" instead of "fetch failed" */
+			if resp, err := payoutSource(token); err == nil && resp.Error == nil {
 				pointEntries, _ := fetchPoints(token)
 				pointsByPayment := make(map[string]float64)
 				reliabilityByPayment := make(map[string]float64)

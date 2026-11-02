@@ -1323,7 +1323,7 @@ window.URTHEMES = window.URTHEMES || {};
 <section><h2>Points</h2><div class="big">${H.n(p.total, 2)}<small>total</small></div>
 <p><b>${p.epochsWithPoints}</b> of <b>${p.epochsFinalized}</b> finalized epochs have points.</p><p>Best: epoch <b>${p.bestEpoch}</b>, <b>${H.n(p.bestPoints, 2)}</b>.</p></section>
 <section><h2>Alpha</h2><p><b>${H.esc(a.thisEpoch)}</b> for epoch ${e.n}.</p><p>Epoch <b>${a.firstPayingEpoch}</b> is the first that can pay alpha.</p></section>
-<section><h2>Wallet</h2><p class="mono">${H.ck(w.coldkey)}</p>${w.balanceKnown?`<p><b>${w.taoFree.toFixed(4)} TAO free</b> free</p>`:''}<p>consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b></p></section>
+<section><h2>Wallet</h2><p class="mono">${H.ck(w.coldkey)}</p>${w.balanceKnown?`<p><b>${w.taoFree.toFixed(4)} TAO free</b></p>`:''}<p>consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b></p></section>
 <section><h2>Traffic</h2><p><b>${H.n(t.paidTb, 2)} TB</b> paid</p><p><b>${H.n(t.unpaidTb, 2)} TB</b> unpaid</p></section>
 <section><h2>Legacy</h2><p><b>$${H.n(l.usdc, 2)}</b> across <b>${l.count}</b> USDC payments on ${H.esc(l.network)}, last <b>${H.esc(l.last)}</b>.</p></section>
 </div></div></div></div>`;
@@ -1603,7 +1603,12 @@ renderPayoutRows();
    conversions and privacy match the rest of the page */
 function walletExtra(D){
   const w=(D&&D.wallet)||{};
-  if(hideBal) return 'SN25a \u2022\u2022\u2022\u2022 \u00b7 TAO free \u2022\u2022\u2022\u2022';
+  if(hideBal){
+    const m=[];
+    if(w.alphaKnown) m.push('SN'+(w.netuid||25)+'a \u2022\u2022\u2022\u2022');
+    if(w.balanceKnown) m.push('TAO free \u2022\u2022\u2022\u2022');
+    return m.join(' \u00b7 '); /* nothing known, nothing to mask */
+  }
   const bits=[];
   const p=(D&&D.price)||{};
   if(w.alphaKnown && typeof w.alphaStake==='number'){
@@ -1866,16 +1871,18 @@ function money(usd,digits){
                                :{maximumFractionDigits:digits,minimumFractionDigits:digits};
   return sym+v.toLocaleString('en-US',opts);
 }
+/* the appended figures are their own nodes, so undoing them is a removal rather
+   than a text search: the separators are non-breaking spaces, and searching for a
+   plain one left the old figures in place. */
+function resetWalletPaint(){
+  document.querySelectorAll('#theme-mount .wallet-extra').forEach(n=>n.remove());
+  document.querySelectorAll('#theme-mount [data-ep-bal]').forEach(el=>{ delete el.dataset.epBal; });
+}
 function setHideBal(v){
   hideBal=!!v;
   try{ localStorage.setItem('urwebdash.hidebal', hideBal?'1':'0'); }catch(_){}
   const btn=document.getElementById('hide-bal'); if(btn) btn.dataset.hidden=hideBal?'1':'0';
-  document.querySelectorAll('#theme-mount [data-ep-bal]').forEach(el=>{
-    const t=el.textContent||'';
-    const cuts=[' \u00b7 SN',' \u00b7 TAO free'].map(x=>t.indexOf(x)).filter(i=>i>0);
-    if(cuts.length) el.textContent=t.slice(0,Math.min.apply(null,cuts));
-    delete el.dataset.epBal;
-  });
+  resetWalletPaint();
   epWalletBalance();
 }
 function setCurrency(c){
@@ -1885,13 +1892,7 @@ function setCurrency(c){
   /* the wallet line carries converted values, so it has to be rewritten too */
   try{ localStorage.setItem('urwebdash.currency', c); }catch(_){}
   const sel=document.getElementById('currency'); if(sel&&sel.value!==c) sel.value=c;
-  document.querySelectorAll('#theme-mount [data-ep-bal]').forEach(el=>{
-    const t=el.textContent||'';
-    const cut=t.indexOf(' \u00b7 SN'), cut2=t.indexOf(' \u00b7 TAO free');
-    const at=cut>=0?cut:(cut2>=0?cut2:-1);
-    if(at>0) el.textContent=t.slice(0,at);
-    delete el.dataset.epBal;
-  });
+  resetWalletPaint();
   epWalletBalance();
   if(typeof renderPayoutRows==='function') renderPayoutRows();
 }

@@ -125,19 +125,19 @@ func stakingHotkeys(coldkeyID []byte) ([][]byte, error) {
 // compactLen decodes a SCALE compact integer, returning value and bytes used.
 func compactLen(b []byte) (int, int) {
 	if len(b) == 0 {
-		return 0, 0
+		return -1, 0 /* no length prefix at all */
 	}
 	switch b[0] & 0x03 {
 	case 0:
 		return int(b[0] >> 2), 1
 	case 1:
 		if len(b) < 2 {
-			return 0, 1
+			return -1, 1 /* truncated: an error, not an empty vector */
 		}
 		return int(binary.LittleEndian.Uint16(b) >> 2), 2
 	case 2:
 		if len(b) < 4 {
-			return 0, 1
+			return -1, 1
 		}
 		return int(binary.LittleEndian.Uint32(b) >> 2), 4
 	default:
@@ -250,8 +250,21 @@ func fetchAlphaStake(coldkey string) (float64, bool) {
 	}
 	alphaCache.mu.Unlock()
 
+	/* the page renders on the request path, so a failed read is remembered for a
+	   short window rather than retried for every visitor */
+	if upstreamBlocked("alpha") {
+		alphaCache.mu.Lock()
+		if alphaCache.key == coldkey && alphaCache.ok {
+			v := alphaCache.val
+			alphaCache.mu.Unlock()
+			return v, true
+		}
+		alphaCache.mu.Unlock()
+		return 0, false
+	}
 	v, err := alphaStakeForColdkey(coldkey, snNetuid)
 	if err != nil {
+		upstreamFailed("alpha")
 		fmt.Printf("[alpha] read failed: %v\n", err)
 		return 0, false
 	}

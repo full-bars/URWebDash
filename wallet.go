@@ -59,6 +59,17 @@ func fetchSNWallet(token string) (*snWalletEntry, error) {
 	if token == "" {
 		return nil, fmt.Errorf("no token")
 	}
+	/* this runs on the request path: after a failure, do not pay the timeout
+	   again inside the window - serve the last good entry if there is one */
+	if upstreamBlocked("snwallet") {
+		snWalletCache.mu.Lock()
+		defer snWalletCache.mu.Unlock()
+		if snWalletCache.rec != nil {
+			rec := *snWalletCache.rec
+			return &rec, nil
+		}
+		return nil, fmt.Errorf("sn wallet unavailable (recent failure)")
+	}
 	snWalletCache.mu.Lock()
 	if snWalletCache.rec != nil && time.Since(snWalletCache.at) < snWalletCacheTTL {
 		rec := *snWalletCache.rec
@@ -75,11 +86,13 @@ func fetchSNWallet(token string) (*snWalletEntry, error) {
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		upstreamFailed("snwallet")
 		return nil, err
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != 200 {
+		upstreamFailed("snwallet")
 		return nil, fmt.Errorf("sn/wallet: HTTP %d", resp.StatusCode)
 	}
 	var out snWalletResponse
@@ -103,7 +116,9 @@ func fetchSNWallet(token string) (*snWalletEntry, error) {
 				if best == nil || w.ConsentScope != "" && best.ConsentScope == "" || w.SetAtMillis > best.SetAtMillis {
 					best = w
 				}
-			} else if best == nil {
+			} else if best == nil || (best.ConsentScope == "" && w.SetAtMillis > best.SetAtMillis) {
+				/* with no consent scope anywhere, the newest entry wins: keeping
+				   the first one reported an older mapping as current */
 				best = w
 			}
 		}
@@ -348,6 +363,14 @@ func fetchBalances(coldkey string) dashBalances {
 	if coldkey == "" {
 		return dashBalances{}
 	}
+	if upstreamBlocked("balances") {
+		balanceCache.mu.Lock()
+		defer balanceCache.mu.Unlock()
+		if balanceCache.key == coldkey {
+			return balanceCache.val /* stale but real beats a hung request */
+		}
+		return dashBalances{}
+	}
 	balanceCache.mu.Lock()
 	if balanceCache.key == coldkey && time.Since(balanceCache.at) < balanceCacheTTL {
 		v := balanceCache.val
@@ -363,6 +386,7 @@ func fetchBalances(coldkey string) dashBalances {
 	}
 	tao, err := accountFreeTao(id)
 	if err != nil {
+		upstreamFailed("balances")
 		fmt.Printf("[balance] tao read failed: %v\n", err)
 		return dashBalances{}
 	}
