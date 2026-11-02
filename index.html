@@ -1621,7 +1621,10 @@ function lagNote(createdAt,updatedAt){
   const ms=u-c;
   if(ms<=LATE_MS) return '';
   const mins=Math.round(ms/60000);
-  return ' \u00b7 fetched '+u.toLocaleTimeString('en-US',{timeZone:TZ,hour:'2-digit',minute:'2-digit'})+' (+'+mins+'m)';
+  /* ICU switched the gap before AM/PM to a narrow no-break space in some
+     versions, which made the note render with different spacing per browser */
+  const at=u.toLocaleTimeString('en-US',{timeZone:TZ,hour:'2-digit',minute:'2-digit'}).replace(/[\u202f\u00a0]/g,' ');
+  return ' \u00b7 fetched '+at+' (+'+mins+'m)';
 }
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const series=(HIST.series||[]).slice(), recent=HIST.recent||[];
@@ -1631,15 +1634,14 @@ if(!series.length){ document.getElementById('history-table').innerHTML =
    zeros rather than reading last.t off undefined, which used to throw here and
    take the rest of the page down with it */
 const last=series.length?series[series.length-1]:{t:new Date(0).toISOString(),paid:0,unpaid:0};
-/* The series is downsampled, so an index offset is not a time offset: take the
-   sample nearest 24h back by timestamp. */
-const dayAgoT=new Date(last.t).getTime()-86400000;
-const prev=series.length?series.reduce((best,r)=>Math.abs(new Date(r.t)-dayAgoT)<Math.abs(new Date(best.t)-dayAgoT)?r:best, series[0]):last;
-const has24h=series.some(r=>new Date(last.t)-new Date(r.t)>=23*3600000);
+/* The day cards are NOT painted here. The series is downsampled to hourly
+   points, so a figure taken from it disagrees with the one paintDayCards
+   derives from the full row list a moment later — that was the "same card, two
+   numbers" flicker. leave them at the placeholder and let the full list fill
+   them once. */
 document.getElementById('c-paid').textContent=fmtTB(last.paid);
 document.getElementById('c-unpaid').textContent=fmtTB(last.unpaid);
 document.getElementById('c-total').textContent=fmtTB(last.paid+last.unpaid);
-document.getElementById('c-24h').textContent=has24h?('+'+fmtBytes(Math.max(0,(last.paid+last.unpaid)-(prev.paid+prev.unpaid)))):'—';
 
 const weekly=document.getElementById('weekly');
 /* newest first: today is the box a reader looks at, so it leads */
@@ -1686,9 +1688,13 @@ function paintDayCards(rows){
   const day24=has24h?Math.max(0,total(last)-total(prev)):null;
   const c24=document.getElementById('c-24h');
   if(c24) c24.textContent=day24===null?'\u2014':('+'+fmtBytes(day24));
-  /* today: the newest sample strictly before local midnight */
+  /* today: the newest sample at or before local midnight, which is the baseline
+     the day's growth is measured from. Including the boundary itself matters
+     twice over: a sample on 00:00:00 would otherwise hand back the 23:45 row and
+     fold yesterday's last window into today, and a node whose history starts at
+     midnight would have no baseline at all and read "—" all day. */
   const ds=dayStartMs(last.t);
-  const before=sorted.filter(r=>new Date(r.t).getTime()<ds);
+  const before=sorted.filter(r=>new Date(r.t).getTime()<=ds);
   const start=before.length?before[0]:null;
   const today=start?Math.max(0,total(last)-total(start)):null;
   const box=document.getElementById('c-today');
@@ -1709,15 +1715,17 @@ recent.forEach((r,i)=>{
      unpaid climbs; the delta and the rate are on the TOTAL, which is what the
      old page did */
   const dTotal=dPaid+dUnpaid;
-  const hours=o?(new Date(r.t)-new Date(o.t))/3600000:0.25;
+  const hours=o?Math.max(0.01,(new Date(r.t)-new Date(o.t))/3600000):0.25;
   const tr=document.createElement('tr');
-  tr.innerHTML='<td class="text-mono">'+fmtTime(r.t)+'</td>'+
-    '<td class="text-right text-green">'+fmtGB(r.paid)+'</td>'+
+  /* same helpers as the other two paths, so this first paint already looks like
+     the render that replaces it instead of shifting a second later */
+  tr.innerHTML='<td class="text-mono">'+esc(fmtTime(r.t))+lagNote(r.t,r.fetched)+'</td>'+
+    '<td class="text-right text-green">'+fmtGB2(r.paid)+'</td>'+
     '<td class="text-right text-white text-mono">'+r.unpaid.toLocaleString()+'</td>'+
-    '<td class="text-right text-blue">+'+dTotal.toLocaleString()+'</td>'+
-    '<td class="text-right text-yellow">'+fmtGB(r.unpaid)+'</td>'+
-    '<td class="text-right text-blue">+'+(dTotal/GB).toFixed(2)+'</td>'+
-    '<td class="text-right text-blue">'+(hours>0?(dTotal/hours/GB).toFixed(2):'0.00')+'</td>';
+    '<td class="text-right text-blue">'+(dTotal>=0?'+':'')+dTotal.toLocaleString()+'</td>'+
+    '<td class="text-right text-yellow">'+fmtGB2(r.unpaid)+'</td>'+
+    '<td class="text-right text-blue">'+(dTotal>=0?'+':'')+fmtGB2(dTotal)+'</td>'+
+    '<td class="text-right text-blue">'+(dTotal>=0?'+':'')+fmtGB2(dTotal/hours)+'</td>';
   tbody.appendChild(tr);
 });
 const payTable=document.getElementById('pay-table');
