@@ -6,8 +6,11 @@ import (
 	"testing"
 )
 
-/* Not shipped as a unit test: run with the real token to prove the API identity
-   and the chain read together. Skipped unless BT_LIVE=1. */
+/*
+Not shipped as a unit test: run with the real token to prove the API identity
+
+	and the chain read together. Skipped unless BT_LIVE=1.
+*/
 func TestLiveWalletIdentityAndBalance(t *testing.T) {
 	if os.Getenv("BT_LIVE") != "1" {
 		t.Skip("set BT_LIVE=1 to hit the live API and chain")
