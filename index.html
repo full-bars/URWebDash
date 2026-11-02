@@ -357,6 +357,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
       <div class="chart-container"><div class="chart-title">Unpaid Bytes</div><div class="chart-box"><canvas id="unpaid-chart"></canvas></div></div>
       <div class="chart-container"><div class="chart-title">Transfer Rate</div>
         <div style="display:flex;gap:4px;margin-bottom:8px">
+          <button class="btn btn-sm" onclick="setWin('1h',this)">1H</button>
           <button class="btn btn-sm" onclick="setWin('6h',this)">6H</button>
           <button class="btn btn-sm active" onclick="setWin('24h',this)">24H</button>
           <button class="btn btn-sm" onclick="setWin('7d',this)">7D</button>
@@ -1897,8 +1898,10 @@ function rateSeries(win){
      the all-time view buckets by calendar day. */
   /* gbd reads the whole history as days, not the last thirty: the daily view is
      the long view, and cutting it to a month hid the rest of the year. */
-  const back={'6h':6,'24h':24,'7d':168,'30d':720}[win];
-  const src=(win==='6h')?recent.slice().reverse():series;
+  const back={'1h':1,'6h':6,'24h':24,'7d':168,'30d':720}[win];
+  /* the hour and six-hour views need the 15-minute rows: series is downsampled
+     to one point per hour, so an hour of it is a single bar with no history */
+  const src=(win==='1h'||win==='6h')?recent.slice().reverse():series;
   const cut=back?new Date(last.t).getTime()-back*3600000:0;
   const rows=src.filter(r=>!back||new Date(r.t).getTime()>=cut);
   if(win==='all'||win==='gbd'){

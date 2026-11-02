@@ -368,3 +368,61 @@ if (fail) { console.log(fail + ' assertion(s) failed'); process.exit(1); }
 
 	runNode(t, node, harness)
 }
+
+// The Transfer Rate selector gained a 1H option. It has to read the 15-minute
+// rows rather than the downsampled series, or an hour of data is one bar with
+// nothing to compare against.
+func TestRateSeriesWindows(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed; skipping page-logic test")
+	}
+	page := readPage(t)
+
+	harness := pageFormatters(t, page) +
+		funcBody(t, page, "function rateSeries(win){") + `
+let fail = 0;
+const eq = (n, got, want) => {
+  if (String(got) !== String(want)) { fail++; console.log('FAIL ' + n + ': got ' + JSON.stringify(got) + ' want ' + JSON.stringify(want)); }
+};
+
+// thirty 15-minute rows climbing 4.5 GB per window. HIST.recent arrives newest
+// first and HIST.series arrives oldest first, which is what the page relies on.
+const recent = [];
+for (let i = 0; i < 30; i++) {
+  const k = 29 - i;
+  recent.push({ t: new Date(Date.UTC(2026, 10, 2, 15, 0, 0) + k * 15 * 60000).toISOString(),
+                paid: 0, unpaid: 5000000000000 + k * 4571713707 });
+}
+const series = recent.slice().reverse().filter((_, i) => i % 4 === 0);
+// in production the series and recent agree on the newest sample; pin that so
+// the window cut is measured from the real end of data
+const last = recent[0];
+
+// an hour is four windows plus the boundary sample, not a single bar
+const h1 = rateSeries('1h');
+if (h1.length < 4) { fail++; console.log('FAIL 1h too coarse: ' + h1.length + ' points'); }
+if (h1.length > 8) { fail++; console.log('FAIL 1h too wide: ' + h1.length + ' points'); }
+// and it must cover no more than an hour
+const span = (new Date(h1[h1.length - 1].t) - new Date(h1[0].t)) / 60000;
+if (span > 60) { fail++; console.log('FAIL 1h spans ' + span + ' minutes'); }
+
+// six hours reads the same 15-minute source and reaches further back
+const h6 = rateSeries('6h');
+if (h6.length <= h1.length) { fail++; console.log('FAIL 6h not wider than 1h: ' + h6.length); }
+const span6 = (new Date(h6[h6.length - 1].t) - new Date(h6[0].t)) / 60000;
+if (span6 > 360) { fail++; console.log('FAIL 6h spans ' + span6 + ' minutes'); }
+
+// the rate itself: 4.571713707 GB per 15 minutes is 18.286854828 GB/hr
+eq('1h newest rate', h1[h1.length - 1].v, 18.29);
+
+// a 24h view still comes off the series and must not be empty
+if (rateSeries('24h').length < 2) { fail++; console.log('FAIL 24h empty'); }
+// an unknown window must not throw
+try { rateSeries('nope'); } catch (e) { fail++; console.log('FAIL unknown window threw: ' + e.message); }
+
+if (fail) { console.log(fail + ' assertion(s) failed'); process.exit(1); }
+`
+
+	runNode(t, node, harness)
+}
