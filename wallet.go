@@ -88,14 +88,26 @@ func fetchSNWallet(token string) (*snWalletEntry, error) {
 	}
 	/* the current mapping is the last consent actually in force; fall back to the
 	   newest history row so a deployment without a live consent still names its key */
+	/* pick explicitly: the current mapping is the entry that carries a consent
+	   scope, otherwise the newest by set_at_millis. Relying on array order made
+	   this depend on how the server happens to sort its history. */
 	rec := out.Wallet
 	if rec == nil || strings.TrimSpace(rec.ColdkeySS58) == "" {
-		for i := len(out.Wallets) - 1; i >= 0; i-- {
-			if strings.TrimSpace(out.Wallets[i].ColdkeySS58) != "" {
-				rec = &out.Wallets[i]
-				break
+		var best *snWalletEntry
+		for i := range out.Wallets {
+			w := &out.Wallets[i]
+			if strings.TrimSpace(w.ColdkeySS58) == "" {
+				continue
+			}
+			if w.ConsentScope != "" {
+				if best == nil || w.ConsentScope != "" && best.ConsentScope == "" || w.SetAtMillis > best.SetAtMillis {
+					best = w
+				}
+			} else if best == nil {
+				best = w
 			}
 		}
+		rec = best
 	}
 	if rec == nil || rec.ColdkeySS58 == "" {
 		return nil, fmt.Errorf("no coldkey on the account")
@@ -132,8 +144,9 @@ func base58Decode(s string) ([]byte, error) {
 	return append(make([]byte, zeros), raw...), nil
 }
 
-// ss58AccountID decodes an address to its 32-byte account id, dropping the
-// network prefix and the two-byte checksum.
+// ss58AccountID decodes an address to its 32-byte account id and verifies the
+// checksum. Without the check a mistyped address decodes to some other account,
+// reads a zero balance, and the page reports it as known.
 func ss58AccountID(addr string) ([]byte, error) {
 	raw, err := base58Decode(addr)
 	if err != nil {
@@ -142,9 +155,24 @@ func ss58AccountID(addr string) ([]byte, error) {
 	if len(raw) < 35 {
 		return nil, fmt.Errorf("ss58 too short: %d bytes", len(raw))
 	}
-	id := raw[len(raw)-34 : len(raw)-2]
-	if len(id) != 32 {
-		return nil, fmt.Errorf("ss58 account id is %d bytes", len(id))
+	prefixLen := 1
+	if raw[0]&0x40 != 0 { /* two-byte network prefix */
+		prefixLen = 2
+	}
+	if len(raw) != prefixLen+32+2 {
+		return nil, fmt.Errorf("ss58 length %d for prefix %d", len(raw), prefixLen)
+	}
+	body := raw[:prefixLen+32]
+	id := raw[prefixLen : prefixLen+32]
+	sum, err := blake2b.New512(nil)
+	if err != nil {
+		return nil, err
+	}
+	sum.Write([]byte("SS58PRE"))
+	sum.Write(body)
+	out := sum.Sum(nil)
+	if out[0] != raw[prefixLen+32] || out[1] != raw[prefixLen+33] {
+		return nil, fmt.Errorf("ss58 checksum mismatch")
 	}
 	return id, nil
 }

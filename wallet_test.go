@@ -48,3 +48,13 @@ func TestSS58Decode(t *testing.T) {
 		t.Fatalf("decoded %d bytes", len(id))
 	}
 }
+
+func TestSS58RejectsBadChecksum(t *testing.T) {
+	/* flip one character of the body: the checksum must catch it */
+	if _, err := ss58AccountID("5GbD4Vk6cASzfgkywuGkGHszPSr1s6gx9y9fFBDjLV2q1GWS"); err != nil {
+		t.Fatalf("valid address rejected: %v", err)
+	}
+	if _, err := ss58AccountID("5GbD4Vk6cASzfgkywuGkGHszPSr1s6gx9y9fFBDjLV2q1GWQ"); err == nil {
+		t.Fatal("invalid checksum accepted")
+	}
+}

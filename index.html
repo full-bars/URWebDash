@@ -703,7 +703,7 @@ window.URTHEMES['console'] = {
         '<div class="panel"><h2>Account <span>wallet attached</span></h2><div class="kv">' +
           '<div class="k">coldkey</div><div class="v g">' + DS_SHORT(D.wallet.coldkey) + '</div>' +
           (walletExtra(D)?'<div class="k">balance</div><div class="v">' + walletExtra(D) + '</div>':'') +
-          '<div class="k">consent</div><div class="v">' + D.wallet.scope + ' ' + D.wallet.fromEpoch + '→' + DS_FMT(D.wallet.throughEpoch) + '</div>' +
+          '<div class="k">consent</div><div class="v">' + esc(D.wallet.scope) + ' ' + D.wallet.fromEpoch + '→' + DS_FMT(D.wallet.throughEpoch) + '</div>' +
           '<div class="k">α unclaimed</div><div class="v d">—</div>' +
           '<div class="k">points total</div><div class="v">' + DS_FMT(D.points.total, 2) + '</div>' +
           '<div class="k">epochs w/ points</div><div class="v">' + D.points.epochsWithPoints + ' / ' + D.points.epochsFinalized + '</div>' +
@@ -1092,7 +1092,7 @@ window.URTHEMES = window.URTHEMES || {};
 <table><thead><tr><th>Epoch</th><th>Points</th><th></th><th>Share</th><th>Alpha</th><th>Settlement</th></tr></thead><tbody>${rows}</tbody></table>
 <p class="note">Bars are scaled to the best epoch (epoch ${p.bestEpoch}).</p>
 <div class="fn">
-<div><sup>1</sup>Wallet <span class="mono">${H.ck(w.coldkey)}</span>${w.balanceKnown?` · <b>${w.taoFree.toFixed(4)} TAO</b>`:''}, consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</div>
+<div><sup>1</sup>Wallet <span class="mono">${H.ck(w.coldkey)}</span>${w.balanceKnown?` · <b>${w.taoFree.toFixed(4)} TAO free</b>`:''}, consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</div>
 <div><sup>2</sup>Legacy: <b>$${H.n(l.usdc, 2)}</b> across <b>${l.count}</b> USDC payments on ${H.esc(l.network)}, last <b>${H.esc(l.last)}</b>.</div>
 <div><sup>3</sup>Traffic: <b>${H.n(t.paidTb, 2)} TB</b> paid, <b>${H.n(t.unpaidTb, 2)} TB</b> unpaid.</div>
 </div>
@@ -1201,7 +1201,7 @@ window.URTHEMES = window.URTHEMES || {};
 <p><b>${p.epochsWithPoints}</b> of <b>${p.epochsFinalized}</b> finalized epochs have points. Best: epoch <b>${p.bestEpoch}</b> with <b>${H.n(p.bestPoints, 2)}</b>.</p></div>
 <div class="pn"><h3>Alpha</h3><div class="num pk">${H.esc(a.thisEpoch)}</div>
 <p>Epoch <b>${a.firstPayingEpoch}</b> is the first epoch that can pay alpha. Earlier epochs show —.</p></div>
-<div class="pn"><h3>Wallet</h3><div class="num mono">${H.ck(w.coldkey)}</div>${w.balanceKnown?`<div class="num" style="font-size:14px">${w.taoFree.toFixed(4)} TAO</div>`:''}
+<div class="pn"><h3>Wallet</h3><div class="num mono">${H.ck(w.coldkey)}</div>${w.balanceKnown?`<div class="num" style="font-size:14px">${w.taoFree.toFixed(4)} TAO free</div>`:''}
 <p>Consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</p></div>
 <div class="pn"><h3>Traffic</h3><div class="num">${H.n(t.paidTb, 2)}<small>TB paid</small></div>
 <p><b>${H.n(t.unpaidTb, 2)} TB</b> unpaid.</p></div>
@@ -1313,7 +1313,7 @@ window.URTHEMES = window.URTHEMES || {};
 <section><h2>Points</h2><div class="big">${H.n(p.total, 2)}<small>total</small></div>
 <p><b>${p.epochsWithPoints}</b> of <b>${p.epochsFinalized}</b> finalized epochs have points.</p><p>Best: epoch <b>${p.bestEpoch}</b>, <b>${H.n(p.bestPoints, 2)}</b>.</p></section>
 <section><h2>Alpha</h2><p><b>${H.esc(a.thisEpoch)}</b> for epoch ${e.n}.</p><p>Epoch <b>${a.firstPayingEpoch}</b> is the first that can pay alpha.</p></section>
-<section><h2>Wallet</h2><p class="mono">${H.ck(w.coldkey)}</p>${w.balanceKnown?`<p><b>${w.taoFree.toFixed(4)} TAO</b> free</p>`:''}<p>consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b></p></section>
+<section><h2>Wallet</h2><p class="mono">${H.ck(w.coldkey)}</p>${w.balanceKnown?`<p><b>${w.taoFree.toFixed(4)} TAO free</b> free</p>`:''}<p>consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b></p></section>
 <section><h2>Traffic</h2><p><b>${H.n(t.paidTb, 2)} TB</b> paid</p><p><b>${H.n(t.unpaidTb, 2)} TB</b> unpaid</p></section>
 <section><h2>Legacy</h2><p><b>$${H.n(l.usdc, 2)}</b> across <b>${l.count}</b> USDC payments on ${H.esc(l.network)}, last <b>${H.esc(l.last)}</b>.</p></section>
 </div></div></div></div>`;
@@ -1526,7 +1526,18 @@ const weekly=document.getElementById('weekly');
 for(let d=0;d<=6;d++){
   const endT=new Date(last.t).getTime()-d*86400000;
   const endRow=series.filter(r=>new Date(r.t).getTime()<=endT).pop();
-  const startRow=series.filter(r=>new Date(r.t).getTime()<=endT-86400000).pop();
+  /* today is a calendar day in UTC, the clock the poller writes on. The live
+     refresh uses the same boundary; using a rolling 24h window here made the box
+     show one figure from the render and another from the poll, which read as a
+     flicker between two numbers. */
+  const isTodayCard=new Date(endT).toISOString().slice(0,10)===new Date(last.t).toISOString().slice(0,10);
+  let startRow;
+  if(isTodayCard){
+    const dayStart=Date.UTC(new Date(last.t).getUTCFullYear(), new Date(last.t).getUTCMonth(), new Date(last.t).getUTCDate());
+    startRow=series.filter(r=>new Date(r.t).getTime()<dayStart).pop();
+  } else {
+    startRow=series.filter(r=>new Date(r.t).getTime()<=endT-86400000).pop();
+  }
   /* paid only moves when traffic settles; the day's growth is on the total */
   const delta=endRow&&startRow?(endRow.paid+endRow.unpaid)-(startRow.paid+startRow.unpaid):0;
   const c=document.createElement('div');
@@ -1582,7 +1593,7 @@ renderPayoutRows();
 function walletExtra(D){
   const w=(D&&D.wallet)||{};
   const bits=[];
-  if(w.balanceKnown && typeof w.taoFree==='number') bits.push('TAO '+w.taoFree.toFixed(4));
+  if(w.balanceKnown && typeof w.taoFree==='number') bits.push('TAO free '+w.taoFree.toFixed(4));
   if(w.payout) bits.push('payout '+String(w.payout).slice(0,6)+'\u2026'+String(w.payout).slice(-4));
   return bits.join(' \u00b7 ');
 }
@@ -1937,7 +1948,13 @@ function enhanceEpochBar(){
      the one that is not inside a row and has real height. */
   const track=[...document.querySelectorAll('#theme-mount .track, #theme-mount .meter')]
     .find(t=>!t.closest('.barrow') && t.getBoundingClientRect().height>0);
-  if(!track) return;
+  if(!track){
+    /* no bar on this theme: drop the timer so it does not keep firing against
+       elements that no longer exist */
+    if(epTimer){ clearInterval(epTimer); epTimer=null; }
+    epLive=null;
+    return;
+  }
   const fill=track.querySelector(':scope > i, :scope > .fill');
   if(!fill) return;
   /* the head light should be the colour of the bar it leads, not a fixed mint */
@@ -1999,7 +2016,9 @@ const EP_UNPAID_KEY='ep-unpaid-gb';
 function epUnpaidNodes(){
   const out=[];
   const push=(el,gb)=>{ if(el&&isFinite(gb)) out.push({el:el,gb:gb}); };
-  const toGB=(num,unit)=>unit.toUpperCase()==='TB'?num*1024:num;
+  /* the page formats TB as decimal (1000), so the GB delta must use the same
+     factor or it overstates every change by 2.4% */
+  const toGB=(num,unit)=>unit.toUpperCase()==='TB'?num*1000:num;
   document.querySelectorAll('#theme-mount *, #section-wallet *').forEach(el=>{
     if(el.children.length) return;
     const t=(el.textContent||'').trim();
@@ -2079,8 +2098,10 @@ function epInsertRow(r, raw){
   tbody.insertBefore(tr, tbody.firstChild);
 }
 
+let epPolling=false;
 async function epLiveStats(){
-  if(document.hidden) return;
+  if(document.hidden || epPolling) return;
+  epPolling=true;
   try{
     const res=await fetch('/api/wallet-stats',{cache:'no-store'});
     if(!res.ok) return;
@@ -2134,13 +2155,16 @@ async function epLiveStats(){
     const todayNow=Math.max(0,(last.paid+last.unpaid)-
       (todayStart?(todayStart.paid_bytes+todayStart.unpaid_bytes):0));
     const todayBox=document.getElementById('c-today');
-    if(todayBox && todayNow>0){
+    /* without a snapshot from before today there is no day figure at all; the
+       difference would otherwise be the lifetime total */
+    if(todayBox && todayNow>0 && todayStart){
       const v=todayBox.querySelector('.value');
       if(v) v.textContent='+'+fmtBytes(todayNow);
       if(epLastToday!==null && todayNow>epLastToday) epFlairBox(todayBox,'+'+fmtBytes(todayNow-epLastToday));
       epLastToday=todayNow;
     }
   }catch(_){ /* a failed poll must not disturb the page */ }
+  finally{ epPolling=false; }
 }
 setInterval(epLiveStats, 60000);
 
@@ -2210,8 +2234,8 @@ function epGrowthNoBar(){
   });
   if(!host||!m) return;
   const val=parseFloat(m[1]);
-  const prev=epLastText;
-  epLastText=val;
+  const prev=host.dataset.epLastPct!==undefined?parseFloat(host.dataset.epLastPct):null;
+  host.dataset.epLastPct=String(val);
   if(prev===null||!(val>prev)) return;
 
   const cs=getComputedStyle(host);
@@ -2233,6 +2257,14 @@ function epTick(){
   epOrbitMark();
   if(!epLive){ epGrowthNoBar(); return; }
   const bar=epLive;
+  /* the timer is cleared while the tab is hidden, so catch up the blocks that
+     closed in the meantime instead of falling behind the chain */
+  const now=Date.now();
+  if(bar.lastTickAt){
+    const missed=Math.floor((now-bar.lastTickAt)/12000)-1;
+    if(missed>0 && bar.total>0) bar.done=Math.min(bar.total, bar.done+missed);
+  }
+  bar.lastTickAt=now;
   bar.done+=1; if(bar.left>0) bar.left-=1;
   const before=bar.pct;
   if(bar.total>0) bar.pct=Math.min(100, bar.done/bar.total*100);
@@ -2282,6 +2314,11 @@ function epResume(){
   if(!sec||!sec.classList.contains('active')) return;
   window.__heroResize && window.__heroResize();
   window.__heroStart && window.__heroStart(true);
+  /* rebind to the elements that exist now: after a theme render the old ones are
+     detached and the bar would never move again */
+  enhanceEpochBar();
+  enhanceOrbit();
+  epTextTrack();
   if(epLive && !epTimer) epTimer=setInterval(epTick,12000);
 }
 document.addEventListener('visibilitychange',()=>{
