@@ -130,16 +130,34 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
    inside it can only ever show a slice; the decorations live in this wrapper */
 .ep-wrap{position:relative;overflow:visible}
 /* a flash down the fill when the width actually changes, plus the delta */
-.ep-wrap .fill.grew, .ep-wrap .track > i.grew{animation:epGrow 1.1s ease-out}
-@keyframes epGrow{0%{box-shadow:0 0 0 0 rgba(255,255,255,.85) inset}45%{box-shadow:0 0 22px 4px rgba(255,255,255,.55) inset}100%{box-shadow:0 0 0 0 rgba(255,255,255,0) inset}}
+.ep-wrap .fill.grew, .ep-wrap .track > i.grew{animation:epGrow 1.6s cubic-bezier(.2,.8,.2,1)}
+@keyframes epGrow{
+  0%{box-shadow:0 0 0 0 rgba(255,255,255,0) inset;filter:brightness(1)}
+  12%{box-shadow:0 0 46px 18px rgba(255,255,255,.75) inset;filter:brightness(2.1) saturate(1.5)}
+  45%{box-shadow:0 0 26px 8px rgba(255,255,255,.35) inset;filter:brightness(1.35)}
+  100%{box-shadow:0 0 0 0 rgba(255,255,255,0) inset;filter:brightness(1)}}
+/* a ring that bursts at the head each time the bar actually moves */
+.ep-burst{position:absolute;top:50%;left:0;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;
+  border:3px solid rgba(255,255,255,.95);opacity:0;pointer-events:none}
+.ep-burst.go{animation:epBurst 1.5s cubic-bezier(.2,.8,.2,1)}
+@keyframes epBurst{
+  0%{opacity:.95;transform:scale(.4);border-width:4px}
+  55%{opacity:.55;transform:scale(4.2);border-width:2px}
+  100%{opacity:0;transform:scale(7);border-width:1px}}
 .ep-orb-glow{animation:epOrbBreathe 2.8s ease-in-out infinite;transform-origin:center;filter:blur(1px)}
 @keyframes epOrbBreathe{0%,100%{opacity:.22;r:9}50%{opacity:.62;r:13}}
 .ep-orb-mark{animation:epOrbMark 1.8s ease-out forwards}
 @keyframes epOrbMark{0%{opacity:0;stroke-width:2}15%{opacity:1;stroke-width:9}100%{opacity:0;stroke-width:5}}
 @media (prefers-reduced-motion: reduce){.ep-orb-glow,.ep-orb-mark{animation:none}}
-.ep-delta{position:absolute;top:-18px;right:0;font:600 10px/1 ui-monospace,monospace;color:#d1fae5;opacity:0;pointer-events:none}
-.ep-delta.show{animation:epDelta 2.4s ease-out}
-@keyframes epDelta{0%{opacity:0;transform:translateY(4px)}15%{opacity:1;transform:translateY(0)}75%{opacity:1}100%{opacity:0;transform:translateY(-4px)}}
+.ep-delta{position:absolute;top:-30px;left:0;transform:translateX(-50%);font:800 20px/1 ui-monospace,SFMono-Regular,monospace;
+  color:#fff;text-shadow:0 0 14px currentColor,0 0 30px currentColor;opacity:0;pointer-events:none;white-space:nowrap;letter-spacing:.02em}
+.ep-delta.show{animation:epDelta 2.8s cubic-bezier(.2,.8,.2,1)}
+@keyframes epDelta{
+  0%{opacity:0;transform:translateX(-50%) translateY(10px) scale(.7)}
+  18%{opacity:1;transform:translateX(-50%) translateY(-2px) scale(1.18)}
+  35%{transform:translateX(-50%) translateY(0) scale(1)}
+  78%{opacity:1}
+  100%{opacity:0;transform:translateX(-50%) translateY(-14px) scale(.96)}}
 #theme-mount .track > i,#theme-mount .track > .fill{position:relative;overflow:hidden}
 .ep-glow{position:absolute;top:50%;left:0;width:38px;height:38px;margin-top:-19px;margin-left:-19px;border-radius:50%;
   background:radial-gradient(circle,rgba(167,243,208,.95) 0%,rgba(52,211,153,.75) 32%,rgba(52,211,153,.18) 60%,rgba(52,211,153,0) 78%);
@@ -194,6 +212,13 @@ background:radial-gradient(120% 90% at 60% 40%,#000 0%,#000 45%,transparent 100%
 .hero-sim canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
 .theme-wrap{margin-top:4px}
 .theme-meta{font-size:11.5px;color:var(--faint);margin-bottom:10px}
+/* fixed width and right alignment: the caption sits left of the control and
+   never pushes the dropdown around as it appears and fades */
+/* inline-block so the reserved width actually applies: as an inline span the
+   text sized the box and shoved the dropdown sideways */
+.theme-hint{display:inline-block;font-size:10.5px;color:var(--faint);opacity:0;transition:opacity .35s;width:250px;text-align:right;line-height:1.3;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:4px;vertical-align:middle}
+.theme-hint.show{opacity:1}
 .topbar{position:sticky;top:0;z-index:45;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
 background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:9px 14px;margin:-6px 0 18px}
 .tb-group{display:flex;align-items:center;gap:10px}
@@ -233,6 +258,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
   <div class="topbar">
     <div class="tb-group"><span class="tb-page" id="page-name">Data Stats</span></div>
     <div class="tb-group tb-right">
+      <span id="theme-hint" class="theme-hint"></span>
       <span class="field-label">Theme</span>
       <select id="theme-select" onchange="applyTheme(this.value)"></select>
       <span class="swatches" id="swatches" title="Theme colour"></span>
@@ -1840,7 +1866,7 @@ function enhanceEpochBar(){
   /* the themes also use .track for the tiny per-epoch sparkline in the history
      rows; decorating those put a floating block mid-page. Take the epoch bar:
      the one that is not inside a row and has real height. */
-  const track=[...document.querySelectorAll('#theme-mount .track')]
+  const track=[...document.querySelectorAll('#theme-mount .track, #theme-mount .meter')]
     .find(t=>!t.closest('.barrow') && t.getBoundingClientRect().height>0);
   if(!track) return;
   const fill=track.querySelector(':scope > i, :scope > .fill');
@@ -1856,6 +1882,9 @@ function enhanceEpochBar(){
   }
   if(!wrap.querySelector('.ep-delta')){
     const dl = document.createElement('span'); dl.className = 'ep-delta'; wrap.appendChild(dl);
+  }
+  if(!wrap.querySelector('.ep-burst')){
+    const bs = document.createElement('span'); bs.className = 'ep-burst'; wrap.appendChild(bs);
   }
   if(!wrap.querySelector('.ep-glow')){
     const g = document.createElement('span'); g.className = 'ep-glow'; wrap.appendChild(g);
@@ -1906,7 +1935,14 @@ function epTick(){
   if(grew>0){
     bar.fill.classList.remove('grew'); void bar.fill.offsetWidth; bar.fill.classList.add('grew');
     const d=host.querySelector('.ep-delta');
-    if(d){ d.textContent='+'+grew.toFixed(4)+'%'; d.classList.remove('show'); void d.offsetWidth; d.classList.add('show'); }
+    if(d){
+      d.textContent='+'+grew.toFixed(4)+'%';
+      d.style.left=Math.min(97,bar.pct)+'%';
+      d.style.color=getComputedStyle(document.body).getPropertyValue('--accent3').trim()||'#fff';
+      d.classList.remove('show'); void d.offsetWidth; d.classList.add('show');
+    }
+    const bs=host.querySelector('.ep-burst');
+    if(bs){ bs.style.left=Math.min(97,bar.pct)+'%'; bs.classList.remove('go'); void bs.offsetWidth; bs.classList.add('go'); }
   }
 
   const box=bar.track.parentElement;
@@ -1951,6 +1987,8 @@ function startHeroSim(){
   const wrap=document.getElementById('hero-sim');
   if(!canvas||!wrap) return;
   const ctx=canvas.getContext('2d');
+  /* ground colour comes from the theme at paint time; reading it once here
+     pinned the canvas to whichever theme happened to be active on first run */
   const reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   let W=0,H=0,R=0,cx=0,cy=0,rot=0;
@@ -1986,7 +2024,10 @@ function startHeroSim(){
   }
   function frame(){
     if(!heroRunning) return;
-    ctx.clearRect(0,0,W,H);
+    /* paint the ground rather than clearing to transparent: the panel behind is
+       not always the theme background, which made the animation look like a
+       darker rectangle on the URnetwork theme */
+    ctx.fillStyle=HERO_COLORS.bg; ctx.fillRect(0,0,W,H);
     rot+=0.0018;
 
     // demand: users buying data, and the pink token flow to settlement
@@ -2063,7 +2104,7 @@ function startHeroSim(){
     heroRunning=true; heroRaf=requestAnimationFrame(frame);
   }
   function stop(){ heroRunning=false; if(heroRaf) cancelAnimationFrame(heroRaf); heroRaf=null; }
-  function staticFrame(){ ctx.clearRect(0,0,W,H); rot=0.6;
+  function staticFrame(){ ctx.fillStyle=HERO_COLORS.bg; ctx.fillRect(0,0,W,H); rot=0.6;
     nodes.forEach(n=>{const p=project(n,rot);ctx.beginPath();ctx.arc(p.x,p.y,1.5,0,Math.PI*2);
       ctx.fillStyle='rgba(214,230,244,'+(0.10+(p.vis?0.26:0))+')';ctx.fill();});
     ctx.beginPath();ctx.arc(hub.x,hub.y,hubR,0,Math.PI*2);ctx.strokeStyle=HERO_COLORS.ur;
@@ -2108,6 +2149,22 @@ function setHeroMode(mode){
 }
 
 /* ---------- themes + accent ---------- */
+/* Curated accents: each set stays inside its theme's family. The stock list was
+   brand colours on every theme, which put acid lime on the wine palette. */
+const ACCENTS_CURATED={
+  legacy:['#10b981','#3b82f6','#8b5cf6','#f59e0b','#ec4899','#14b8a6'],
+  hero:['#3b82f6','#6366f1','#22d3ee','#a78bfa','#f472b6'],
+  console:['#3ecf8e','#58a6ff','#e3b341','#f778ba','#a371f7'],
+  urnetwork:['#ED8FFF','#87FB67','#638BFC','#4ECDC4','#FF8A65'],
+  ledger:['#df9e73','#f0c5a6','#c9ada7','#a3b18a','#88a0a8'],
+  editorial:['#d9694a','#e98a6c','#a3b18a','#6d8ea0','#c0a062'],
+  tidal:['#91d6bb','#a8eacb','#7fb3d5','#c9e4ca','#e9c46a'],
+  route:['#dd9ccd','#e8b6dc','#9d8df1','#f4a261','#90be6d'],
+  orbit:['#34e0c0','#22d3ee','#8b5cf6','#f0b26b','#f472b6'],
+  timeline:['#ff9db0','#8fd3c4','#f978cc','#c9a227','#8ecae6']
+};
+Object.keys(ACCENTS_CURATED).forEach(k=>{ if(TOKENS[k]) TOKENS[k].accents=ACCENTS_CURATED[k]; });
+
 const THEMES=Object.values(window.URTHEMES||{});
 const sel=document.getElementById('theme-select');
 THEMES.sort((a,b)=>(a.id==='legacy'?-1:b.id==='legacy'?1:0)||a.name.localeCompare(b.name));
@@ -2156,6 +2213,13 @@ function renderSwatches(){
 }
 function applyTheme(id){
   const t=(window.URTHEMES||{})[id]; if(!t) return;
+  /* the hero canvas paints its own ground: keep it on the theme's background so
+     the animation never sits on a darker rectangle than the page */
+  setTimeout(()=>{
+    const bg=(getComputedStyle(document.body).getPropertyValue('--bg')||'').trim();
+    if(bg) HERO_COLORS.bg=bg;
+    if(window.__heroStart) window.__heroStart(true);
+  },0);
   currentTheme=id;
   const tk=TOKENS[id]||TOKENS.legacy;
   let accent=accentFor(id);
@@ -2238,7 +2302,18 @@ function applyTheme(id){
     if(mount) mount.insertBefore(warn, mount.firstChild);
   }
   document.getElementById('theme-name').textContent=t.name;
-  document.getElementById('theme-meta').textContent=(tk.note||'');
+  /* theme descriptions belong to the picker, not the page: tooltip on the
+     control, and a short caption beside it when the choice changes */
+  document.getElementById('theme-meta').textContent='';
+  const sel=document.getElementById('theme-select');
+  if(sel){ sel.title=tk.note||tk.name||id; }
+  const hint=document.getElementById('theme-hint');
+  if(hint && tk.note){
+    hint.textContent=tk.note;
+    hint.classList.add('show');
+    clearTimeout(window.__themeHintT);
+    window.__themeHintT=setTimeout(()=>hint.classList.remove('show'), 5000);
+  }
   const pick=document.getElementById('accent-pick');
   if(pick) pick.value=(accent||(tk.accents&&tk.accents[0])||tk.accent);
   
