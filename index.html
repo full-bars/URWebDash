@@ -353,8 +353,8 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
       </select>
     </div>
     <div class="chart-row">
-      <div class="chart-container"><div class="chart-title">Paid Data (TB)</div><div class="chart-box"><canvas id="paid-chart"></canvas></div></div>
-      <div class="chart-container"><div class="chart-title">Unpaid Data (TB)</div><div class="chart-box"><canvas id="unpaid-chart"></canvas></div></div>
+      <div class="chart-container"><div class="chart-title" id="paid-chart-title">Paid Data</div><div class="chart-box"><canvas id="paid-chart"></canvas></div></div>
+      <div class="chart-container"><div class="chart-title" id="unpaid-chart-title">Unpaid Data</div><div class="chart-box"><canvas id="unpaid-chart"></canvas></div></div>
       <div class="chart-container"><div class="chart-title">Transfer Rate</div>
         <div style="display:flex;gap:4px;margin-bottom:8px">
           <button class="btn btn-sm" onclick="setWin('1h',this)">1H</button>
@@ -607,7 +607,7 @@ window.URTHEMES = window.URTHEMES || {};
         '<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">' +
           '<div class="card"><div class="label">Wallet</div><div class="value mono green" style="font-size:14px">' + short(D.wallet.coldkey) + '</div><div class="sub">consent ' + D.wallet.scope + ' \u00b7 epoch ' + D.wallet.fromEpoch + ' \u2192 ' + f(D.wallet.throughEpoch) + '</div></div>' +
           '<div class="card"><div class="label">Best Epoch</div><div class="value">' + D.points.bestEpoch + '</div><div class="sub">' + f(D.points.bestPoints, 2) + ' points</div></div>' +
-          '<div class="card"><div class="label">Traffic</div><div class="value">' + D.traffic.paidTb + ' TB</div><div class="sub">' + D.traffic.unpaidTb + ' TB unpaid</div></div>' +
+          '<div class="card"><div class="label">Traffic</div><div class="value">' + fmtBytes(D.traffic.paidBytes) + '</div><div class="sub">' + fmtBytes(D.traffic.unpaidBytes) + ' unpaid</div></div>' +
           '<div class="card"><div class="label">Legacy USDC</div><div class="value">$' + f(D.legacy.usdc, 2) + '</div><div class="sub">' + D.legacy.count + ' payments \u00b7 last ' + D.legacy.last + '</div></div>' +
         '</div>' +
         '<div class="wrap"><table><thead><tr><th>Epoch</th><th class="right">Points</th><th class="right">Share</th><th class="right">Alpha</th><th>Settlement</th><th></th></tr></thead>' +
@@ -703,7 +703,7 @@ window.URTHEMES['hero'] = {
           '<div class="idr"><span class="kk">Consent</span><span>' + D.wallet.scope + ' · epoch ' + D.wallet.fromEpoch + ' → ' + DS_FMT(D.wallet.throughEpoch) + '</span></div>' +
           '<div class="idr"><span class="kk">α unclaimed</span><span class="dim">—</span></div>' +
           '<div class="idr"><span class="kk">Best epoch</span><span>' + D.points.bestEpoch + ' · ' + DS_FMT(D.points.bestPoints, 2) + ' pts</span></div>' +
-          '<div class="idr"><span class="kk">Traffic</span><span>' + D.traffic.paidTb + ' TB paid · ' + D.traffic.unpaidTb + ' TB unpaid</span></div>' +
+          '<div class="idr"><span class="kk">Traffic</span><span>' + fmtBytes(D.traffic.paidBytes) + ' paid · ' + fmtBytes(D.traffic.unpaidBytes) + ' unpaid</span></div>' +
           '<div class="idr"><span class="kk">Legacy USDC</span><span class="dim">$' + DS_FMT(D.legacy.usdc, 2) + ' · ' + D.legacy.count + ' payments · last ' + D.legacy.last + '</span></div>' +
           '<div class="note">First epoch that can pay α is ' + D.alpha.firstPayingEpoch + '. Consent is not retroactive.</div>' +
         '</div>' +
@@ -781,8 +781,8 @@ window.URTHEMES['console'] = {
           '<div class="k">best epoch</div><div class="v">' + D.points.bestEpoch + ' · ' + DS_FMT(D.points.bestPoints, 2) + '</div>' +
         '</div></div>' +
         '<div class="panel"><h2>Traffic <span>cumulative</span></h2><div class="kv">' +
-          '<div class="k">paid bytes</div><div class="v">' + D.traffic.paidTb + ' TB</div>' +
-          '<div class="k">unpaid bytes</div><div class="v y">' + D.traffic.unpaidTb + ' TB</div>' +
+          '<div class="k">paid bytes</div><div class="v">' + fmtBytes(D.traffic.paidBytes) + '</div>' +
+          '<div class="k">unpaid bytes</div><div class="v y">' + fmtBytes(D.traffic.unpaidBytes) + '</div>' +
           '<div class="k">legacy usdc</div><div class="v d">$' + DS_FMT(D.legacy.usdc, 2) + ' · ' + D.legacy.count + ' · ' + D.legacy.last + '</div>' +
         '</div></div>' +
         '<div class="panel full"><h2>Finalized epochs <span>points · share · α</span></h2>' +
@@ -890,7 +890,7 @@ window.URTHEMES['urnetwork'] = {
         '<div class="cell"><div class="k">Commits in</div><div class="v pink">' + D.epoch.commitIn + '</div><div class="s">root posted to the coordinator</div></div>' +
         '<div class="cell"><div class="k">Claimable in</div><div class="v green">' + D.epoch.finalizeIn + '</div><div class="s">first paying epoch ' + D.alpha.firstPayingEpoch + '</div></div>' +
         '<div class="cell"><div class="k">Points all time</div><div class="v">' + DS_FMT(D.points.total, 2) + '</div><div class="s">' + D.points.epochsWithPoints + ' of ' + D.points.epochsFinalized + ' epochs · best ' + D.points.bestEpoch + '</div></div>' +
-        '<div class="cell"><div class="k">Traffic</div><div class="v">' + D.traffic.paidTb + ' TB</div><div class="s">' + D.traffic.unpaidTb + ' TB unpaid</div></div>' +
+        '<div class="cell"><div class="k">Traffic</div><div class="v">' + fmtBytes(D.traffic.paidBytes) + '</div><div class="s">' + fmtBytes(D.traffic.unpaidBytes) + ' unpaid</div></div>' +
       '</div>' +
       '<div class="body">' +
         '<div class="col"><h3>Epoch history</h3><div class="tb">' + tb + '</div>' +
@@ -952,7 +952,7 @@ window.URTHEMES = window.URTHEMES || {};
       record: num(p.epochsWithPoints, 0) + ' of ' + num(p.epochsFinalized, 0) + ' finalized epochs with points · best: epoch ' + esc(p.bestEpoch) + ' (' + num(p.bestPoints, 2) + ')',
       wallet: esc(w.coldkey.slice(0, 8) + '…' + w.coldkey.slice(-6)),
       consent: esc(w.scope) + ' consent · epochs ' + num(w.fromEpoch, 0) + ' → ' + num(w.throughEpoch, 0),
-      traffic: num(D.traffic.paidTb, 2) + ' TB paid · ' + num(D.traffic.unpaidTb, 2) + ' TB unpaid',
+      traffic: fmtBytes(D.traffic.paidBytes) + ' paid · ' + fmtBytes(D.traffic.unpaidBytes) + ' unpaid',
       legacy: money(D.legacy.usdc) + ' across ' + num(D.legacy.count, 0) + ' USDC payments on ' + esc(D.legacy.network) + ' · last ' + esc(D.legacy.last),
       table: '<div class="scroll"><table><thead><tr><th>Epoch</th><th>Points</th><th>Share</th><th>Alpha</th><th>Settlement</th></tr></thead><tbody>' + rows + '</tbody></table></div>',
       bars: bars
@@ -1167,7 +1167,7 @@ window.URTHEMES = window.URTHEMES || {};
 <div class="fn">
 <div><sup>1</sup>Wallet <span class="mono">${H.ck(w.coldkey)}</span>${w.balanceKnown?` · <b class="wh-inline">${w.taoFree.toFixed(4)} TAO free</b>`:''}, consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</div>
 <div><sup>2</sup>Legacy: <b>$${H.n(l.usdc, 2)}</b> across <b>${l.count}</b> USDC payments on ${H.esc(l.network)}, last <b>${H.esc(l.last)}</b>.</div>
-<div><sup>3</sup>Traffic: <b>${H.n(t.paidTb, 2)} TB</b> paid, <b>${H.n(t.unpaidTb, 2)} TB</b> unpaid.</div>
+<div><sup>3</sup>Traffic: <b>${fmtBytes(t.paidBytes||0)}</b> paid, <b>${fmtBytes(t.unpaidBytes||0)}</b> unpaid.</div>
 </div>
 </div></div>`;
     }
@@ -1276,8 +1276,8 @@ window.URTHEMES = window.URTHEMES || {};
 <p>Epoch <b>${a.firstPayingEpoch}</b> is the first epoch that can pay alpha. Earlier epochs show —.</p></div>
 <div class="pn"><h3>Wallet</h3><div class="num mono">${H.ck(w.coldkey)}</div>${w.balanceKnown?`<div class="num wh-inline" style="font-size:14px">${w.taoFree.toFixed(4)} TAO free</div>`:''}
 <p>Consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</p></div>
-<div class="pn"><h3>Traffic</h3><div class="num">${H.n(t.paidTb, 2)}<small>TB paid</small></div>
-<p><b>${H.n(t.unpaidTb, 2)} TB</b> unpaid.</p></div>
+<div class="pn"><h3>Traffic</h3><div class="num">${fmtBytes(t.paidBytes||0)}</div>
+<p><b>${fmtBytes(t.unpaidBytes||0)}</b> unpaid.</p></div>
 <div class="pn wide"><h3>Points per epoch</h3><svg class="lol" viewBox="0 0 400 124" role="img" aria-label="Points per finalized epoch">${lol}<line x1="20" y1="96" x2="380" y2="96" stroke="#14403c"/></svg></div>
 <div class="pn wide"><h3>Finalized epochs</h3><div class="rows">
 <div class="rw hd"><span>Epoch</span><span>Points</span><span class="x">Share</span><span class="x">Settle</span><span>Alpha</span><span class="x"></span></div>${rows}</div></div>
@@ -1387,7 +1387,7 @@ window.URTHEMES = window.URTHEMES || {};
 <p><b>${p.epochsWithPoints}</b> of <b>${p.epochsFinalized}</b> finalized epochs have points.</p><p>Best: epoch <b>${p.bestEpoch}</b>, <b>${H.n(p.bestPoints, 2)}</b>.</p></section>
 <section><h2>Alpha</h2><p><b>${H.esc(a.thisEpoch)}</b> for epoch ${e.n}.</p><p>Epoch <b>${a.firstPayingEpoch}</b> is the first that can pay alpha.</p></section>
 <section><h2>Wallet</h2><p class="mono">${H.ck(w.coldkey)}</p>${w.balanceKnown?`<p><b class="wh-inline">${w.taoFree.toFixed(4)} TAO free</b></p>`:''}<p>consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b></p></section>
-<section><h2>Traffic</h2><p><b>${H.n(t.paidTb, 2)} TB</b> paid</p><p><b>${H.n(t.unpaidTb, 2)} TB</b> unpaid</p></section>
+<section><h2>Traffic</h2><p><b>${fmtBytes(t.paidBytes||0)}</b> paid</p><p><b>${fmtBytes(t.unpaidBytes||0)}</b> unpaid</p></section>
 <section><h2>Legacy</h2><p><b>$${H.n(l.usdc, 2)}</b> across <b>${l.count}</b> USDC payments on ${H.esc(l.network)}, last <b>${H.esc(l.last)}</b>.</p></section>
 </div></div></div></div>`;
     }
@@ -1657,9 +1657,9 @@ const last=series.length?series[series.length-1]:{t:new Date(0).toISOString(),pa
    derives from the full row list a moment later — that was the "same card, two
    numbers" flicker. leave them at the placeholder and let the full list fill
    them once. */
-document.getElementById('c-paid').textContent=fmtTB(last.paid);
-document.getElementById('c-unpaid').textContent=fmtTB(last.unpaid);
-document.getElementById('c-total').textContent=fmtTB(last.paid+last.unpaid);
+document.getElementById('c-paid').textContent=fmtBytes(last.paid);
+document.getElementById('c-unpaid').textContent=fmtBytes(last.unpaid);
+document.getElementById('c-total').textContent=fmtBytes(last.paid+last.unpaid);
 
 function updateMetaInfo(totalRows, rangeStart, rangeEnd, lastUpdated){
   if(totalRows !== undefined && totalRows !== null && totalRows !== ''){
@@ -2003,6 +2003,11 @@ function drawCharts(){
     const col=chartColors(currentTheme);
     const isBar=st.type==='bar';
     const labels=series.map(r=>r.t.slice(5,16).replace('T',' '));
+    const _maxBytes=Math.max(0,...series.map(r=>Math.max(r.paid||0,r.unpaid||0)));
+    const chartUnit=_maxBytes>=1e12?'TB':'GB';
+    const chartDiv=chartUnit==='TB'?TB:GB;
+    try{const pt=document.getElementById('paid-chart-title'); if(pt) pt.textContent='Paid Data ('+chartUnit+')';
+        const ut=document.getElementById('unpaid-chart-title'); if(ut) ut.textContent='Unpaid Data ('+chartUnit+')';}catch(e){}
     const base={
       responsive:true, maintainAspectRatio:false, animation:{duration:200},
       interaction:{intersect:false, mode:'index'},
@@ -2015,14 +2020,14 @@ function drawCharts(){
             label:c=>{
               const lbl=c.dataset.label||'';
               const val=Number(c.parsed.y);
-              return (lbl?lbl+': ':'')+(isNaN(val)?'':val.toFixed(3)+' TB');
+              return (lbl?lbl+': ':'')+(isNaN(val)?'':val.toFixed(3)+' '+chartUnit);
             }
           }}
       },
       scales:{
         x:{ticks:{color:t.muted, font:{size:10}, maxTicksLimit:8, maxRotation:0},
            grid:{color:st.grid?t.line:'transparent'}},
-        y:{ticks:{color:t.muted, font:{size:10}, callback:v=>v.toFixed(1)+' TB'},
+        y:{ticks:{color:t.muted, font:{size:10}, callback:v=>v.toFixed(1)+' '+chartUnit},
            grid:{color:st.grid?t.line:'transparent'}, border:{display:false}}
       }
     };
@@ -2044,12 +2049,12 @@ function drawCharts(){
       chartOn(id,{type:st.type, data:{labels,datasets:[ds]}, options:base});
     };
     chartOn('paid-chart',{type:st.type,
-      data:{labels,datasets:[{label:'Paid (TB)',data:series.map(r=>+(r.paid/TB).toFixed(3)),
+      data:{labels,datasets:[{label:'Paid ('+chartUnit+')',data:series.map(r=>+(r.paid/chartDiv).toFixed(3)),
         borderColor:col.c1, backgroundColor: st.fill?withAlpha(col.c1,st.fill):(isBar?withAlpha(col.c1,.5):'transparent'),
         fill:!!st.fill&&!isBar, tension:st.tension, pointRadius:st.points, borderWidth:isBar?1:1.6, borderRadius:2, stepped:!!st.stepped}]},
       options:JSON.parse(JSON.stringify(base))});
     chartOn('unpaid-chart',{type:st.type,
-      data:{labels,datasets:[{label:'Unpaid (TB)',data:series.map(r=>+(r.unpaid/TB).toFixed(3)),
+      data:{labels,datasets:[{label:'Unpaid ('+chartUnit+')',data:series.map(r=>+(r.unpaid/chartDiv).toFixed(3)),
         borderColor:col.c2, backgroundColor: st.fill?withAlpha(col.c2,st.fill):(isBar?withAlpha(col.c2,.5):'transparent'),
         fill:!!st.fill&&!isBar, tension:st.tension, pointRadius:st.points, borderWidth:isBar?1:1.6, borderRadius:2, stepped:!!st.stepped}]},
       options:JSON.parse(JSON.stringify(base))});
@@ -2714,9 +2719,9 @@ async function epLiveStats(){
     }
 
     const n=epDayChangeNodes();
-    if(n.paid) n.paid.textContent=fmtTB(last.paid);
-    if(n.unpaid) n.unpaid.textContent=fmtTB(last.unpaid);
-    if(n.total) n.total.textContent=fmtTB(last.paid+last.unpaid);
+    if(n.paid) n.paid.textContent=fmtBytes(last.paid);
+    if(n.unpaid) n.unpaid.textContent=fmtBytes(last.unpaid);
+    if(n.total) n.total.textContent=fmtBytes(last.paid+last.unpaid);
 
     const liveTotal=(d&&d.count)?d.count:raw.length;
     const liveStart=raw.length?raw[raw.length-1].created_at:'';
@@ -3360,10 +3365,10 @@ async function refreshDashData(){
       const cPaid=document.getElementById('c-paid');
       const cUnpaid=document.getElementById('c-unpaid');
       const cTotal=document.getElementById('c-total');
-      if(cPaid && D.traffic.paidBytes!=null) cPaid.textContent=fmtTB(D.traffic.paidBytes);
-      if(cUnpaid && D.traffic.unpaidBytes!=null) cUnpaid.textContent=fmtTB(D.traffic.unpaidBytes);
+      if(cPaid && D.traffic.paidBytes!=null) cPaid.textContent=fmtBytes(D.traffic.paidBytes);
+      if(cUnpaid && D.traffic.unpaidBytes!=null) cUnpaid.textContent=fmtBytes(D.traffic.unpaidBytes);
       if(cTotal && D.traffic.paidBytes!=null && D.traffic.unpaidBytes!=null){
-        cTotal.textContent=fmtTB(D.traffic.paidBytes+D.traffic.unpaidBytes);
+        cTotal.textContent=fmtBytes(D.traffic.paidBytes+D.traffic.unpaidBytes);
       }
     }
   }catch(_){}

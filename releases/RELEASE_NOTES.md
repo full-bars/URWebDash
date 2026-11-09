@@ -11,7 +11,7 @@
 ### Fixed
 
 - **Removed hardcoded data points snapshot:** Replaced the hardcoded data points and date range summary header with dynamic row counts, date ranges, and live polling timestamps.
-- **Explicit Terabyte units (`TB`):** Updated chart dataset labels, axis titles, and hover tooltips to format in decimal Terabytes (`TB`) with explicit units (e.g. `15.87 TB`).
+- **Auto-scaling byte units (GB/TB):** Traffic cards, chart axes, tooltips, and labels now scale between GB and TB instead of hardcoding TB, so small amounts no longer show as `0.00 TB`.
 - **Dynamic epoch subtitle:** Replaced the static header in the Bittensor section with live epoch and completion values.
 - **Synchronized manual refresh:** The manual Refresh button now triggers coordinator epoch polling and dashboard sync alongside traffic stats.
 

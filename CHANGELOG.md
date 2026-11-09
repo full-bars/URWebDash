@@ -15,7 +15,7 @@ All notable changes. Format loosely follows Keep a Changelog.
 ### Fixed
 
 - Removed hardcoded `34,534 rows · 2026-10-02 → 2026-11-01` summary header, replacing it with dynamic counts, date ranges, and live polling timestamps.
-- Explicit Terabyte (`TB`) units and tooltips: updated chart dataset labels, axis titles, and hover tooltips to format in decimal Terabytes (`TB`) with explicit units (e.g. `15.87 TB`).
+- Auto-scaling byte units (GB/TB): traffic cards, chart axes, tooltips, and labels now scale between GB and TB instead of hardcoding TB, so small amounts no longer render as `0.00 TB`.
 - Hardcoded epoch sub-header: replaced static `Epoch 4 · 31.7%` header in the Bittensor section with dynamic epoch number and completion percentage.
 - Manual refresh button synchronization: clicking the Refresh button now syncs epoch data, dashboard data, and traffic statistics in a single unified refresh.
 

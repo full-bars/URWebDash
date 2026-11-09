@@ -6,7 +6,7 @@ Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.io) pro
 
 **Features**
 
-- Paid/unpaid bytes tracking with hourly snapshots and transfer-rate charts, labelled in decimal Terabytes (TB) with explicit units
+- Paid/unpaid bytes tracking with hourly snapshots and transfer-rate charts, with byte counts auto-scaled between GB and TB
 - Last-7-days usage strip (calendar-day buckets, DST-safe)
 - Full payment history: amounts, points per payment, Solana tx links
 - Estimated amounts for pending payouts
