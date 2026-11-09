@@ -41,7 +41,7 @@ func stubFeeds(t *testing.T, failFX bool) *int {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			w.Write([]byte(`{"bittensor":{"usd":233.5,"eur":209.0,"gbp":174.0,"jpy":36900,"cny":1550}}`))
+			w.Write([]byte(`{"bittensor":{"usd":233.5,"eur":209.0,"gbp":174.0,"jpy":36900,"cny":1550,"mxn":4600}}`))
 			return
 		}
 		w.Write([]byte(`{"data":{"attributes":{"name":"SN25 / TAO","base_token_price_usd":"0.98",
@@ -78,7 +78,7 @@ func TestFetchPriceParsesPoolAndFX(t *testing.T) {
 	if got := doc.FX["EUR"]; got < 0.89 || got > 0.90 {
 		t.Errorf("eur rate: %v", got)
 	}
-	if len(doc.Currencies) != 5 {
+	if len(doc.Currencies) != 6 {
 		t.Errorf("currencies: %v", doc.Currencies)
 	}
 }

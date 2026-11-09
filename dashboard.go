@@ -172,7 +172,7 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 			Bg: "#101010", Fg: "#F8F8F8", Primary: "#638BFC", Secondary: "#D6E6F4",
 			Tertiary: "#ED8FFF", Green: "#87FB67", Muted: "#989898", Faint: "#5A5A5A",
 		},
-		FXSymbols: map[string]string{"USD": "$", "EUR": "€", "GBP": "£", "JPY": "JP¥", "CNY": "CN¥"},
+		FXSymbols: map[string]string{"USD": "$", "EUR": "€", "GBP": "£", "JPY": "JP¥", "CNY": "CN¥", "MXN": "Mex$"},
 		FX:        map[string]float64{"USD": 1},
 	}
 	d.NetworkName = networkNameFromJWT(token)

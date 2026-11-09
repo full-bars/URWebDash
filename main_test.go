@@ -2351,4 +2351,7 @@ func TestIndexHTML_DynamicDataPointsAndTBUnits(t *testing.T) {
 	if !strings.Contains(indexHTML, `Unpaid Data (TB)`) {
 		t.Fatalf("indexHTML missing 'Unpaid Data (TB)' chart title")
 	}
+	if !strings.Contains(indexHTML, `<option value="MXN">MXN</option>`) {
+		t.Fatalf("indexHTML missing MXN currency option")
+	}
 }

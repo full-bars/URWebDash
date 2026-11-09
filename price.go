@@ -28,7 +28,7 @@ import (
 /* vars, not consts, so tests can point them at a local server */
 var (
 	geckoPoolURL = "https://api.geckoterminal.com/api/v2/networks/bittensor/pools/0-25"
-	geckoFXURL   = "https://api.coingecko.com/api/v3/simple/price?ids=bittensor&vs_currencies=usd,eur,gbp,jpy,cny"
+	geckoFXURL   = "https://api.coingecko.com/api/v3/simple/price?ids=bittensor&vs_currencies=usd,eur,gbp,jpy,cny,mxn"
 	priceTTL     = 60 * time.Second
 	/* after a failure, wait this long before trying upstream again */
 	priceRetry = 30 * time.Second
@@ -172,7 +172,7 @@ func fetchPrice() (priceDoc, error) {
 	if err := getJSON(geckoFXURL, &fx, 15*time.Second); err == nil {
 		if usd, ok := fx.Bittensor["usd"]; ok && usd > 0 {
 			got := false
-			for _, cur := range []string{"eur", "gbp", "jpy", "cny"} {
+			for _, cur := range []string{"eur", "gbp", "jpy", "cny", "mxn"} {
 				if v, ok := fx.Bittensor[cur]; ok && v > 0 {
 					doc.FX[strings.ToUpper(cur)] = v / usd
 					got = true
@@ -183,7 +183,7 @@ func fetchPrice() (priceDoc, error) {
 			}
 		}
 	}
-	for _, cur := range []string{"USD", "EUR", "GBP", "JPY", "CNY"} {
+	for _, cur := range []string{"USD", "EUR", "GBP", "JPY", "CNY", "MXN"} {
 		if _, ok := doc.FX[cur]; ok && cur != "USD" {
 			doc.Currencies = append(doc.Currencies, cur)
 		}
@@ -268,7 +268,7 @@ func cachedPrice() (priceDoc, time.Duration, error) {
 				doc.FXAt = priceCache.doc.FXAt
 			}
 			doc.Currencies = nil
-			for _, cur := range []string{"USD", "EUR", "GBP", "JPY", "CNY"} {
+			for _, cur := range []string{"USD", "EUR", "GBP", "JPY", "CNY", "MXN"} {
 				if _, ok := doc.FX[cur]; ok {
 					doc.Currencies = append(doc.Currencies, cur)
 				}
