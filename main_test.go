@@ -2337,3 +2337,18 @@ func TestPollGapNoticeSameWindowCountsOnce(t *testing.T) {
 		t.Fatalf("recovery message = %q, want a single skipped window", msg)
 	}
 }
+
+func TestIndexHTML_DynamicDataPointsAndTBUnits(t *testing.T) {
+	if strings.Contains(indexHTML, "34,534") || strings.Contains(indexHTML, "34534") {
+		t.Fatalf("indexHTML contains hardcoded 34,534 row counts")
+	}
+	if !strings.Contains(indexHTML, `id="data-points"`) {
+		t.Fatalf("indexHTML missing id=\"data-points\" element")
+	}
+	if !strings.Contains(indexHTML, `Paid Data (TB)`) {
+		t.Fatalf("indexHTML missing 'Paid Data (TB)' chart title")
+	}
+	if !strings.Contains(indexHTML, `Unpaid Data (TB)`) {
+		t.Fatalf("indexHTML missing 'Unpaid Data (TB)' chart title")
+	}
+}

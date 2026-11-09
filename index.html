@@ -325,19 +325,19 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="header">
       <div><h2>&#128202; Data Statistics</h2>
       <p>Real-time tracking of data transfer earnings</p>
-      <div class="sub">Network: <span id="net-name">&mdash;</span> &middot; Last updated: 2026-11-01 23:30:00</div></div>
-      <div class="right"><span class="note" style="margin:0">34,534 rows &middot; 2026-10-02 → 2026-11-01</span></div>
+      <div class="sub">Network: <span id="net-name">&mdash;</span> &middot; Last updated: <span id="last-updated">&mdash;</span></div></div>
+      <div class="right"><span class="note" id="header-rows-note" style="margin:0">&mdash;</span></div>
     </div>
     <div class="cards">
       <div class="card"><div class="label">Paid Data</div><div class="value green" id="c-paid">&mdash;</div></div>
       <div class="card"><div class="label">Unpaid Data</div><div class="value yellow" id="c-unpaid">&mdash;</div></div>
       <div class="card"><div class="label">Total Volume</div><div class="value white" id="c-total">&mdash;</div></div>
       <div class="card"><div class="label">24h Change</div><div class="value blue" id="c-24h">&mdash;</div></div>
-      <div class="card"><div class="label">Data Points</div><div class="value white">34,534</div></div>
+      <div class="card"><div class="label">Data Points</div><div class="value white" id="data-points">&mdash;</div></div>
     </div>
     <div class="weekly-header">&#128197; 24h Change &middot; Last 7 Days</div>
     <div class="weekly-cards" id="weekly"></div>
-    <div class="toolbar"><span class="info">34,534 rows · 2026-10-02 → 2026-11-01</span>
+    <div class="toolbar"><span class="info" id="toolbar-rows-info">&mdash;</span>
       <button class="btn primary" onclick="fakeRefresh(this)">&#128260; Refresh</button></div>
     <div class="toolbar">
       <span class="info">Charts</span>
@@ -353,8 +353,8 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
       </select>
     </div>
     <div class="chart-row">
-      <div class="chart-container"><div class="chart-title">Paid Bytes Provided</div><div class="chart-box"><canvas id="paid-chart"></canvas></div></div>
-      <div class="chart-container"><div class="chart-title">Unpaid Bytes</div><div class="chart-box"><canvas id="unpaid-chart"></canvas></div></div>
+      <div class="chart-container"><div class="chart-title">Paid Data (TB)</div><div class="chart-box"><canvas id="paid-chart"></canvas></div></div>
+      <div class="chart-container"><div class="chart-title">Unpaid Data (TB)</div><div class="chart-box"><canvas id="unpaid-chart"></canvas></div></div>
       <div class="chart-container"><div class="chart-title">Transfer Rate</div>
         <div style="display:flex;gap:4px;margin-bottom:8px">
           <button class="btn btn-sm" onclick="setWin('6h',this)">6H</button>
@@ -372,7 +372,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
       <th class="text-right">&#128640; GB/hr</th></tr></thead>
       <tbody id="history-table"></tbody></table></div>
     <div id="table-pagination" class="hist-pager"></div>
-    <div class="note">The 30 newest 15-minute windows of 34,534 stored rows. Charts and table are drawn from the theme's own palette.</div>
+    <div class="note" id="table-footer-note">&mdash;</div>
   </div>
 
   <div id="section-payout" class="section">
@@ -1614,6 +1614,35 @@ document.getElementById('c-unpaid').textContent=fmtTB(last.unpaid);
 document.getElementById('c-total').textContent=fmtTB(last.paid+last.unpaid);
 document.getElementById('c-24h').textContent=has24h?('+'+fmtBytes(Math.max(0,(last.paid+last.unpaid)-(prev.paid+prev.unpaid)))):'—';
 
+function updateMetaInfo(totalRows, rangeStart, rangeEnd, lastUpdated){
+  if(totalRows !== undefined && totalRows !== null && totalRows !== ''){
+    const dp=document.getElementById('data-points');
+    if(dp) dp.textContent=Number(totalRows).toLocaleString();
+  }
+  const fmtD=s=>{ if(!s) return ''; return s.slice(0,10); };
+  const r0=fmtD(rangeStart), r1=fmtD(rangeEnd);
+  const rangeStr=(r0 && r1)?(r0+' \u2192 '+r1):'';
+  const countStr=(totalRows!==undefined && totalRows!==null && totalRows!=='')?Number(totalRows).toLocaleString()+' rows':'';
+  const noteText=countStr+(rangeStr?' \u00b7 '+rangeStr:'');
+  const hn=document.getElementById('header-rows-note');
+  if(hn && noteText) hn.textContent=noteText;
+  const tn=document.getElementById('toolbar-rows-info');
+  if(tn && noteText) tn.textContent=noteText;
+  const fn=document.getElementById('table-footer-note');
+  if(fn && (totalRows!==undefined && totalRows!==null && totalRows!=='')) {
+    fn.textContent='The stored history of '+Number(totalRows).toLocaleString()+' rows. Charts and table are drawn from the theme\'s own palette.';
+  }
+  if(lastUpdated){
+    const lu=document.getElementById('last-updated');
+    if(lu) lu.textContent=fmtTime(lastUpdated);
+  }
+}
+const initTotal=(typeof HIST!=='undefined'&&HIST&&HIST.rows_total)?HIST.rows_total:(series.length||0);
+const initR0=(typeof HIST!=='undefined'&&HIST&&HIST.range&&HIST.range[0])||(series.length?series[0].t:'');
+const initR1=(typeof HIST!=='undefined'&&HIST&&HIST.range&&HIST.range[1])||(series.length?series[series.length-1].t:'');
+const initAsOf=(typeof D!=='undefined'&&D&&D.asOf)?D.asOf:(last.t||'');
+updateMetaInfo(initTotal, initR0, initR1, initAsOf);
+
 const weekly=document.getElementById('weekly');
 /* newest first: today is the box a reader looks at, so it leads */
 for(let d=0;d<=6;d++){
@@ -1886,12 +1915,19 @@ function drawCharts(){
         legend:{display:st.legend, position:'top',
           labels:{color:t.muted, font:{size:11}, boxWidth:12, padding:14}},
         tooltip:{backgroundColor:t.panel, titleColor:t.head, bodyColor:t.text,
-          borderColor:t.line, borderWidth:1, padding:10}
+          borderColor:t.line, borderWidth:1, padding:10,
+          callbacks:{
+            label:c=>{
+              const lbl=c.dataset.label||'';
+              const val=Number(c.parsed.y);
+              return (lbl?lbl+': ':'')+(isNaN(val)?'':val.toFixed(3)+' TB');
+            }
+          }}
       },
       scales:{
         x:{ticks:{color:t.muted, font:{size:10}, maxTicksLimit:8, maxRotation:0},
            grid:{color:st.grid?t.line:'transparent'}},
-        y:{ticks:{color:t.muted, font:{size:10}, callback:v=>v.toFixed(1)+' GB'},
+        y:{ticks:{color:t.muted, font:{size:10}, callback:v=>v.toFixed(1)+' TB'},
            grid:{color:st.grid?t.line:'transparent'}, border:{display:false}}
       }
     };
@@ -1913,12 +1949,12 @@ function drawCharts(){
       chartOn(id,{type:st.type, data:{labels,datasets:[ds]}, options:base});
     };
     chartOn('paid-chart',{type:st.type,
-      data:{labels,datasets:[{label:'Paid bytes',data:series.map(r=>+(r.paid/TB).toFixed(3)),
+      data:{labels,datasets:[{label:'Paid (TB)',data:series.map(r=>+(r.paid/TB).toFixed(3)),
         borderColor:col.c1, backgroundColor: st.fill?withAlpha(col.c1,st.fill):(isBar?withAlpha(col.c1,.5):'transparent'),
         fill:!!st.fill&&!isBar, tension:st.tension, pointRadius:st.points, borderWidth:isBar?1:1.6, borderRadius:2, stepped:!!st.stepped}]},
       options:JSON.parse(JSON.stringify(base))});
     chartOn('unpaid-chart',{type:st.type,
-      data:{labels,datasets:[{label:'Unpaid bytes',data:series.map(r=>+(r.unpaid/TB).toFixed(3)),
+      data:{labels,datasets:[{label:'Unpaid (TB)',data:series.map(r=>+(r.unpaid/TB).toFixed(3)),
         borderColor:col.c2, backgroundColor: st.fill?withAlpha(col.c2,st.fill):(isBar?withAlpha(col.c2,.5):'transparent'),
         fill:!!st.fill&&!isBar, tension:st.tension, pointRadius:st.points, borderWidth:isBar?1:1.6, borderRadius:2, stepped:!!st.stepped}]},
       options:JSON.parse(JSON.stringify(base))});
@@ -2171,9 +2207,14 @@ async function loadAllHistory(){
   if(!tbody) return;
   try{
     const res=await fetch('/api/wallet-stats',{cache:'no-store'});
-    const rows=await res.json();
+    const data=await res.json();
     /* the endpoint answers {count, entries}; older builds sent a bare array */
-    WALLETROWS=Array.isArray(rows)?rows:(rows&&Array.isArray(rows.entries)?rows.entries:[]);
+    WALLETROWS=Array.isArray(data)?data:(data&&Array.isArray(data.entries)?data.entries:[]);
+    const totalCount=(data&&data.count)?data.count:WALLETROWS.length;
+    const rStart=WALLETROWS.length?WALLETROWS[WALLETROWS.length-1].created_at:'';
+    const rEnd=WALLETROWS.length?WALLETROWS[0].created_at:'';
+    const lastUp=WALLETROWS.length?WALLETROWS[0].created_at:'';
+    if(typeof updateMetaInfo==='function') updateMetaInfo(totalCount, rStart, rEnd, lastUp);
   }catch(_){ WALLETROWS=null; }
   walletPage=1;
   renderWalletTable();
@@ -2567,6 +2608,11 @@ async function epLiveStats(){
     if(n.total) n.total.textContent=fmtTB(last.paid+last.unpaid);
     const has24hLive=raw.some(r=>new Date(last.t)-new Date(r.created_at)>=23*3600000);
     if(n.box) n.box.textContent=has24hLive?('+'+fmtBytes(dayNow)):'—';
+
+    const liveTotal=(d&&d.count)?d.count:raw.length;
+    const liveStart=raw.length?raw[raw.length-1].created_at:'';
+    const liveEnd=raw.length?raw[0].created_at:'';
+    if(typeof updateMetaInfo==='function') updateMetaInfo(liveTotal, liveStart, liveEnd, last.t);
 
     if(has24hLive && epLastDay!==null && dayNow>epLastDay){
       epFlair24h(dayNow-epLastDay);
