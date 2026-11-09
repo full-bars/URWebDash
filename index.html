@@ -2092,6 +2092,7 @@ function setPriceRange(r){
   try{ localStorage.setItem('urwebdash.pricerange', r); }catch(_){}
   document.querySelectorAll('#spark-ranges button').forEach(b=>b.classList.toggle('on', b.dataset.r===r));
   const lbl=document.getElementById('spark-range-label'); if(lbl) lbl.textContent=r.toUpperCase();
+  const ch=document.getElementById('alpha-change'); if(ch) ch.textContent='… '+r;
   renderPriceSpark();
 }
 async function renderPriceSpark(){
@@ -2114,6 +2115,18 @@ async function renderPriceSpark(){
   svg.classList.remove('empty');
   const vals=pts.map(p=>p.close).filter(v=>typeof v==='number'&&v>0);
   if(vals.length<2){ svg.classList.add('empty'); return; }
+  const firstVal=vals[0];
+  const lastVal=vals[vals.length-1];
+  let pct=0;
+  if(firstVal>0){
+    pct=((lastVal-firstVal)/firstVal)*100;
+  }
+  window.__sparkPct=pct;
+  const ch=document.getElementById('alpha-change');
+  if(ch){
+    ch.textContent=(pct>=0?'+':'')+pct.toFixed(2)+'% '+priceRange;
+    ch.className='d '+(pct>=0?'up':'down');
+  }
   const min=Math.min(...vals), max=Math.max(...vals), span=(max-min)||1;
   const W=600, H=56, pad=4;
   const xy=vals.map((v,i)=>{
@@ -2277,7 +2290,11 @@ function renderPrice(){
   set('tao-price',haveQuote?money(p.taoUsd,2):'—');
   const ch=document.getElementById('alpha-change');
   if(ch){
-    if(p.change24h==null){ ch.textContent='— 24h'; ch.className='d'; }
+    if(window.__sparkPct!=null && priceRange){
+      const sp=window.__sparkPct;
+      ch.textContent=(sp>=0?'+':'')+sp.toFixed(2)+'% '+priceRange;
+      ch.className='d '+(sp>=0?'up':'down');
+    } else if(p.change24h==null){ ch.textContent='- 24h'; ch.className='d'; }
     else { ch.textContent=(p.change24h>=0?'+':'')+p.change24h.toFixed(2)+'% 24h';
            ch.className='d '+(p.change24h>=0?'up':'down'); }
   }
@@ -3238,10 +3255,33 @@ FORMATS.forEach(f=>{
   tiles.appendChild(d);
 });
 let whCurrent=FORMATS.find(f=>f.id==='box-table')||FORMATS[0];
-function whSelect(id){
+function whSelect(id, save = true){
   whCurrent=FORMATS.find(f=>f.id===id)||whCurrent;
-  document.querySelectorAll('.wh-tile').forEach(t=>t.classList.toggle('on',t.dataset.id===id));
+  document.querySelectorAll('.wh-tile').forEach(t=>t.classList.toggle('on',t.dataset.id===whCurrent.id));
   whRender();
+  if(save){
+    try{ localStorage.setItem('urwebdash.webhook_style', whCurrent.id); }catch(_){}
+    fetch('/api/webhook-style', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({style: whCurrent.id})
+    }).catch(()=>{});
+  }
+}
+async function initWebhookStyle(){
+  try{
+    const res=await fetch('/api/webhook-style');
+    if(res.ok){
+      const data=await res.json();
+      if(data&&data.style){
+        whSelect(data.style, false);
+        return;
+      }
+    }
+  }catch(_){}
+  let saved=null;
+  try{ saved=localStorage.getItem('urwebdash.webhook_style'); }catch(_){}
+  if(saved) whSelect(saved, true);
 }
 let mobileOS='ios';
 function setMobileOS(os){
@@ -3256,7 +3296,7 @@ function whRender(){
     if(m) m.innerHTML=whCurrent.html;
   });
   document.getElementById('payload').textContent=whCurrent.payload;
-  document.getElementById('wh-note').textContent=whCurrent.name+' — '+whCurrent.note;
+  document.getElementById('wh-note').textContent=whCurrent.name+' - '+whCurrent.note;
   /* Desktop renders as sent. The mobile pane shows the one difference that
      matters: iOS loses the box glyphs, Android's monospace has them. */
   const mob=document.getElementById('dc-mobile');
@@ -3268,6 +3308,7 @@ function whRender(){
   mob.querySelector('.andline').style.display=(mobileOS==='android')?'block':'none';
 }
 whRender();
+initWebhookStyle();
 /* these posted nothing: the button spun and reset, so a test "passed" without a
    request leaving the browser. They now call the endpoints the server already
    has, and report what came back. */
@@ -3280,10 +3321,13 @@ async function whTest(btn){
       headers:{'Content-Type':'application/json'},
       /* send the selected format's own message, so the test shows the style the
          channel will actually receive rather than a canned line */
-      body:JSON.stringify({content: (whCurrent&&whCurrent.payload)||''})});
+      body:JSON.stringify({
+        style: (whCurrent&&whCurrent.id)||'box-table',
+        content: (whCurrent&&whCurrent.payload)||''
+      })});
     const data=await res.json().catch(()=>({}));
     if(!res.ok||data.error) throw new Error(data.error||('HTTP '+res.status));
-    if(note) note.textContent='Test sent to the stored webhook — check the channel.';
+    if(note) note.textContent='Test ('+((whCurrent&&whCurrent.name)||'')+') sent to the stored webhook - check the channel.';
   }catch(e){
     if(note) note.textContent='Test failed: '+e.message;
   }finally{

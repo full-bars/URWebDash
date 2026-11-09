@@ -209,7 +209,7 @@ func migrateLegacyState() {
 		filepath.Join(st, ".urnetwork"),
 		filepath.Dir(st), // Docker pre-v0.0.14 root (e.g. /data)
 	}
-	files := []string{"discord_webhook", "spike_threshold", "payout_notified.json"}
+	files := []string{"discord_webhook", "spike_threshold", "webhook_style", "payout_notified.json"}
 	for _, src := range candidates {
 		for _, f := range files {
 			sp := filepath.Join(src, f)
@@ -1139,6 +1139,7 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/webhook", handleWebhook)
 	mux.HandleFunc("/api/webhook-test", handleWebhookTest)
 	mux.HandleFunc("/api/spike-threshold", handleSpikeThreshold)
+	mux.HandleFunc("/api/webhook-style", handleWebhookStyle)
 	mux.HandleFunc("/api/epochs", handleEpochs(db, token))
 	mux.HandleFunc("/api/price", handlePrice)
 	mux.HandleFunc("/api/price-history", handlePriceHistory)
@@ -1791,25 +1792,153 @@ func checkTrafficSpike(db *sql.DB, paidBytes, unpaidBytes uint64, now time.Time,
 	}
 	deltaGB := float64(deltaBytes) / 1e9
 	totalGB := float64(unpaidBytes) / 1e9
-	nowStr := now.Format("15:04:05")
-	leftCell := fmt.Sprintf("%s Delta", spanLabel(span))
-	sendDiscordNotification(fmt.Sprintf(
-		"🛫 **Traffic Spike**\n"+
-			"```\n"+
-			"┌──────────────────────┬────────────┐\n"+
-			"├──────────────────────┼────────────┤\n"+
-			"│ %-20s │ %10s │\n"+
-			"│ %-20s │ %10s │\n"+
-			"│ %-20s │ %10s │\n"+
-			"└──────────────────────┴────────────┘\n"+
-			"```",
-		leftCell,
-		fmt.Sprintf("+%.2f GB", deltaGB),
-		"Total Unpaid",
-		fmt.Sprintf("%.2f GB", totalGB),
-		"At (UTC)",
-		nowStr,
-	))
+	style := webhookStyle()
+	body := formatSpikeAlert(style, span, deltaGB, totalGB, now)
+	sendDiscordNotificationJSON(body)
+}
+
+func formatSpikeAlert(style string, span time.Duration, deltaGB, totalGB float64, now time.Time) string {
+	switch style {
+	case "embed":
+		body := map[string]any{
+			"embeds": []map[string]any{{
+				"title": "🛫 Traffic Spike",
+				"color": 5793266,
+				"fields": []map[string]any{
+					{"name": spanLabel(span) + " Delta", "value": fmt.Sprintf("+%.2f GB", deltaGB), "inline": true},
+					{"name": "Total unpaid", "value": fmt.Sprintf("%.2f GB", totalGB), "inline": true},
+					{"name": "At (UTC)", "value": now.UTC().Format("15:04:05"), "inline": true},
+				},
+				"footer": map[string]any{"text": fmt.Sprintf("URWebDash · spike threshold %.2f GB", float64(spikeThreshold())/1e9)},
+			}},
+		}
+		b, _ := json.Marshal(body)
+		return string(b)
+	case "hero-card":
+		body := map[string]any{
+			"embeds": []map[string]any{{
+				"title":       fmt.Sprintf("🛫 +%.2f GB in %s", deltaGB, spanLabel(span)),
+				"description": fmt.Sprintf("**%.2f GB** unpaid in total", totalGB),
+				"color":       6523900,
+				"footer":      map[string]any{"text": fmt.Sprintf("%s window · %s UTC", spanLabel(span), now.UTC().Format("15:04:05"))},
+				"timestamp":   now.UTC().Format(time.RFC3339),
+			}},
+		}
+		b, _ := json.Marshal(body)
+		return string(b)
+	case "story":
+		body := map[string]any{
+			"embeds": []map[string]any{{
+				"title":       "🛫 Traffic spike",
+				"description": fmt.Sprintf("**+%.2f GB** in the last %s. The unpaid total is **%.2f GB**. Window time: %s UTC.", deltaGB, spanLabel(span), totalGB, now.UTC().Format("15:04:05")),
+				"color":       12810666,
+			}},
+		}
+		b, _ := json.Marshal(body)
+		return string(b)
+	case "ascii-table":
+		leftCell := fmt.Sprintf("%s Delta", spanLabel(span))
+		content := fmt.Sprintf(
+			"🛫 **Traffic Spike**\n"+
+				"```\n"+
+				"+------------------+------------+\n"+
+				"| %-16s | %10s |\n"+
+				"| %-16s | %10s |\n"+
+				"| %-16s | %10s |\n"+
+				"+------------------+------------+\n"+
+				"```",
+			leftCell, fmt.Sprintf("+%.2f GB", deltaGB),
+			"Total Unpaid", fmt.Sprintf("%.2f GB", totalGB),
+			"At (UTC)", now.UTC().Format("15:04:05"),
+		)
+		b, _ := json.Marshal(map[string]string{"content": content})
+		return string(b)
+	case "plain-lines":
+		content := fmt.Sprintf(
+			"🛫 **Traffic Spike**\n"+
+				"**%s Delta** · +%.2f GB\n"+
+				"**Total Unpaid** · %.2f GB\n"+
+				"**At** · %s UTC",
+			spanLabel(span), deltaGB,
+			totalGB,
+			now.UTC().Format("15:04:05"),
+		)
+		b, _ := json.Marshal(map[string]string{"content": content})
+		return string(b)
+	case "quote":
+		content := fmt.Sprintf(
+			"🛫 **Traffic spike**\n"+
+				"> **+%.2f GB** in %s\n"+
+				"> Unpaid total: %.2f GB\n"+
+				"> Window: %s UTC",
+			deltaGB, spanLabel(span),
+			totalGB,
+			now.UTC().Format("15:04:05"),
+		)
+		b, _ := json.Marshal(map[string]string{"content": content})
+		return string(b)
+	case "bullets":
+		content := fmt.Sprintf(
+			"**🛫 Traffic spike · +%.2f GB**\n"+
+				"- Period: %s\n"+
+				"- Unpaid total: %.2f GB\n"+
+				"- Window: %s UTC",
+			deltaGB,
+			spanLabel(span),
+			totalGB,
+			now.UTC().Format("15:04:05"),
+		)
+		b, _ := json.Marshal(map[string]string{"content": content})
+		return string(b)
+	case "local-clock":
+		unix := now.UTC().Unix()
+		content := fmt.Sprintf(
+			"🛫 **+%.2f GB** of unpaid traffic in the last %s. Total unpaid is now **%.2f GB**.\n"+
+				"-# Window closed <t:%d:T> (<t:%d:R>)",
+			deltaGB, spanLabel(span), totalGB,
+			unix, unix,
+		)
+		b, _ := json.Marshal(map[string]string{"content": content})
+		return string(b)
+	case "ansi":
+		e := "\x1b["
+		r0Label := (spanLabel(span) + " delta          ")[:10]
+		r0Val := fmt.Sprintf("%9s", fmt.Sprintf("+%.2f GB", deltaGB))
+		r1Label := ("Unpaid          ")[:10]
+		r1Val := fmt.Sprintf("%9s", fmt.Sprintf("%.2f GB", totalGB))
+		r2Label := ("At (UTC)        ")[:10]
+		r2Val := fmt.Sprintf("%9s", now.UTC().Format("15:04:05"))
+
+		ansiBody := fmt.Sprintf(
+			"%s0;37m%s%s1;32m%s%s0m\n"+
+				"%s0;37m%s%s1;37m%s%s0m\n"+
+				"%s0;37m%s%s0;36m%s%s0m",
+			e, r0Label, e, r0Val, e,
+			e, r1Label, e, r1Val, e,
+			e, r2Label, e, r2Val, e,
+		)
+		content := fmt.Sprintf("🛫 **Traffic Spike**\n```ansi\n%s\n```", ansiBody)
+		b, _ := json.Marshal(map[string]string{"content": content})
+		return string(b)
+	default: // "box-table"
+		leftCell := fmt.Sprintf("%s Delta", spanLabel(span))
+		content := fmt.Sprintf(
+			"🛫 **Traffic Spike**\n"+
+				"```\n"+
+				"┌──────────────────────┬────────────┐\n"+
+				"├──────────────────────┼────────────┤\n"+
+				"│ %-20s │ %10s │\n"+
+				"│ %-20s │ %10s │\n"+
+				"│ %-20s │ %10s │\n"+
+				"└──────────────────────┴────────────┘\n"+
+				"```",
+			leftCell, fmt.Sprintf("+%.2f GB", deltaGB),
+			"Total Unpaid", fmt.Sprintf("%.2f GB", totalGB),
+			"At (UTC)", now.UTC().Format("15:04:05"),
+		)
+		b, _ := json.Marshal(map[string]string{"content": content})
+		return string(b)
+	}
 }
 
 // spanLabel formats the gap between poll rows for the alert: "15m" for a
@@ -1923,13 +2052,20 @@ var sendDiscordWebhookJSON = func(url, body string) (int, error) {
 // asynchronously so a slow Discord round-trip never blocks the poller. It
 // logs and gives up when no URL is configured.
 func sendDiscordNotification(content string) {
+	b, _ := json.Marshal(map[string]string{"content": content})
+	sendDiscordNotificationJSON(string(b))
+}
+
+// sendDiscordNotificationJSON posts JSON body to the resolved webhook URL
+// asynchronously so a slow Discord round-trip never blocks the poller.
+func sendDiscordNotificationJSON(body string) {
 	url := discordWebhookURL()
 	if url == "" {
 		fmt.Println("[webhook] DISCORD_WEBHOOK_URL not set and no webhook file in state dir")
 		return
 	}
 	go func() {
-		if _, err := sendDiscordWebhook(url, content); err != nil {
+		if _, err := sendDiscordWebhookJSON(url, body); err != nil {
 			fmt.Printf("[webhook] %v\n", err)
 		}
 	}()
@@ -2048,24 +2184,13 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 // webhookCSRFCheck first, and transport errors are returned as a generic
 // message so the webhook's secret token (which can appear inside a
 // transport error) is never echoed to the client.
-// sampleAlertBody is the traffic-spike alert as an embed, built from the same
-// fields the real alert uses. The test button exists to show what lands in the
-// channel, so it posts this body rather than a preview's placeholder text.
-func sampleAlertBody() string {
-	body := map[string]any{
-		"embeds": []map[string]any{{
-			"title": "🛫 Traffic Spike",
-			"color": 5793266,
-			"fields": []map[string]any{
-				{"name": "15m delta", "value": "+1.45 GB", "inline": true},
-				{"name": "Total unpaid", "value": "742.29 GB", "inline": true},
-				{"name": "At (UTC)", "value": time.Now().UTC().Format("15:04:05"), "inline": true},
-			},
-			"footer": map[string]any{"text": fmt.Sprintf("URWebDash · spike threshold %.2f GB", float64(spikeThreshold())/1e9)},
-		}},
+// sampleAlertBody builds the sample traffic-spike alert in the specified format,
+// using the same fields and sample figures the real alert uses.
+func sampleAlertBody(style string) string {
+	if style == "" {
+		style = webhookStyle()
 	}
-	out, _ := json.Marshal(body)
-	return string(out)
+	return formatSpikeAlert(style, 15*time.Minute, 1.45, 742.29, time.Now().UTC())
 }
 
 func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
@@ -2081,6 +2206,7 @@ func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL     string `json:"url"`
 		Content string `json:"content"`
+		Style   string `json:"style"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err == nil && strings.TrimSpace(req.URL) != "" {
 		url = strings.TrimSpace(req.URL)
@@ -2093,10 +2219,7 @@ func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "URL must start with https://discord.com/api/webhooks/")
 		return
 	}
-	/* send the alert as it will actually arrive. The previews on the page are
-	   design studies with placeholder text, and an ANSI preview posts raw escape
-	   bytes that Discord renders as gibberish, so the test does not send them. */
-	body := sampleAlertBody()
+	body := sampleAlertBody(req.Style)
 	status, err := sendDiscordWebhookJSON(url, body)
 	if err != nil {
 		if status == 0 {
@@ -2169,6 +2292,80 @@ func handleSpikeThreshold(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Printf("[webhook] spike threshold saved to %s (%.2f GB)\n", path, req.ThresholdGB)
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "configured": true, "threshold_gb": req.ThresholdGB})
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
+}
+
+// webhookStylePath is the file where the user-selected webhook layout/format
+// is saved (0600).
+func webhookStylePath() string {
+	return filepath.Join(stateDir(), "webhook_style")
+}
+
+// webhookStyle returns the active webhook style: "embed" by default, or
+// the saved/configured value.
+func webhookStyle() string {
+	if s := os.Getenv("WEBHOOK_STYLE"); s != "" {
+		return strings.TrimSpace(strings.ToLower(s))
+	}
+	b, err := os.ReadFile(webhookStylePath())
+	if err != nil {
+		return "embed"
+	}
+	s := strings.TrimSpace(strings.ToLower(string(b)))
+	if s == "" {
+		return "embed"
+	}
+	return s
+}
+
+// handleWebhookStyle gets or sets the webhook message format style.
+func handleWebhookStyle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case "GET":
+		cur := webhookStyle()
+		json.NewEncoder(w).Encode(map[string]any{
+			"ok":    true,
+			"style": cur,
+		})
+	case "POST":
+		if !webhookCSRFCheck(w, r) {
+			return
+		}
+		var req struct {
+			Style string `json:"style"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&req); err != nil {
+			jsonError(w, "invalid request body")
+			return
+		}
+		req.Style = strings.TrimSpace(strings.ToLower(req.Style))
+		if req.Style == "" {
+			jsonError(w, "style cannot be empty")
+			return
+		}
+		validStyles := map[string]bool{
+			"box-table": true, "ascii-table": true, "plain-lines": true,
+			"embed": true, "quote": true, "story": true, "bullets": true,
+			"local-clock": true, "hero-card": true, "ansi": true,
+		}
+		if !validStyles[req.Style] {
+			jsonError(w, "unknown webhook style: "+req.Style)
+			return
+		}
+		path := webhookStylePath()
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			jsonError(w, err.Error())
+			return
+		}
+		if err := os.WriteFile(path, []byte(req.Style+"\n"), 0600); err != nil {
+			jsonError(w, err.Error())
+			return
+		}
+		fmt.Printf("[webhook] style saved to %s (%s)\n", path, req.Style)
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "style": req.Style})
 	default:
 		http.Error(w, "method not allowed", 405)
 	}
