@@ -1,3 +1,20 @@
+# v0.0.21
+
+### Features
+
+- **Live block progression and dynamic theme updates:** Block progression (blocks done, remaining blocks, and epoch percentage) advances live on every 12-second chain block interval without requiring page refreshes.
+- **Real-time dashboard poller (`/api/dash-data`):** Added a lightweight JSON endpoint returning live epoch progress, wallet balances, all-time points, alpha status, and traffic metrics. The frontend polls every 15 seconds to sync open tabs automatically.
+- **Configurable webhook alert layouts:** Webhook format styles selected in the UI are now persisted to `~/.urwebdash/webhook_style` via `GET/POST /api/webhook-style`. Both live traffic spike alerts and sample test notifications format and deliver in the chosen layout.
+- **Dynamic price trend percentage:** The percentage change badge on the Bittensor price chart recalculates dynamically based on the active timeframe (1H, 24H, 7D, 30D) rather than remaining fixed to the 24-hour quote.
+- **Mexican Peso currency support (`MXN`):** Added `MXN` (`Mex$`) to the currency conversion dropdown, backed by live CoinGecko FX rate resolution.
+
+### Fixed
+
+- **Removed hardcoded data points snapshot:** Replaced the hardcoded data points and date range summary header with dynamic row counts, date ranges, and live polling timestamps.
+- **Explicit Terabyte units (`TB`):** Updated chart dataset labels, axis titles, and hover tooltips to format in decimal Terabytes (`TB`) with explicit units (e.g. `15.87 TB`).
+- **Dynamic epoch subtitle:** Replaced the static header in the Bittensor section with live epoch and completion values.
+- **Synchronized manual refresh:** The manual Refresh button now triggers coordinator epoch polling and dashboard sync alongside traffic stats.
+
 # v0.0.20
 
 ### Features
