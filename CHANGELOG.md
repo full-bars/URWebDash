@@ -2,6 +2,23 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## v0.0.21 - 2026-11-08
+
+### Added
+
+- Real-time live block progression in the frontend: on each 12-second chain block interval, the active theme card (Blocks Done, remaining blocks, and epoch percentage) advances live without requiring a manual page refresh.
+- Real-time dashboard poller endpoint `GET /api/dash-data` returning up-to-the-second epoch geometry, wallet balances (free TAO and Alpha stake), all-time points, alpha status, prices, and traffic metrics. The frontend polls every 15 seconds to sync open tabs automatically.
+- Configurable webhook notification layouts: support for 10 delivery formats (defaulting to iOS-safe Discord rich embed `embed`, `hero-card`, `ascii-table`, `plain-lines`, `bullets`, `local-clock`, `story`, `quote`, `ansi`, and `box-table`). Layouts are persisted via `GET/POST /api/webhook-style` to `~/.urwebdash/webhook_style` or `WEBHOOK_STYLE` env var.
+- Dynamic price trend percentage calculation: range buttons (`1H`, `24H`, `7D`, `30D`) on the Bittensor price chart dynamically compute and update the change percentage badge to reflect the active chart window.
+- Mexican Peso currency option (`MXN`, `Mex$` symbol) in the currency conversion dropdown backed by live CoinGecko FX rate resolution.
+
+### Fixed
+
+- Removed hardcoded `34,534 rows · 2026-10-02 → 2026-11-01` summary header, replacing it with dynamic counts, date ranges, and live polling timestamps.
+- Explicit Terabyte (`TB`) units and tooltips: updated chart dataset labels, axis titles, and hover tooltips to format in decimal Terabytes (`TB`) with explicit units (e.g. `15.87 TB`).
+- Hardcoded epoch sub-header: replaced static `Epoch 4 · 31.7%` header in the Bittensor section with dynamic epoch number and completion percentage.
+- Manual refresh button synchronization: clicking the Refresh button now syncs epoch data, dashboard data, and traffic statistics in a single unified refresh.
+
 ## v0.0.20 - 2026-11-02
 
 ### Added

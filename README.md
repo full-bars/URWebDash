@@ -6,12 +6,20 @@ Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.io) pro
 
 **Features**
 
-- Paid/unpaid bytes tracking with hourly snapshots and transfer-rate charts
+- Paid/unpaid bytes tracking with hourly snapshots and transfer-rate charts, labelled in decimal Terabytes (TB) with explicit units
 - Last-7-days usage strip (calendar-day buckets, DST-safe)
 - Full payment history: amounts, points per payment, Solana tx links
 - Estimated amounts for pending payouts
 - Optional Discord notifications on new/completed payments and traffic spikes — configured from the dashboard's 🔔 Webhook section or the `DISCORD_WEBHOOK_URL` env var
-- Auto-refresh: dashboard every 30s, payout stats every 5m
+- Configurable webhook notification layouts (10 formats, defaulting to an iOS-safe Discord rich embed) persisted via `GET/POST /api/webhook-style` or the `WEBHOOK_STYLE` env var
+- Live block progression: the active theme card (blocks done, remaining blocks, epoch percentage) advances on every 12-second chain block without a page refresh
+- Real-time dashboard poller (`GET /api/dash-data`) returning live epoch geometry, wallet balances, all-time points, alpha status, prices, and traffic metrics; the frontend polls every 15 seconds to sync open tabs
+- Dynamic price trend percentage on the Bittensor price chart that recalculates per active timeframe (1H, 24H, 7D, 30D)
+- Mexican Peso (`MXN`, `Mex$`) currency support backed by live CoinGecko FX rates
+- Dynamic data stats header: live row counts, date ranges, and polling timestamps instead of a hardcoded snapshot
+- Dynamic epoch subtitle showing the live epoch number and completion percentage
+- Synchronized manual Refresh button that refreshes epoch data, dashboard data, and traffic stats together
+- Auto-refresh: data stats every 20s, payout stats every 5m
 
 ## Install
 
@@ -162,6 +170,7 @@ Environment variables:
 | `STATS_DB` | `~/.urwebdash/wallet_stats.db` | SQLite database path |
 | `DISCORD_WEBHOOK_URL` | *(unset)* | Webhook for alerts, or `~/.urwebdash/discord_webhook` file (Docker: `/data/.urwebdash/discord_webhook`). Get one: Server Settings -> Integrations -> Webhooks. Also configurable in the dashboard under 🔔 Webhook; the env var wins if both are set |
 | `SPIKE_THRESHOLD` | `1GB` | Per-window traffic delta that triggers an alert. Accepts `500M`, `0.5G`, `1.5GB`, plain bytes |
+| `WEBHOOK_STYLE` | `embed` | Webhook notification layout (`embed`, `hero-card`, `ascii-table`, `plain-lines`, `bullets`, `local-clock`, `story`, `quote`, `ansi`, `box-table`). Saved choice in `~/.urwebdash/webhook_style` wins only when this is unset |
 | `PAYOUT_NOTIFY_STORE` | `~/.urwebdash/payout_notified.json` | Notification dedup store |
 | `HOST` | `127.0.0.1` | Listen address. Inside Docker set `0.0.0.0`; exposure is controlled by the port mapping |
 | `EPOCH_FIRST_V2` | `4` | First SN25 epoch that settled under the v2 payout model. Epochs at or after it are labelled `v2`, earlier ones `v1` |
@@ -190,6 +199,14 @@ back to `commit - 1200` when the length is missing).
 
 Epoch data refreshes hourly rather than on the 15-minute traffic cadence: an epoch is
 seven days long, so the traffic interval would be 672 identical requests a week.
+
+### Dashboard data endpoints
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/dash-data` | Live epoch geometry, wallet balances, all-time points, alpha status, prices, and traffic metrics |
+| `GET /api/webhook-style` | Active webhook notification layout |
+| `POST /api/webhook-style` | Persist a new webhook notification layout |
 
 Troubleshooting:
 
