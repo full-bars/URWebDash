@@ -2194,6 +2194,33 @@ func sampleAlertBody(style string) string {
 	return formatSpikeAlert(style, 15*time.Minute, 1.45, 742.29, time.Now().UTC())
 }
 
+// sanitizePreview drops ANSI escape sequences from a preview payload. Discord
+// does not interpret them, so a format carrying terminal colour codes would post
+// raw garbage into the channel; everything else is passed through untouched.
+func sanitizePreview(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] != 0x1b {
+			b.WriteByte(s[i])
+			continue
+		}
+		j := i + 1
+		if j < len(s) && s[j] == '[' {
+			j++
+			for j < len(s) && !(s[j] >= 0x40 && s[j] <= 0x7e) {
+				j++
+			}
+		}
+		i = j
+	}
+	return strings.TrimSpace(b.String())
+}
+
 func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != "POST" {
@@ -2209,7 +2236,7 @@ func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 		Style   string `json:"style"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err == nil && strings.TrimSpace(req.URL) != "" {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16384)).Decode(&req); err == nil && strings.TrimSpace(req.URL) != "" {
 		url = strings.TrimSpace(req.URL)
 	}
 	if url == "" {
@@ -2221,6 +2248,15 @@ func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := sampleAlertBody(req.Style)
+	if req.Style == "" {
+		if c := sanitizePreview(req.Content); c != "" {
+			if strings.HasPrefix(c, "{") && json.Valid([]byte(c)) {
+				body = c
+			} else if b, err := json.Marshal(map[string]string{"content": c}); err == nil {
+				body = string(b)
+			}
+		}
+	}
 	status, err := sendDiscordWebhookJSON(url, body)
 	if err != nil {
 		if status == 0 {

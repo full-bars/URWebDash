@@ -357,6 +357,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
       <div class="chart-container"><div class="chart-title">Unpaid Data (TB)</div><div class="chart-box"><canvas id="unpaid-chart"></canvas></div></div>
       <div class="chart-container"><div class="chart-title">Transfer Rate</div>
         <div style="display:flex;gap:4px;margin-bottom:8px">
+          <button class="btn btn-sm" onclick="setWin('1h',this)">1H</button>
           <button class="btn btn-sm" onclick="setWin('6h',this)">6H</button>
           <button class="btn btn-sm active" onclick="setWin('24h',this)">24H</button>
           <button class="btn btn-sm" onclick="setWin('7d',this)">7D</button>
@@ -464,7 +465,8 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     </div>
     <div class="cards">
       <div class="card"><div class="label">Webhook URL</div>
-        <input type="url" id="wh-url" placeholder="not configured" readonly>
+        <div class="sub" id="wh-state" style="margin:6px 0">checking&hellip;</div>
+        <input type="url" id="wh-url" placeholder="paste a Discord webhook URL to start alerts" style="width:100%">
         <div class="sub">masked on read &mdash; the URL is a bearer secret</div></div>
       <div class="card"><div class="label">Spike threshold (GB / 15m)</div>
         <input type="number" id="wh-threshold" value="1.00" step="0.25" min="0" style="width:100%;margin-top:8px">
@@ -1402,7 +1404,9 @@ window.URFORMATS['box-table'] = {
   id: 'box-table', name: 'Box table', iosSafe: false,
   note: 'Current default, unchanged. U+2500 box glyphs inside a code block; iOS has no such glyphs in its monospace face, so the columns shear. Also ships a dangling divider: the separator row follows the top border with no header between them.',
   html: '<div class="uf-box-table"><b>\u{1F6EB} Traffic Spike</b><pre style="background:#2b2d31;border-radius:5px;padding:8px 10px;margin:6px 0 0;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.35;color:#dbdee1;overflow-x:auto">\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n\u2502 15m Delta            \u2502   +1.45 GB \u2502\n\u2502 Total Unpaid         \u2502  742.29 GB \u2502\n\u2502 At (UTC)             \u2502   01:15:01 \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518</pre></div>',
-  payload: '\u{1F6EB} **Traffic Spike**\n```\n\u250C\u2500\u2500\u252C\u2500\u2500\u2510 … box table, 37 cols …\n\u2514\u2500\u2500\u2534\u2500\u2500\u2518\n```'
+  /* the test button posts this, so it has to be the whole table the alerter
+     sends, not an abbreviated sketch of it */
+  payload: '🛫 **Traffic Spike**\n```\n┌──────────────────────┬────────────┐\n├──────────────────────┼────────────┤\n│ 15m Delta            │   +1.45 GB │\n│ Total Unpaid         │  742.29 GB │\n│ At (UTC)             │   01:15:01 │\n└──────────────────────┴────────────┘\n```'
 };
 
 window.URFORMATS['ascii-table'] = {
@@ -1556,6 +1560,8 @@ function go(name){
   /* the data table pages over the whole store, so it loads when the section is
      first opened rather than on every page load */
   if(name==='wallet' && !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
+  /* the webhook card has to show the stored state, not a blank field */
+  if(name==='webhook' && typeof loadWebhook==='function') loadWebhook();
   /* refresh and back should land where you were, not on the first section */
   try{ history.replaceState(null,'','#'+name); }catch(_){}
   try{ localStorage.setItem('section',name); }catch(_){}
@@ -1594,10 +1600,50 @@ async function fakeRefresh(btn){
 
 /* ---------- data ---------- */
 const GB=1e9,TB=1e12;
-const fmtGB=b=>(b/GB).toLocaleString(undefined,{maximumFractionDigits:0});
+/* one GB format for every figure on the page. the history table was painted by
+   two renderers with different precision, so a refresh flipped the same row
+   between 15,871 and 15,871.33. */
+const fmtGB2=b=>(Number(b)/GB).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtGB=fmtGB2;
 const fmtTB=b=>(b/TB).toFixed(2)+' TB';
-const fmtBytes=b=>b>=TB?fmtTB(b):(b/GB).toFixed(1)+' GB';
-const fmtTime=s=>s.replace('T',' ').replace('Z','');
+const fmtBytes=b=>b>=TB?fmtTB(b):(b/GB).toFixed(2)+' GB';
+/* the poller writes UTC; a reader wants their own clock. resolve the zone once
+   and format through Intl so the timestamp and the fetched time agree. */
+const TZ=Intl.DateTimeFormat().resolvedOptions().timeZone;
+const fmtTime=s=>{
+  if(!s) return '\u2014';
+  const d=new Date(s);
+  if(isNaN(d)) return String(s);
+  /* the shipped format: month name, single-digit hour, seconds, AM/PM. ICU
+     versions disagree on the gap before AM/PM, so normalise it. */
+  return d.toLocaleString('en-US',{timeZone:TZ,month:'short',day:'numeric',year:'numeric',
+    hour:'numeric',minute:'2-digit',second:'2-digit'}).replace(/[\u202f\u00a0]/g,' ');
+};
+/* a window is only late when the poller had to retry past its boundary. two
+   minutes is the threshold; a normal fetch lands within seconds and must not be
+   annotated, or every row reads as if it were retried. */
+const LATE_MS=120000;
+/* The gap between two samples in hours. Two rows sharing a timestamp would
+   otherwise divide by an epsilon and inflate the rate a hundredfold, so a
+   non-positive gap falls back to the nominal window. */
+function windowHours(t, prevT){
+  if(!prevT) return 0.25;
+  const h=(new Date(t)-new Date(prevT))/3600000;
+  return h>0?h:0.25;
+}
+function lagNote(createdAt,updatedAt){
+  if(!createdAt||!updatedAt) return '';
+  const c=new Date(createdAt), u=new Date(updatedAt);
+  if(isNaN(c)||isNaN(u)) return '';
+  const ms=u-c;
+  if(ms<=LATE_MS) return '';
+  const mins=Math.round(ms/60000);
+  /* ICU switched the gap before AM/PM to a narrow no-break space in some
+     versions, which made the note render with different spacing per browser */
+  const at=u.toLocaleTimeString('en-US',{timeZone:TZ,hour:'2-digit',minute:'2-digit'}).replace(/[\u202f\u00a0]/g,' ');
+  /* the note carries a colour so a late row stands out without being read */
+  return ' <span class="text-yellow">\u00b7 fetched '+at+' (+'+mins+'m)</span>';
+}
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const series=(HIST.series||[]).slice(), recent=HIST.recent||[];
 if(!series.length){ document.getElementById('history-table').innerHTML =
@@ -1606,15 +1652,14 @@ if(!series.length){ document.getElementById('history-table').innerHTML =
    zeros rather than reading last.t off undefined, which used to throw here and
    take the rest of the page down with it */
 const last=series.length?series[series.length-1]:{t:new Date(0).toISOString(),paid:0,unpaid:0};
-/* The series is downsampled, so an index offset is not a time offset: take the
-   sample nearest 24h back by timestamp. */
-const dayAgoT=new Date(last.t).getTime()-86400000;
-const prev=series.length?series.reduce((best,r)=>Math.abs(new Date(r.t)-dayAgoT)<Math.abs(new Date(best.t)-dayAgoT)?r:best, series[0]):last;
-const has24h=series.some(r=>new Date(last.t)-new Date(r.t)>=23*3600000);
+/* The day cards are NOT painted here. The series is downsampled to hourly
+   points, so a figure taken from it disagrees with the one paintDayCards
+   derives from the full row list a moment later — that was the "same card, two
+   numbers" flicker. leave them at the placeholder and let the full list fill
+   them once. */
 document.getElementById('c-paid').textContent=fmtTB(last.paid);
 document.getElementById('c-unpaid').textContent=fmtTB(last.unpaid);
 document.getElementById('c-total').textContent=fmtTB(last.paid+last.unpaid);
-document.getElementById('c-24h').textContent=has24h?('+'+fmtBytes(Math.max(0,(last.paid+last.unpaid)-(prev.paid+prev.unpaid)))):'—';
 
 function updateMetaInfo(totalRows, rangeStart, rangeEnd, lastUpdated){
   if(totalRows !== undefined && totalRows !== null && totalRows !== ''){
@@ -1654,26 +1699,70 @@ for(let d=0;d<=6;d++){
      refresh uses the same boundary; using a rolling 24h window here made the box
      show one figure from the render and another from the poll, which read as a
      flicker between two numbers. */
-  const isTodayCard=new Date(endT).toISOString().slice(0,10)===new Date(last.t).toISOString().slice(0,10);
-  let startRow;
-  if(isTodayCard){
-    const dayStart=Date.UTC(new Date(last.t).getUTCFullYear(), new Date(last.t).getUTCMonth(), new Date(last.t).getUTCDate());
-    startRow=series.filter(r=>new Date(r.t).getTime()<dayStart).pop();
-  } else {
-    startRow=series.filter(r=>new Date(r.t).getTime()<=endT-86400000).pop();
+  const isTodayCard=d===0;
+  /* today is painted from the FULL row list by paintDayCards, not from the
+     downsampled series: the two sources disagreed by a few GB, so the card
+     showed one number on load and another a second later. */
+  let delta=0, haveDelta=!isTodayCard;
+  if(!isTodayCard){
+    const startRow=series.filter(r=>new Date(r.t).getTime()<=endT-86400000).pop();
+    /* paid only moves when traffic settles; the day's growth is on the total */
+    delta=endRow&&startRow?(endRow.paid+endRow.unpaid)-(startRow.paid+startRow.unpaid):0;
   }
-  /* paid only moves when traffic settles; the day's growth is on the total */
-  const delta=endRow&&startRow?(endRow.paid+endRow.unpaid)-(startRow.paid+startRow.unpaid):0;
   const c=document.createElement('div');
   c.className='card';
   if(d===0) c.id='c-today';
   const dt=new Date(endT);
-  const isToday=dt.toISOString().slice(0,10)===new Date(last.t).toISOString().slice(0,10);
+  const isToday=dt.toDateString()===new Date(last.t).toDateString();
   const wd=dt.toLocaleDateString(undefined,{weekday:'short'});
   const md=dt.toLocaleDateString(undefined,{month:'short',day:'numeric'});
   c.innerHTML='<div class="label">'+wd+', '+md+(isToday?' \u00b7 today':'')+'</div>'+
-    '<div class="value '+(delta>=0?'green':'yellow')+'">'+(delta>=0?'+':'')+fmtBytes(delta)+'</div>';
+    '<div class="value '+(delta>=0?'green':'yellow')+'">'+(haveDelta?((delta>=0?'+':'')+fmtBytes(delta)):'\u2014')+'</div>';
   weekly.appendChild(c);
+}
+/* the day cards have ONE definition each, taken from the full row list, so the
+   initial render and the live poll cannot disagree. */
+const asRows=rows=>rows.map(r=>({t:r.created_at||r.t,paid:Number(r.paid_bytes!=null?r.paid_bytes:r.paid),unpaid:Number(r.unpaid_bytes!=null?r.unpaid_bytes:r.unpaid)}));
+function dayStartMs(t){ const d=new Date(t); return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
+function paintDayCards(rows){
+  if(!rows||!rows.length) return {day24:null,today:null};
+  const sorted=rows.slice().sort((a,b)=>new Date(b.t)-new Date(a.t));
+  const last=sorted[0], total=r=>r.paid+r.unpaid;
+  /* Two refresh paths run on the same timer, and a pager click re-renders from
+     the cached rows. Whichever finishes last used to win, so an older snapshot
+     could overwrite newer figures and the cards flickered backwards. Paint only
+     when the data is at least as new as what is already on screen. */
+  if(!window.__cards) window.__cards={day24:null,today:null};
+  if(window.__cardsNewest && new Date(last.t)<new Date(window.__cardsNewest)){
+    return {day24:window.__cards.day24, today:window.__cards.today};
+  }
+  window.__cardsNewest=last.t;
+  /* 24h: the sample nearest 24h back, from the full list */
+  const target=new Date(last.t).getTime()-86400000;
+  const prev=sorted.reduce((best,r)=>Math.abs(new Date(r.t)-target)<Math.abs(new Date(best.t)-target)?r:best,sorted[sorted.length-1]);
+  const has24h=sorted.some(r=>new Date(last.t)-new Date(r.t)>=23*3600000);
+  const day24=has24h?Math.max(0,total(last)-total(prev)):null;
+  const c24=document.getElementById('c-24h');
+  if(c24) c24.textContent=day24===null?'\u2014':('+'+fmtBytes(day24));
+  /* today: the newest sample at or before local midnight, which is the baseline
+     the day's growth is measured from. Including the boundary itself matters
+     twice over: a sample on 00:00:00 would otherwise hand back the 23:45 row and
+     fold yesterday's last window into today, and a node whose history starts at
+     midnight would have no baseline at all and read "—" all day. */
+  const ds=dayStartMs(last.t);
+  const before=sorted.filter(r=>new Date(r.t).getTime()<=ds);
+  const start=before.length?before[0]:null;
+  const today=start?Math.max(0,total(last)-total(start)):null;
+  const box=document.getElementById('c-today');
+  if(box){
+    const v=box.querySelector('.value');
+    if(v){
+      if(today===null){ v.textContent='\u2014'; }
+      else { v.textContent='+'+fmtBytes(today); v.className='value '+(today>=0?'green':'yellow'); }
+    }
+  }
+  window.__cards={day24,today};
+  return {day24,today};
 }
 const tbody=document.getElementById('history-table');
 recent.forEach((r,i)=>{
@@ -1683,15 +1772,17 @@ recent.forEach((r,i)=>{
      unpaid climbs; the delta and the rate are on the TOTAL, which is what the
      old page did */
   const dTotal=dPaid+dUnpaid;
-  const hours=o?(new Date(r.t)-new Date(o.t))/3600000:0.25;
+  const hours=windowHours(r.t, o&&o.t);
   const tr=document.createElement('tr');
-  tr.innerHTML='<td class="text-mono">'+fmtTime(r.t)+'</td>'+
-    '<td class="text-right text-green">'+fmtGB(r.paid)+'</td>'+
+  /* same helpers as the other two paths, so this first paint already looks like
+     the render that replaces it instead of shifting a second later */
+  tr.innerHTML='<td class="text-mono">'+esc(fmtTime(r.t))+lagNote(r.t,r.fetched)+'</td>'+
+    '<td class="text-right text-green">'+fmtGB2(r.paid)+'</td>'+
     '<td class="text-right text-white text-mono">'+r.unpaid.toLocaleString()+'</td>'+
-    '<td class="text-right text-blue">+'+dTotal.toLocaleString()+'</td>'+
-    '<td class="text-right text-yellow">'+fmtGB(r.unpaid)+'</td>'+
-    '<td class="text-right text-blue">+'+(dTotal/GB).toFixed(2)+'</td>'+
-    '<td class="text-right text-blue">'+(hours>0?(dTotal/hours/GB).toFixed(2):'0.00')+'</td>';
+    '<td class="text-right text-blue">'+(dTotal>=0?'+':'')+dTotal.toLocaleString()+'</td>'+
+    '<td class="text-right text-yellow">'+fmtGB2(r.unpaid)+'</td>'+
+    '<td class="text-right text-blue">'+(dTotal>=0?'+':'')+fmtGB2(dTotal)+'</td>'+
+    '<td class="text-right text-blue">'+(dTotal>=0?'+':'')+fmtGB2(dTotal/hours)+'</td>';
   tbody.appendChild(tr);
 });
 const payTable=document.getElementById('pay-table');
@@ -1862,8 +1953,10 @@ function rateSeries(win){
      the all-time view buckets by calendar day. */
   /* gbd reads the whole history as days, not the last thirty: the daily view is
      the long view, and cutting it to a month hid the rest of the year. */
-  const back={'6h':6,'24h':24,'7d':168,'30d':720}[win];
-  const src=(win==='6h')?recent.slice().reverse():series;
+  const back={'1h':1,'6h':6,'24h':24,'7d':168,'30d':720}[win];
+  /* the hour and six-hour views need the 15-minute rows: series is downsampled
+     to one point per hour, so an hour of it is a single bar with no history */
+  const src=(win==='1h'||win==='6h')?recent.slice().reverse():series;
   const cut=back?new Date(last.t).getTime()-back*3600000:0;
   const rows=src.filter(r=>!back||new Date(r.t).getTime()>=cut);
   if(win==='all'||win==='gbd'){
@@ -2204,6 +2297,7 @@ function sparkHoverInit(){
 sparkHoverInit();
 setInterval(sparkHoverInit, 3000);
 setTimeout(()=>{ if(typeof loadSpikeThreshold==='function') loadSpikeThreshold(); }, 1500);
+setTimeout(()=>{ if(typeof loadWebhook==='function') loadWebhook(); }, 1600);
 /* deep links land on a section without passing through go() */
 setTimeout(()=>{
   if(document.getElementById('section-wallet')?.classList.contains('active') &&
@@ -2233,6 +2327,10 @@ async function loadAllHistory(){
   }catch(_){ WALLETROWS=null; }
   walletPage=1;
   renderWalletTable();
+  /* Only a fresh read repaints the day cards. A pager click re-renders the
+     table from the same rows, and painting from there wrote stale figures over
+     the live ones. */
+  if(WALLETROWS) paintDayCards(asRows(WALLETROWS));
 }
 function renderWalletTable(){
   const tbody=document.getElementById('history-table');
@@ -2245,27 +2343,24 @@ function renderWalletTable(){
   const page=WALLETROWS.slice(start,start+PAGE_SIZE);
   tbody.innerHTML='';
   const frag=document.createDocumentFragment();
-  page.forEach(r=>{
+  page.forEach((r,i)=>{
     const d=Number(r.change_bytes||0);
+    /* the rate is derived from the neighbouring window, exactly as the live
+       insert does it, so an irregular gap reports the real hourly rate and the
+       two paths cannot print different numbers for one row */
+    const prevRow=WALLETROWS[start+i+1]||null;
+    const hours=windowHours(r.created_at, prevRow&&prevRow.created_at);
     const tr=document.createElement('tr');
-    /* when the window was fetched, and how far behind the window it landed: a
-       lagging poll is visible in the table instead of being guessed at */
-    let lag='';
-    if(r.created_at&&r.updated_at){
-      const c=new Date(r.created_at), u=new Date(r.updated_at);
-      if(!isNaN(c)&&!isNaN(u)){
-        const mins=Math.round((u-c)/60000);
-        lag=' \u00b7 fetched '+u.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})+
-            ' ('+(mins>=0?'+':'')+mins+'m)';
-      }
-    }
+    /* only a window the poller had to retry past its boundary is annotated;
+       lagNote returns '' for a normal fetch */
+    const lag=lagNote(r.created_at,r.updated_at);
     tr.innerHTML='<td class="text-mono">'+esc(fmtTime(r.created_at))+lag+'</td>'+
-      '<td class="text-right text-green">'+(Number(r.paid_bytes)/GB).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
+      '<td class="text-right text-green">'+fmtGB2(r.paid_bytes)+'</td>'+
       '<td class="text-right text-white text-mono">'+Number(r.unpaid_bytes).toLocaleString()+'</td>'+
       '<td class="text-right text-blue">'+(d>=0?'+':'')+d.toLocaleString()+'</td>'+
-      '<td class="text-right text-yellow">'+(Number(r.unpaid_bytes)/GB).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
-      '<td class="text-right text-blue">'+(d>=0?'+':'')+(d/GB).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
-      '<td class="text-right text-blue">'+(d*4/GB).toFixed(2)+'</td>';
+      '<td class="text-right text-yellow">'+fmtGB2(r.unpaid_bytes)+'</td>'+
+      '<td class="text-right text-blue">'+(d>=0?'+':'')+fmtGB2(d)+'</td>'+
+      '<td class="text-right text-blue">'+(d>=0?'+':'')+fmtGB2(d/hours)+'</td>';
     frag.appendChild(tr);
   });
   tbody.appendChild(frag);
@@ -2576,16 +2671,16 @@ function epInsertRow(r, raw){
   const dPaid=o?r.paid_bytes-o.paid_bytes:0, dUnpaid=o?r.unpaid_bytes-o.unpaid_bytes:0;
   const dTotal=dPaid+dUnpaid;
   const sign=dTotal>=0?'+':'';
-  const hours=o?Math.max(0.01,(new Date(r.created_at)-new Date(o.created_at))/3600000):0.25;
+  const hours=windowHours(r.created_at, o&&o.created_at);
   const tr=document.createElement('tr');
   tr.className='ep-row-new';
-  tr.innerHTML='<td class="text-mono">'+esc(fmtTime(r.created_at))+'</td>'+
+  tr.innerHTML='<td class="text-mono">'+esc(fmtTime(r.created_at))+lagNote(r.created_at,r.updated_at)+'</td>'+
     '<td class="text-right text-green">'+fmtGB(r.paid_bytes)+'</td>'+
     '<td class="text-right text-white text-mono">'+r.unpaid_bytes.toLocaleString()+'</td>'+
     '<td class="text-right text-blue">'+sign+dTotal.toLocaleString()+'</td>'+
     '<td class="text-right text-yellow">'+fmtGB(r.unpaid_bytes)+'</td>'+
-    '<td class="text-right text-blue">'+sign+(dTotal/GB).toFixed(2)+'</td>'+
-    '<td class="text-right text-blue">'+sign+(dTotal/hours/GB).toFixed(2)+'</td>';
+    '<td class="text-right text-blue">'+sign+fmtGB2(dTotal)+'</td>'+
+    '<td class="text-right text-blue">'+sign+fmtGB2(dTotal/hours)+'</td>';
   tbody.insertBefore(tr, tbody.firstChild);
 }
 
@@ -2600,9 +2695,6 @@ async function epLiveStats(){
     const raw=(d.entries||[]).slice().sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
     if(!raw.length) return;
     const last={t:raw[0].created_at, paid:raw[0].paid_bytes, unpaid:raw[0].unpaid_bytes};
-    const dayAgo=new Date(last.t).getTime()-86400000;
-    const prev=raw.reduce((best,r)=>Math.abs(new Date(r.created_at)-dayAgo)<Math.abs(new Date(best.created_at)-dayAgo)?r:best, raw[0]);
-    const dayNow=Math.max(0,(last.paid+last.unpaid)-(prev.paid_bytes+prev.unpaid_bytes));
 
     /* rows are keyed by the newest timestamp already shown; advance newest before
        inserting so a thrown row cannot trap the poller in a repeat loop */
@@ -2625,42 +2717,26 @@ async function epLiveStats(){
     if(n.paid) n.paid.textContent=fmtTB(last.paid);
     if(n.unpaid) n.unpaid.textContent=fmtTB(last.unpaid);
     if(n.total) n.total.textContent=fmtTB(last.paid+last.unpaid);
-    const has24hLive=raw.some(r=>new Date(last.t)-new Date(r.created_at)>=23*3600000);
-    if(n.box) n.box.textContent=has24hLive?('+'+fmtBytes(dayNow)):'—';
 
     const liveTotal=(d&&d.count)?d.count:raw.length;
     const liveStart=raw.length?raw[raw.length-1].created_at:'';
     const liveEnd=raw.length?raw[0].created_at:'';
     if(typeof updateMetaInfo==='function') updateMetaInfo(liveTotal, liveStart, liveEnd, last.t);
 
-    if(has24hLive && epLastDay!==null && dayNow>epLastDay){
-      epFlair24h(dayNow-epLastDay);
+    /* the day cards come from the same full list the table uses, so the initial
+       render and this poll cannot show two different numbers for one day */
+    const cards=paintDayCards(asRows(raw));
+    if(cards.day24!==null && epLastDay!==null && cards.day24>epLastDay){
+      epFlair24h(cards.day24-epLastDay);
     }
-    epLastDay=has24hLive?dayNow:null;
-
-    /* today's own box moves for the same reason, so it gets the same flair */
-    /* "today" is a calendar day in UTC, which is the clock the poller writes on.
-       Local midnight landed on a data point and made the day read as zero, and
-       taking the last of the filtered array picked the OLDEST row, which made it
-       read as everything since install. Take the newest row strictly before the
-       UTC day boundary. */
-    const lt=new Date(last.t);
-    const dayStart=Date.UTC(lt.getUTCFullYear(), lt.getUTCMonth(), lt.getUTCDate());
-    const beforeDay=raw.filter(r=>new Date(r.created_at).getTime()<dayStart);
-    const todayStart=beforeDay.length?
-      beforeDay.reduce((a,b)=>new Date(a.created_at)>new Date(b.created_at)?a:b):null;
-    const todayNow=Math.max(0,(last.paid+last.unpaid)-
-      (todayStart?(todayStart.paid_bytes+todayStart.unpaid_bytes):0));
+    epLastDay=cards.day24;
     const todayBox=document.getElementById('c-today');
-    /* without a snapshot from before today there is no day figure at all; the
-       difference would otherwise be the lifetime total */
-    if(todayBox && todayStart){
-      if(epTodayDay!==dayStart){ epTodayDay=dayStart; epLastToday=null; }
-      const v=todayBox.querySelector('.value');
-      if(v) v.textContent='+'+fmtBytes(todayNow);
-      if(epLastToday!==null && todayNow>epLastToday) epFlairBox(todayBox,'+'+fmtBytes(todayNow-epLastToday));
-      epLastToday=todayNow;
+    const todayDay=dayStartMs(last.t);
+    if(epTodayDay!==todayDay){ epTodayDay=todayDay; epLastToday=null; }
+    if(cards.today!==null && epLastToday!==null && cards.today>epLastToday){
+      epFlairBox(todayBox,'+'+fmtBytes(cards.today-epLastToday));
     }
+    epLastToday=cards.today;
 
     /* rewrite converted wallet figures with current prices, but only when on screen */
     const mount=document.getElementById('theme-mount');
@@ -3413,6 +3489,34 @@ async function whTest(btn){
   }
 }
 
+/* The page used to show a read-only field that was never filled, so a saved
+   webhook still read "not configured" — and Save posted the empty field, which
+   the server treats as "remove the stored URL", silently deleting it. Read the
+   real state on load, and refuse an empty save instead of clearing. */
+let whConfigured=false;
+async function loadWebhook(){
+  const st=document.getElementById('wh-state');
+  const f=document.getElementById('wh-url');
+  try{
+    const res=await fetch('/api/webhook',{cache:'no-store'});
+    const d=await res.json().catch(()=>({}));
+    whConfigured=!!(d&&d.configured);
+    if(st){
+      st.innerHTML=whConfigured
+        ? '<span class="text-green">&#10003; Configured</span> &middot; '+
+          (d.source==='env'?'from DISCORD_WEBHOOK_URL':'saved on this host')+
+          (d.url_masked?' &middot; <span class="text-mono">'+esc(d.url_masked)+'</span>':'')
+        : '<span class="text-yellow">Not configured</span> &mdash; no alerts are sent';
+    }
+    if(f) f.placeholder=whConfigured
+      ? 'paste a new URL to replace the saved one'
+      : 'paste a Discord webhook URL to start alerts';
+  }catch(e){
+    whConfigured=false;
+    if(st) st.textContent='Could not read the saved webhook: '+(e.message||'request failed');
+  }
+}
+
 /* removing the saved webhook stops alerts, so it asks first */
 async function whClear(btn){
   if(!confirm('Remove the saved webhook URL? Alerts will stop.')) return;
@@ -3424,6 +3528,7 @@ async function whClear(btn){
     if(!res.ok||data.error) throw new Error(data.error||('HTTP '+res.status));
     const f=document.getElementById('wh-url'); if(f) f.value='';
     const note=document.getElementById('wh-note'); if(note) note.textContent='Webhook cleared. Alerts will stop.';
+    await loadWebhook();
   }catch(e){
     const note=document.getElementById('wh-note'); if(note) note.textContent='Clear failed: '+e.message;
   }finally{ btn.disabled=false; }
@@ -3460,7 +3565,17 @@ async function whSave(btn){
   const label=btn.innerHTML; btn.disabled=true; btn.innerHTML='&#128190; Saving\u2026';
   const note=document.getElementById('wh-note');
   const field=document.getElementById('wh-url');
-  const url=field?field.value:'';
+  const url=field?(field.value||'').trim():'';
+  /* an empty body is how the server clears the saved URL. Saving the blank box
+     must not be that, or the button silently deletes a working webhook. */
+  if(!url){
+    if(note) note.textContent=whConfigured
+      ? 'A webhook is already saved. Paste a new URL to replace it, or use Clear to remove it.'
+      : 'Paste a Discord webhook URL first.';
+    btn.disabled=false; btn.innerHTML=label;
+    if(field) field.focus();
+    return;
+  }
   try{
     const res=await fetch('/api/webhook',{method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -3469,6 +3584,10 @@ async function whSave(btn){
     if(!res.ok||data.error) throw new Error(data.error||('HTTP '+res.status));
     btn.innerHTML='&#9989; Saved';
     if(note) note.textContent='Saved. New alerts use this style.';
+    /* the box is an entry field, not the stored value: clear it and re-read the
+       masked state so the saved URL is what the card shows */
+    if(field) field.value='';
+    await loadWebhook();
   }catch(e){
     btn.innerHTML=label;
     if(note) note.textContent='Save failed: '+e.message;
