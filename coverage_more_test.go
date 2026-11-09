@@ -66,6 +66,24 @@ func TestHandleIndexRejectsOtherPaths(t *testing.T) {
 	}
 }
 
+func TestHandleDashDataReturnsJSON(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleDashData(nil, "")(rec, httptest.NewRequest("GET", "/api/dash-data", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("content type %q", ct)
+	}
+	var res map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if _, ok := res["brand"]; !ok {
+		t.Errorf("expected brand in dash-data response")
+	}
+}
+
 // The webhook URL comes from a file written by the dashboard when no env var is
 // set. A missing file must read as empty, not as an error the caller has to
 // special-case.

@@ -1143,6 +1143,7 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/epochs", handleEpochs(db, token))
 	mux.HandleFunc("/api/price", handlePrice)
 	mux.HandleFunc("/api/price-history", handlePriceHistory)
+	mux.HandleFunc("/api/dash-data", handleDashData(db, token))
 	/* every range is fetched in the background and served from memory, so a page
 	   load never waits on the price API and never shows an empty chart */
 	go priceHistoryWarmer()
@@ -2385,6 +2386,19 @@ func handleNetworkName(token string) http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]string{
 			"network_name": networkNameFromJWT(token),
 		})
+	}
+}
+
+func handleDashData(db *sql.DB, token string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		d, _, _ := buildDashData(db, token)
+		json.NewEncoder(w).Encode(d)
 	}
 }
 

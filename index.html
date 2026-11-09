@@ -402,7 +402,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="header">
       <div><h2>&#9935; Bittensor Stats</h2>
       <p>Subnet 25 earnings by epoch &mdash; points accrue, then alpha settles on chain 964</p>
-      <div class="sub">Epoch 4 in progress &middot; 31.7% of the window spent</div></div>
+      <div class="sub" id="epoch-sub">Subnet 25 weekly earning window in progress</div></div>
     </div>
     <div class="price-strip">
       <div class="px">
@@ -1580,6 +1580,8 @@ async function fakeRefresh(btn){
     const res=await fetch('/api/refresh',{method:'POST'});
     const d=await res.json().catch(()=>({}));
     if(!res.ok||d.error) throw new Error(d.error||('HTTP '+res.status));
+    await fetch('/api/refresh-epochs',{method:'POST'}).catch(()=>{});
+    if(typeof refreshDashData==='function') await refreshDashData();
     await epLiveStats();
     if(typeof WALLETROWS!=='undefined' && WALLETROWS) await loadAllHistory();
   }catch(e){ err=e.message||'refresh failed'; }
@@ -2782,8 +2784,36 @@ function epTick(){
   bar.done+=1; if(bar.left>0) bar.left-=1;
   const before=bar.pct;
   if(bar.total>0) bar.pct=Math.min(100, bar.done/bar.total*100);
+  if(D.epoch){
+    D.epoch.elapsedBlocks=bar.done;
+    D.epoch.leftBlocks=bar.left;
+    D.epoch.pct=bar.pct;
+  }
+  updateEpochSub();
   bar.fill.style.width=bar.pct+'%';
   const host=bar.track.parentElement;
+
+  /* update block counts across mounted theme cards in real time */
+  const mount=document.getElementById('theme-mount');
+  if(mount){
+    mount.querySelectorAll('.card, .chip, dl, div, span').forEach(el=>{
+      const label=el.querySelector('.label, .k, dt');
+      if(label && /blocks\s*done/i.test(label.textContent)){
+        const val=el.querySelector('.value, .v, dd');
+        if(val){
+          if(el.tagName.toLowerCase()==='dl'){
+            val.textContent=Number(bar.done).toLocaleString()+' of '+Number(bar.total).toLocaleString();
+          } else if(val.classList.contains('d') || val.textContent.includes('/')){
+            val.textContent=Number(bar.done).toLocaleString()+' / '+Number(bar.total).toLocaleString();
+          } else {
+            val.textContent=Number(bar.done).toLocaleString();
+          }
+        }
+        const sub=el.querySelector('.sub, .note');
+        if(sub && bar.total) sub.textContent='of '+Number(bar.total).toLocaleString()+' this epoch';
+      }
+    });
+  }
 
   /* the block mark lands somewhere inside the filled part, not at the head:
      at 37% the head barely moves per block, so a head-anchored flash is
@@ -3178,23 +3208,8 @@ function applyTheme(id){
   document.documentElement.style.backgroundColor = tk.bg;
   document.body.style.backgroundColor = tk.bg;
 
-  document.getElementById('theme-mount').innerHTML=t.render(D);
-  setTimeout(enhanceEpochBar, 0);
-  setTimeout(enhanceOrbit, 0);
-  setTimeout(epWalletBalance, 0);
-/* the button must show the remembered state, not only the state after a click */
-setTimeout(()=>{ const b=document.getElementById('hide-bal'); if(b) b.dataset.hidden=hideBal?'1':'0'; }, 0);
-  setTimeout(epTextTrack, 0);
-  /* with no epoch row the numbers would read as block 0 of epoch 0, which looks
-     like live chain state; say what it actually is instead */
-  if(D.epoch&&!D.epoch.known){
-    const warn=document.createElement('div');
-    warn.className='webhook-warning';
-    warn.style.margin='0 0 14px';
-    warn.textContent='No epoch data yet — the coordinator has not been reached, so the epoch figures below are blank, not zero.';
-    const mount=document.getElementById('theme-mount');
-    if(mount) mount.insertBefore(warn, mount.firstChild);
-  }
+  renderMountedTheme();
+  updateEpochSub();
   document.getElementById('theme-name').textContent=t.name;
   /* theme descriptions belong to the picker, not the page: tooltip on the
      control, and a short caption beside it when the choice changes */
@@ -3220,11 +3235,74 @@ setTimeout(()=>{ const b=document.getElementById('hide-bal'); if(b) b.dataset.hi
   drawCharts();
   savePrefs();
 }
+
+function renderMountedTheme(){
+  const t=(window.URTHEMES||{})[currentTheme]; if(!t) return;
+  const mount=document.getElementById('theme-mount'); if(!mount) return;
+  mount.innerHTML=t.render(D);
+  setTimeout(enhanceEpochBar, 0);
+  setTimeout(enhanceOrbit, 0);
+  setTimeout(epWalletBalance, 0);
+  setTimeout(()=>{ const b=document.getElementById('hide-bal'); if(b) b.dataset.hidden=hideBal?'1':'0'; }, 0);
+  setTimeout(epTextTrack, 0);
+  if(D.epoch&&!D.epoch.known){
+    const warn=document.createElement('div');
+    warn.className='webhook-warning';
+    warn.style.margin='0 0 14px';
+    warn.textContent='No epoch data yet - the coordinator has not been reached, so the epoch figures below are blank, not zero.';
+    mount.insertBefore(warn, mount.firstChild);
+  }
+}
+
+function updateEpochSub(){
+  const el=document.getElementById('epoch-sub');
+  if(el && D.epoch && D.epoch.n){
+    el.innerHTML='Epoch '+D.epoch.n+' in progress &middot; '+(D.epoch.pct!=null?D.epoch.pct.toFixed(1):'-')+'% of the window spent';
+  }
+}
+
+let dashPolling=false;
+async function refreshDashData(){
+  if(document.hidden || dashPolling) return;
+  dashPolling=true;
+  try{
+    const res=await fetch('/api/dash-data',{cache:'no-store'});
+    if(!res.ok) return;
+    const data=await res.json();
+    if(!data || typeof data!=='object') return;
+    D=data;
+    if(D.epoch && epLive){
+      epLive.done=D.epoch.elapsedBlocks||epLive.done;
+      epLive.total=D.epoch.tBlocks||epLive.total;
+      epLive.left=D.epoch.leftBlocks||epLive.left;
+      epLive.pct=D.epoch.pct!=null?D.epoch.pct:epLive.pct;
+    }
+    updateEpochSub();
+    renderPrice();
+    renderMountedTheme();
+    if(D.traffic){
+      const cPaid=document.getElementById('c-paid');
+      const cUnpaid=document.getElementById('c-unpaid');
+      const cTotal=document.getElementById('c-total');
+      if(cPaid && D.traffic.paidBytes!=null) cPaid.textContent=fmtTB(D.traffic.paidBytes);
+      if(cUnpaid && D.traffic.unpaidBytes!=null) cUnpaid.textContent=fmtTB(D.traffic.unpaidBytes);
+      if(cTotal && D.traffic.paidBytes!=null && D.traffic.unpaidBytes!=null){
+        cTotal.textContent=fmtTB(D.traffic.paidBytes+D.traffic.unpaidBytes);
+      }
+    }
+  }catch(_){}
+  finally{ dashPolling=false; }
+}
+setInterval(()=>{ if(!document.hidden) refreshDashData(); }, 15000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) refreshDashData(); });
+
 loadPrefs();
 applyTheme(currentTheme||'legacy');
+updateEpochSub();
 /* refresh and back land where you were, not on the first section */
 setTimeout(epUnpaidGrowth, 400);
 setTimeout(epLiveStats, 1200);
+setTimeout(refreshDashData, 2000);
 (function restoreSection(){
   const fromHash=(location.hash||'').replace('#','');
   let want=fromHash;
