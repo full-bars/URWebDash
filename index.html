@@ -385,7 +385,6 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="webhook-warning">Earnings moved from USDC to SN25 alpha. The rows below are the record of USDC owed from before the switch, and they are still paid in full. Anything earned since settles as SN25 alpha on Bittensor.</div>
     <div class="cards">
       <div class="card"><div class="label">Total Earned</div><div class="value green" id="pay-total-earned">&mdash;</div><div class="sub" id="pay-total-sub">&mdash;</div></div>
-      <div class="card"><div class="label">Unclaimed &alpha;</div><div class="value blue" id="pay-unclaimed-alpha">&mdash;</div><div class="sub" id="pay-unclaimed-sub">no v2 root yet</div></div>
       <div class="card"><div class="label">Completed</div><div class="value green" id="pay-completed">&mdash;</div></div>
       <div class="card"><div class="label">Pending</div><div class="value yellow" id="pay-pending">&mdash;</div></div>
       <div class="card"><div class="label">Last Payment</div><div class="value white" id="pay-last">&mdash;</div></div>
@@ -1788,7 +1787,7 @@ recent.forEach((r,i)=>{
 });
 const payTable=document.getElementById('pay-table');
 function renderPayoutSummary(){
-  const rows=PAY||[], legacy=D.legacy||{}, alpha=D.alpha||{};
+  const rows=PAY||[], legacy=D.legacy||{};
   const completed=rows.filter(p=>p.completed);
   const totalEarned=rows.length?completed.reduce((sum,p)=>sum+(p.amount||0),0):(legacy.usdc||0);
   const completedCount=rows.length?completed.length:(legacy.count||0);
@@ -1804,8 +1803,6 @@ function renderPayoutSummary(){
   set('pay-pending',pendingCount);
   set('pay-last',lastPayment);
   set('pay-last-header',lastPayment);
-  set('pay-unclaimed-alpha',typeof alpha.unclaimed==='number'?money(alpha.unclaimed):'—');
-  set('pay-unclaimed-sub',alpha.unclaimed==null?'no v2 root yet':'');
 }
 function renderPayoutRows(){
   renderPayoutSummary();
