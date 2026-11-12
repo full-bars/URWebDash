@@ -2,6 +2,13 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## v0.0.23 - 2026-11-12
+
+### Fixed
+
+- Removed the unused "unclaimed alpha" card from the legacy payouts page. It never had data behind it and only caused confusion; the Bittensor page keeps its own alpha card.
+- Renamed the payouts section to "Legacy Payouts" so it is clear at a glance that these are the archived USDC-on-Solana payments, not current earnings.
+
 ## v0.0.22 - 2026-11-12
 
 ### Fixed
