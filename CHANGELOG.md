@@ -2,6 +2,15 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## v0.0.22 - 2026-11-12
+
+### Fixed
+
+- Removed remaining hardcoded dashboard snapshot values; cards now reflect live data.
+- The payout table shows the points earned for each payment.
+- The epoch history in every theme shows each epoch's alpha once it is reported.
+- The payout total subtitle counts completed payments, matching the Completed card.
+
 ## v0.0.21 - 2026-11-08
 
 ### Added

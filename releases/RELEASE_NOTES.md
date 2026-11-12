@@ -1,3 +1,12 @@
+# v0.0.22
+
+### Fixed
+
+- **Removed remaining hardcoded dashboard snapshot values:** Cards now reflect live data.
+- **Payout points:** The payout table shows the points earned for each payment.
+- **Epoch alpha:** The epoch history in every theme shows each epoch's alpha once it is reported.
+- **Payout total subtitle:** The payment count matches the Completed card.
+
 # v0.0.21
 
 ### Features
