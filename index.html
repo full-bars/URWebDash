@@ -302,7 +302,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
   <h1>URWebDash</h1>
   <div class="nav-links">
     <a href="#" data-section="wallet" class="active" onclick="return go('wallet')">&#128202; Data Stats</a>
-    <a href="#" data-section="payout" onclick="return go('payout')">&#128176; Payout Stats</a>
+    <a href="#" data-section="payout" onclick="return go('payout')">&#128176; Legacy Payouts</a>
     <a href="#" data-section="bittensor" onclick="return go('bittensor')">&#9935; Bittensor Stats<span class="new">new</span></a>
     <a href="#" data-section="webhook" onclick="return go('webhook')">&#128276; Webhook</a>
   </div>
@@ -378,7 +378,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
 
   <div id="section-payout" class="section">
     <div class="header">
-      <div><h2>&#128176; Payout Statistics</h2>
+      <div><h2>&#128176; Legacy Payouts</h2>
       <p>Legacy USDC payouts on Solana &mdash; archive</p>
       <div class="sub">Last payment: <span id="pay-last-header">&mdash;</span></div></div>
     </div>
@@ -1555,7 +1555,7 @@ function go(name){
   const el=document.getElementById('section-'+name); if(el) el.classList.add('active');
   document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('active', a.dataset.section===name));
   window.scrollTo(0,0);
-  const label={wallet:'Data Stats',payout:'Payout Stats',bittensor:'Bittensor Stats',webhook:'Webhook'}[name]||'';
+  const label={wallet:'Data Stats',payout:'Legacy Payouts',bittensor:'Bittensor Stats',webhook:'Webhook'}[name]||'';
   const pn=document.getElementById('page-name'); if(pn) pn.textContent=label;
   /* the data table pages over the whole store, so it loads when the section is
      first opened rather than on every page load */
