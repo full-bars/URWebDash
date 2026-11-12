@@ -380,15 +380,15 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="header">
       <div><h2>&#128176; Payout Statistics</h2>
       <p>Legacy USDC payouts on Solana &mdash; archive</p>
-      <div class="sub">Last payment: 2026-10-27</div></div>
+      <div class="sub">Last payment: <span id="pay-last-header">&mdash;</span></div></div>
     </div>
     <div class="webhook-warning">Earnings moved from USDC to SN25 alpha. The rows below are the record of USDC owed from before the switch, and they are still paid in full. Anything earned since settles as SN25 alpha on Bittensor.</div>
     <div class="cards">
-      <div class="card"><div class="label">Total Earned</div><div class="value green">$2,083.12</div><div class="sub">87 payments</div></div>
-      <div class="card"><div class="label">Unclaimed &alpha;</div><div class="value blue">&mdash;</div><div class="sub">no v2 root yet</div></div>
-      <div class="card"><div class="label">Completed</div><div class="value green">87</div></div>
-      <div class="card"><div class="label">Pending</div><div class="value yellow">0</div></div>
-      <div class="card"><div class="label">Last Payment</div><div class="value white">2026-10-27</div></div>
+      <div class="card"><div class="label">Total Earned</div><div class="value green" id="pay-total-earned">&mdash;</div><div class="sub" id="pay-total-sub">&mdash;</div></div>
+      <div class="card"><div class="label">Unclaimed &alpha;</div><div class="value blue" id="pay-unclaimed-alpha">&mdash;</div><div class="sub" id="pay-unclaimed-sub">no v2 root yet</div></div>
+      <div class="card"><div class="label">Completed</div><div class="value green" id="pay-completed">&mdash;</div></div>
+      <div class="card"><div class="label">Pending</div><div class="value yellow" id="pay-pending">&mdash;</div></div>
+      <div class="card"><div class="label">Last Payment</div><div class="value white" id="pay-last">&mdash;</div></div>
     </div>
     <div class="toolbar"><span class="info">archive only &mdash; no new USDC rows after the cutoff</span>
       <button class="btn" onclick="fakeRefresh(this)">&#128260; Refresh</button></div>
@@ -1786,9 +1786,31 @@ recent.forEach((r,i)=>{
   tbody.appendChild(tr);
 });
 const payTable=document.getElementById('pay-table');
+function renderPayoutSummary(){
+  const rows=PAY||[], legacy=D.legacy||{}, alpha=D.alpha||{};
+  const completed=rows.filter(p=>p.completed);
+  const totalEarned=rows.length?completed.reduce((sum,p)=>sum+(p.amount||0),0):(legacy.usdc||0);
+  const completedCount=rows.length?completed.length:(legacy.count||0);
+  const pendingCount=rows.length?rows.filter(p=>!p.completed).length:0;
+  const totalCount=rows.length||legacy.count||0;
+  const lastPayment=(completed.reduce((last,p)=>{
+    const date=p.pay||p.create||'';
+    return date>last?date:last;
+  },'').slice(0,10)||legacy.last||'—');
+  const set=(id,value)=>{ const el=document.getElementById(id); if(el) el.textContent=value; };
+  set('pay-total-earned',money(totalEarned));
+  set('pay-total-sub',totalCount+' payments');
+  set('pay-completed',completedCount);
+  set('pay-pending',pendingCount);
+  set('pay-last',lastPayment);
+  set('pay-last-header',lastPayment);
+  set('pay-unclaimed-alpha',typeof alpha.unclaimed==='number'?money(alpha.unclaimed):'—');
+  set('pay-unclaimed-sub',alpha.unclaimed==null?'no v2 root yet':'');
+}
 function renderPayoutRows(){
+  renderPayoutSummary();
   payTable.innerHTML='';
-  PAY.slice(0,40).forEach((p,i)=>{
+  (PAY||[]).slice(0,40).forEach((p,i)=>{
   const tr=document.createElement('tr');
   tr.innerHTML='<td>'+(i+1)+'</td>'+
     '<td class="text-right text-green">'+money(p.amount||0)+' '+esc(p.type||'')+'</td>'+
@@ -1802,6 +1824,7 @@ function renderPayoutRows(){
   });
 }
 renderPayoutRows();
+renderPayoutSummary();
 
 /* balances live beside the coldkey: respect hideBal and use money() so currency
    conversions and privacy match the rest of the page */
@@ -2130,6 +2153,7 @@ var currency=(()=>{
   }catch(_){ return 'USD'; }
 })();
 { const sel=document.getElementById('currency'); if(sel&&sel.value!==currency) sel.value=currency; }
+renderPayoutRows();
 function money(usd,digits){
   const r=(D.fx||{})[currency];
   const ok=typeof r==='number'&&isFinite(r)&&r>0;

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -2336,6 +2337,50 @@ func TestPollGapNoticeSameWindowCountsOnce(t *testing.T) {
 	if !strings.Contains(msg, "1 window skipped") {
 		t.Fatalf("recovery message = %q, want a single skipped window", msg)
 	}
+}
+
+func TestIndexHTML_PayoutSnapshotDynamic(t *testing.T) {
+	for _, stale := range []string{"2026-10-27", "$2,083.12", "87 payments"} {
+		if strings.Contains(indexHTML, stale) {
+			t.Errorf("indexHTML contains stale payout snapshot %q", stale)
+		}
+	}
+	for _, id := range []string{"pay-total-earned", "pay-total-sub", "pay-completed", "pay-pending", "pay-last", "pay-last-header", "pay-unclaimed-alpha"} {
+		if !strings.Contains(indexHTML, `id="`+id+`"`) {
+			t.Errorf("indexHTML missing payout element %q", id)
+		}
+	}
+}
+
+func TestPayoutSummaryLogic(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed; skipping page-logic test")
+	}
+	code := sliceBetween(t, indexHTML, "function renderPayoutSummary(){", "function renderPayoutRows(){")
+	harness := `
+let D={legacy:{usdc:42,count:3,last:'2025-01-01'},alpha:{unclaimed:null}};
+let PAY=[];
+const elements={};
+const document={getElementById:id=>elements[id]||(elements[id]={})};
+const money=n=>'$'+n.toFixed(2);
+` + code + `
+const eq=(id,want)=>{if(String(elements[id].textContent)!==String(want)) throw Error(id+' got '+elements[id].textContent+' want '+want)};
+renderPayoutSummary();
+eq('pay-total-earned','$42.00'); eq('pay-total-sub','3 payments'); eq('pay-completed',3); eq('pay-pending',0);
+eq('pay-last','2025-01-01'); eq('pay-last-header','2025-01-01'); eq('pay-unclaimed-alpha','—'); eq('pay-unclaimed-sub','no v2 root yet');
+PAY=[{completed:true,amount:12.5,pay:'2025-03-01T00:00:00Z'},
+     {completed:false,amount:100,pay:'2026-01-01'},
+     {completed:true,amount:2.5,create:'2025-04-01T00:00:00Z'}];
+D.alpha.unclaimed=0;
+renderPayoutSummary();
+eq('pay-total-earned','$15.00'); eq('pay-total-sub','3 payments'); eq('pay-completed',2); eq('pay-pending',1);
+eq('pay-last','2025-04-01'); eq('pay-last-header','2025-04-01'); eq('pay-unclaimed-alpha','$0.00'); eq('pay-unclaimed-sub','');
+PAY=[{completed:false,amount:10}]; D.legacy.last=''; D.alpha.unclaimed=1.25;
+renderPayoutSummary();
+eq('pay-total-earned','$0.00'); eq('pay-completed',0); eq('pay-pending',1); eq('pay-last','—'); eq('pay-unclaimed-alpha','$1.25');
+`
+	runNode(t, node, harness)
 }
 
 func TestIndexHTML_DynamicDataPointsAndTBUnits(t *testing.T) {
