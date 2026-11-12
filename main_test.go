@@ -2374,7 +2374,7 @@ PAY=[{completed:true,amount:12.5,pay:'2025-03-01T00:00:00Z'},
      {completed:true,amount:2.5,create:'2025-04-01T00:00:00Z'}];
 D.alpha.unclaimed=0;
 renderPayoutSummary();
-eq('pay-total-earned','$15.00'); eq('pay-total-sub','3 payments'); eq('pay-completed',2); eq('pay-pending',1);
+eq('pay-total-earned','$15.00'); eq('pay-total-sub','2 payments'); eq('pay-completed',2); eq('pay-pending',1);
 eq('pay-last','2025-04-01'); eq('pay-last-header','2025-04-01'); eq('pay-unclaimed-alpha','$0.00'); eq('pay-unclaimed-sub','');
 PAY=[{completed:false,amount:10}]; D.legacy.last=''; D.alpha.unclaimed=1.25;
 renderPayoutSummary();
@@ -2398,5 +2398,22 @@ func TestIndexHTML_DynamicDataPointsAndTBUnits(t *testing.T) {
 	}
 	if !strings.Contains(indexHTML, `<option value="MXN">MXN</option>`) {
 		t.Fatalf("indexHTML missing MXN currency option")
+	}
+}
+
+// The epoch tables in every theme read the row's alpha. A constant dash would
+// hide a value the server already sends.
+func TestIndexHTML_ThemesRenderEpochAlpha(t *testing.T) {
+	if !strings.Contains(indexHTML, "e.alpha == null") {
+		t.Error("legacy theme does not read e.alpha")
+	}
+	if got := strings.Count(indexHTML, "H.alphaCell(D, r)"); got < 2 {
+		t.Errorf("alphaCell used %d times, want it in each theme that lists epoch alpha", got)
+	}
+	if strings.Contains(indexHTML, `class="al">—<small>`) || strings.Contains(indexHTML, `class="al">—<small>`) {
+		t.Error("a theme still hardcodes the epoch alpha dash")
+	}
+	if !strings.Contains(indexHTML, "p.points == null") {
+		t.Error("payout table does not read p.points")
 	}
 }

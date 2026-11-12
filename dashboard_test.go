@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -149,5 +150,38 @@ func TestEpochEstimateIgnoresOpenEpochRow(t *testing.T) {
 	elapsedDays := float64(d.Epoch.Head-d.Epoch.StartBlock) * blockSeconds / 86400
 	if elapsedDays < 2 || elapsedDays > 4 {
 		t.Errorf("derived %.1f days elapsed, expected about 3 from the completed epoch", elapsedDays)
+	}
+}
+
+// Each payment row carries the points earned for it, so the payout table can
+// show them instead of a placeholder.
+func TestBuildDashDataCarriesPayoutPoints(t *testing.T) {
+	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "stats.db"))
+	db, err := openDB()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	payoutCacheMu.Lock()
+	saved := payoutCache
+	payoutCache = []payoutRecord{{PaymentID: "p1", TokenAmount: 1, Completed: true, PointsEarned: 12.5}}
+	payoutCacheMu.Unlock()
+	defer func() {
+		payoutCacheMu.Lock()
+		payoutCache = saved
+		payoutCacheMu.Unlock()
+	}()
+
+	_, _, pays := buildDashData(db, "")
+	if len(pays) != 1 {
+		t.Fatalf("got %d payments, want 1", len(pays))
+	}
+	if pays[0].Points != 12.5 {
+		t.Errorf("Points = %v, want 12.5", pays[0].Points)
+	}
+	b, _ := json.Marshal(pays[0])
+	if !strings.Contains(string(b), `"points":12.5`) {
+		t.Errorf("json %s does not carry points", b)
 	}
 }

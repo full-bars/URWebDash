@@ -581,7 +581,7 @@ window.URTHEMES = window.URTHEMES || {};
         return '<tr><td>epoch ' + e.epoch + '</td>' +
           '<td class="right blue">' + (e.points ? f(e.points, 2) : '<span class="dim">0</span>') + '</td>' +
           '<td class="right dim">' + (e.shareBps / 100).toFixed(2) + '%</td>' +
-          '<td class="right dim">\u2014</td>' +
+          '<td class="right dim">' + (e.alpha == null ? '\u2014' : f(e.alpha, 2)) + '</td>' +
           '<td class="dim">' + e.settlement + (e.epoch >= 4 ? ' \u00b7 pending' : ' \u00b7 cohort only') + '</td>' +
           '<td style="width:120px"><div style="height:6px;background:#3b82f6;opacity:.75;width:' + bar + 'px"></div></td></tr>';
       }).join('');
@@ -1066,6 +1066,7 @@ window.URTHEMES = window.URTHEMES || {};
       return Math.max.apply(null, D.epochs.map(function (e) { return e.points; })) || 1;
     },
     alphaWhy: function (D) { return 'none before epoch ' + D.alpha.firstPayingEpoch; },
+    alphaCell: function (D, r) { return r.alpha == null ? '\u2014<small>' + H.alphaWhy(D) + '</small>' : H.n(r.alpha, 2); },
     span: function (D) { return D.epoch.finalizeBlock - D.epoch.startBlock; },
     /* [earning, commit, finalize] block lengths */
     segs: function (D) {
@@ -1145,7 +1146,7 @@ window.URTHEMES = window.URTHEMES || {};
         return '<tr><td class="ep">' + r.epoch + '</td><td>' + H.n(r.points, 2) + '</td>' +
           '<td class="bar"><div><i style="width:' + w2.toFixed(2) + '%"></i></div></td>' +
           '<td>' + H.share(r.shareBps) + '</td>' +
-          '<td class="al">—<small>' + H.alphaWhy(D) + '</small></td>' +
+          '<td class="al">' + H.alphaCell(D, r) + '</td>' +
           '<td>' + H.esc(r.settlement) + '</td></tr>';
       }).join('');
       return `<div class="tx-editorial"><div class="w">
@@ -1255,7 +1256,7 @@ window.URTHEMES = window.URTHEMES || {};
       });
       var rows = D.epochs.map(function (r) {
         return '<div class="rw"><b>' + r.epoch + '</b><span>' + H.n(r.points, 2) + '</span><span class="x">' + H.share(r.shareBps) +
-          ' share</span><span class="x">' + H.esc(r.settlement) + '</span><span class="al">—<small>' + H.alphaWhy(D) + '</small></span><span class="x"></span></div>';
+          ' share</span><span class="x">' + H.esc(r.settlement) + '</span><span class="al">' + H.alphaCell(D, r) + '</span><span class="x"></span></div>';
       }).join('');
       return `<div class="tx-orbit">
 <div class="top">
@@ -1374,7 +1375,7 @@ window.URTHEMES = window.URTHEMES || {};
         var wd = Math.max(r.points / max * 100, r.points > 0 ? 1.5 : 0);
         return '<li class="' + (r.points > 0 ? 'hit' : '') + '"><div class="ln"><b>Epoch ' + r.epoch + '</b><span>settlement ' + H.esc(r.settlement) + '</span></div>' +
           '<div class="pb"><div><i style="width:' + wd.toFixed(2) + '%"></i></div><strong>' + H.n(r.points, 2) + '</strong></div>' +
-          '<div class="meta"><span>share ' + H.share(r.shareBps) + '</span><span class="al">alpha — ' + H.alphaWhy(D) + '</span></div></li>';
+          '<div class="meta"><span>share ' + H.share(r.shareBps) + '</span><span class="al">alpha ' + (r.alpha == null ? '\u2014 ' + H.alphaWhy(D) : H.n(r.alpha, 2)) + '</span></div></li>';
       }).join('');
       return `<div class="tx-timeline"><div class="in">
 <div class="hd"><h1>Epoch <b>${e.n}</b> · ${H.n(e.pct, 2)}%</h1><span>${H.n(e.elapsedBlocks, 0)} of ${H.n(e.tBlocks, 0)} blocks done, ${H.n(e.leftBlocks, 0)} left · closes ${H.esc(e.closeAt)}</span></div>
@@ -1792,14 +1793,13 @@ function renderPayoutSummary(){
   const totalEarned=rows.length?completed.reduce((sum,p)=>sum+(p.amount||0),0):(legacy.usdc||0);
   const completedCount=rows.length?completed.length:(legacy.count||0);
   const pendingCount=rows.length?rows.filter(p=>!p.completed).length:0;
-  const totalCount=rows.length||legacy.count||0;
   const lastPayment=(completed.reduce((last,p)=>{
     const date=p.pay||p.create||'';
     return date>last?date:last;
   },'').slice(0,10)||legacy.last||'—');
   const set=(id,value)=>{ const el=document.getElementById(id); if(el) el.textContent=value; };
   set('pay-total-earned',money(totalEarned));
-  set('pay-total-sub',totalCount+' payments');
+  set('pay-total-sub', completedCount + ' payments');
   set('pay-completed',completedCount);
   set('pay-pending',pendingCount);
   set('pay-last',lastPayment);
@@ -1814,7 +1814,7 @@ function renderPayoutRows(){
   const tr=document.createElement('tr');
   tr.innerHTML='<td>'+(i+1)+'</td>'+
     '<td class="text-right text-green">'+money(p.amount||0)+' '+esc(p.type||'')+'</td>'+
-    '<td class="text-right text-gray">&mdash;</td>'+
+    '<td class="text-right text-gray">' + (p.points == null ? '&mdash;' : Number(p.points).toLocaleString()) + '</td>' +
     '<td class="text-right text-gray text-mono">'+(p.bytes?fmtBytes(p.bytes):'&mdash;')+'</td>'+
     '<td class="text-gray">'+((p.pay||p.create||'').slice(0,10))+'</td>'+
     '<td class="text-mono">'+(p.tx?esc(p.tx.slice(0,10))+'\u2026':'&mdash;')+'</td>'+

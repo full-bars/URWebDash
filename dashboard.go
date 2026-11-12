@@ -159,6 +159,7 @@ type dashPay struct {
 	Pay       string  `json:"pay"`
 	Tx        string  `json:"tx"`
 	Bytes     int64   `json:"bytes"`
+	Points    float64 `json:"points"`
 }
 
 const blockSeconds = 12
@@ -369,7 +370,7 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 		pays = append(pays, dashPay{
 			Amount: amount, Type: typ, Chain: chain, Completed: p.Completed,
 			Create: p.CreateTime, Pay: p.PaymentTime, Tx: p.TxHash,
-			Bytes: p.PayoutByteCount,
+			Bytes: p.PayoutByteCount, Points: p.PointsEarned,
 		})
 		if p.Completed {
 			usdcTotal += amount
