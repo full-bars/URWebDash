@@ -2,6 +2,12 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## Unreleased
+
+### Fixed
+
+- Dashboard data now refreshes in open tabs, and refresh errors are reported once per failure streak.
+
 ## v0.0.25 - 2026-11-15
 
 ### Added

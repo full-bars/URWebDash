@@ -1555,7 +1555,7 @@ window.URFORMATS['bullets'] = {
 
 </script>
 <script>
-const D = __D__;
+let D = __D__;
 const HIST = __HIST__;
 let PAY = __PAY__;
 /* the page is rendered on the server: if it went out before the cache was warm
@@ -3263,7 +3263,7 @@ function updateEpochSub(){
   }
 }
 
-let dashPolling=false;
+let dashPolling=false, dashRefreshFailed=false;
 async function refreshDashData(){
   if(document.hidden || dashPolling) return;
   dashPolling=true;
@@ -3272,6 +3272,9 @@ async function refreshDashData(){
     if(!res.ok) return;
     const data=await res.json();
     if(!data || typeof data!=='object') return;
+    if(!data.epoch || typeof data.epoch.pct!=='number' || !Array.isArray(data.epochs) ||
+       !data.points || !data.wallet || !data.alpha || !data.traffic || !data.legacy)
+      throw new Error('invalid dashboard data');
     D=data;
     if(D.epoch && epLive){
       epLive.done=D.epoch.elapsedBlocks||epLive.done;
@@ -3292,7 +3295,11 @@ async function refreshDashData(){
         cTotal.textContent=fmtBytes(D.traffic.paidBytes+D.traffic.unpaidBytes);
       }
     }
-  }catch(_){}
+    dashRefreshFailed=false;
+  }catch(e){
+    if(!dashRefreshFailed) console.warn('dashboard refresh failed', e);
+    dashRefreshFailed=true;
+  }
   finally{ dashPolling=false; }
 }
 setInterval(()=>{ if(!document.hidden) refreshDashData(); }, 15000);
