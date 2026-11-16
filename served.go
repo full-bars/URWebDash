@@ -586,8 +586,12 @@ func servedTotalSoFar(db *sql.DB, newest servedSample) (*servedTotal, error) {
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
-	counted += newest.BlockBytes
-	if newest.EpochBytes != nil {
+	// The anchor already holds completed blocks before it. The open epoch's
+	// figure holds finished weeks before the current block, not that block.
+	if !hasAnchor || newest.BlockStartMillis <= 0 || newest.BlockStartMillis >= anchorStart {
+		counted += newest.BlockBytes
+	}
+	if newest.EpochBytes != nil && (!hasAnchor || newest.BlockStartMillis <= 0 || newest.BlockStartMillis > anchorStart) {
 		counted += *newest.EpochBytes
 	}
 	t := &servedTotal{Bytes: legacy + counted, CountedByEpoch: counted}

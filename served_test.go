@@ -485,6 +485,71 @@ func TestServedTotalDoesNotCountTheSameWeekTwice(t *testing.T) {
 	}
 }
 
+func TestServedTotalSkipsSampleBeforeAgreementAnchor(t *testing.T) {
+	s := time.Date(2030, 11, 10, 0, 0, 0, 0, time.UTC)
+	for _, withEpoch := range []bool{false, true} {
+		name := "block only"
+		if withEpoch {
+			name = "block and open epoch"
+		}
+		t.Run(name, func(t *testing.T) {
+			db := servedTestDB(t)
+			for i, total := range []int64{200 * gb, 300 * gb} {
+				at := s.AddDate(0, 0, 7*i).Format(time.RFC3339)
+				if _, err := db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?,0,?,?)", total, at, at); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := storeEpochs(db, []epochRow{{Epoch: 5, StartMillis: s.UnixMilli(), EndMillis: s.AddDate(0, 0, 12).UnixMilli()}}, s.AddDate(0, 0, 30)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`UPDATE epoch_stats SET served_bytes = ? WHERE epoch = 5`, 100*gb); err != nil {
+				t.Fatal(err)
+			}
+			blk := blockAt(9, 40*gb, s.Add(time.Hour))
+			blk.StartMillis = s.UnixMilli()
+			var cur *servedEpochWire
+			if withEpoch {
+				cur = &servedEpochWire{Epoch: 6, ServedByteCount: 20 * gb, StartMillis: s.AddDate(0, 0, -7).UnixMilli(), EndMillis: s.AddDate(0, 0, 7).UnixMilli()}
+			}
+			if _, err := storeServedSample(db, blk, cur, s); err != nil {
+				t.Fatal(err)
+			}
+			p, err := buildServedPayload(db)
+			if err != nil || p.Total == nil || p.Total.Bytes != 300*gb || p.Total.AnchorMillis != s.AddDate(0, 0, 7).UnixMilli() {
+				t.Fatalf("total = %+v, error = %v, want 300 GB at the agreement anchor", p.Total, err)
+			}
+		})
+	}
+}
+
+func TestServedTotalCountsSampleAtAndAfterAnchor(t *testing.T) {
+	anchor := time.Date(2030, 11, 17, 0, 0, 0, 0, time.UTC)
+	for _, weeks := range []int{0, 1} {
+		t.Run(fmt.Sprintf("weeks after anchor %d", weeks), func(t *testing.T) {
+			db := servedTestDB(t)
+			if _, err := db.Exec(`INSERT INTO served_anchor (id, block_start_millis, legacy_bytes, method, computed_at) VALUES (1, ?, ?, ?, ?)`, anchor.UnixMilli(), 300*gb, anchorAgree, anchor.Format(time.RFC3339)); err != nil {
+				t.Fatal(err)
+			}
+			start := anchor.AddDate(0, 0, 7*weeks)
+			blk := blockAt(9, 40*gb, start.Add(time.Hour))
+			blk.StartMillis = start.UnixMilli()
+			cur := &servedEpochWire{Epoch: 6, ServedByteCount: 20 * gb, StartMillis: anchor.AddDate(0, 0, -7).UnixMilli(), EndMillis: start.AddDate(0, 0, 7).UnixMilli()}
+			if _, err := storeServedSample(db, blk, cur, start); err != nil {
+				t.Fatal(err)
+			}
+			p, err := buildServedPayload(db)
+			want := 340 * gb
+			if weeks > 0 {
+				want += 20 * gb
+			}
+			if err != nil || p.Total == nil || p.Total.Bytes != want {
+				t.Fatalf("total = %+v, error = %v, want %d", p.Total, err, want)
+			}
+		})
+	}
+}
+
 func TestServedTotalAddsAnEpochWhoseBlockEndedExactlyAtTheBlockStart(t *testing.T) {
 	s := time.Date(2030, 11, 10, 0, 0, 0, 0, time.UTC)
 	db := servedTestDB(t)
