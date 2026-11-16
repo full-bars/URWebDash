@@ -243,6 +243,59 @@ func TestServedAlertStylesAllProduceValidJSON(t *testing.T) {
 	}
 }
 
+func TestServedSpikeSkipsAGapPastThreePollWindows(t *testing.T) {
+	srv, closeSrv := newSpikeCountServer()
+	defer closeSrv()
+	t.Setenv("DISCORD_WEBHOOK_URL", srv.URL)
+	t.Setenv("SPIKE_THRESHOLD", "1GB")
+	t.Setenv("STATS_INTERVAL", "12h")
+	db := servedTestDB(t)
+
+	storeServedSample(db, blockAt(1, 10*gb, servedT0), nil, servedT0)
+	// 20 GB in one 12-hour window: scaled to a window it is 20 GB,
+	// far past a 1 GB threshold, so it alerts
+	fresh, _ := storeServedSample(db, blockAt(1, 30*gb, servedT0.Add(12*time.Hour)), nil, servedT0)
+	if !fresh {
+		t.Fatal("second sample should be fresh")
+	}
+	checkServedSpike(db, servedT0.Add(12*time.Hour).UnixMilli(), servedT0.Add(13*time.Hour))
+	for i := 0; i < 50 && srv.count() == 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if srv.count() != 1 {
+		t.Fatalf("12h window: %d alerts, want 1", srv.count())
+	}
+}
+
+func TestServedSpikeQuietPastThreeWindowsAndTheSixHourCeiling(t *testing.T) {
+	srv, closeSrv := newSpikeCountServer()
+	defer closeSrv()
+	t.Setenv("DISCORD_WEBHOOK_URL", srv.URL)
+	t.Setenv("SPIKE_THRESHOLD", "1GB")
+
+	// STATS_INTERVAL=12h: three windows are 36 hours; 40 hours is a backfill lump.
+	t.Setenv("STATS_INTERVAL", "12h")
+	db := servedTestDB(t)
+	storeServedSample(db, blockAt(1, 10*gb, servedT0), nil, servedT0)
+	storeServedSample(db, blockAt(1, 30*gb, servedT0.Add(40*time.Hour)), nil, servedT0)
+	checkServedSpike(db, servedT0.Add(40*time.Hour).UnixMilli(), servedT0)
+	time.Sleep(60 * time.Millisecond)
+	if srv.count() != 0 {
+		t.Errorf("40h gap: %d alerts, want none", srv.count())
+	}
+
+	// default window: six hours is the ceiling; 7 hours stays quiet.
+	t.Setenv("STATS_INTERVAL", "")
+	db2 := servedTestDB(t)
+	storeServedSample(db2, blockAt(2, 10*gb, servedT0), nil, servedT0)
+	storeServedSample(db2, blockAt(2, 30*gb, servedT0.Add(7*time.Hour)), nil, servedT0)
+	checkServedSpike(db2, servedT0.Add(7*time.Hour).UnixMilli(), servedT0)
+	time.Sleep(60 * time.Millisecond)
+	if srv.count() != 0 {
+		t.Errorf("default window, 7h gap: %d alerts, want none", srv.count())
+	}
+}
+
 func TestServedRouteAndDashboardCarryTheSeries(t *testing.T) {
 	db := servedTestDB(t)
 	storeServedSample(db, blockAt(1, 10*gb, servedT0), nil, servedT0)
@@ -368,7 +421,9 @@ func TestServedTotalJoinsTheOldCounterToTheServerWeeks(t *testing.T) {
 
 	// epoch 7 is open with nothing finished yet, and this week has 400 GB
 	cur := &servedEpochWire{Epoch: 7, ServedByteCount: 0, AsOfMillis: servedT0.UnixMilli()}
-	storeServedSample(db, blockAt(22, 400*gb, servedT0), cur, servedT0)
+	blk := blockAt(22, 400*gb, servedT0)
+	blk.StartMillis = servedSunday(servedT0).UnixMilli()
+	storeServedSample(db, blk, cur, servedT0)
 	p, err := buildServedPayload(db)
 	if err != nil || p.Total == nil {
 		t.Fatalf("payload = %+v, %v", p, err)
@@ -391,6 +446,56 @@ func TestServedTotalWithoutAnOldCutoverIsTheServerFiguresAlone(t *testing.T) {
 	p, _ := buildServedPayload(db)
 	if p.Total == nil || p.Total.Bytes != 290*gb || p.Total.AnchorMillis != 0 {
 		t.Fatalf("total = %+v, want 290 GB and no anchor", p.Total)
+	}
+}
+
+func TestServedTotalAddsTheEpochWhoseBlockEndedAtTheBlockStart(t *testing.T) {
+	// S is a Sunday in 2030: the start of the block the open sample runs in.
+	s := time.Date(2030, 11, 10, 0, 0, 0, 0, time.UTC)
+	db := servedTestDB(t)
+	storeEpochs(db, []epochRow{{Epoch: 5, StartMillis: s.AddDate(0, 0, -5).UnixMilli(), EndMillis: s.AddDate(0, 0, 5).UnixMilli()}}, s.AddDate(0, 0, 30))
+	db.Exec(`UPDATE epoch_stats SET served_bytes = ? WHERE epoch = 5`, 100*gb)
+	cur := &servedEpochWire{Epoch: 6, ServedByteCount: 0, AsOfMillis: s.UnixMilli()}
+	blk := blockAt(9, 40*gb, s.Add(time.Hour))
+	blk.StartMillis = s.UnixMilli()
+	storeServedSample(db, blk, cur, s.Add(time.Hour))
+	p, err := buildServedPayload(db)
+	if err != nil || p.Total == nil {
+		t.Fatalf("payload = %+v, %v", p, err)
+	}
+	if want := 140 * gb; p.Total.Bytes != want {
+		t.Errorf("total = %d, want %d (epoch + this week)", p.Total.Bytes, want)
+	}
+}
+
+func TestServedTotalDoesNotCountTheSameWeekTwice(t *testing.T) {
+	// A stale sample whose block starts at S sits next to a finalized epoch
+	// whose block ends at S + 7 days: that epoch is the week the sample's own
+	// BlockBytes runs inside, so adding it next to the sample double counts.
+	s := time.Date(2030, 11, 10, 0, 0, 0, 0, time.UTC)
+	db := servedTestDB(t)
+	storeEpochs(db, []epochRow{{Epoch: 5, StartMillis: s.AddDate(0, 0, -2).UnixMilli(), EndMillis: s.AddDate(0, 0, 12).UnixMilli()}}, s.AddDate(0, 0, 30))
+	db.Exec(`UPDATE epoch_stats SET served_bytes = ? WHERE epoch = 5`, 300*gb)
+	blk := blockAt(9, 40*gb, s.Add(time.Hour))
+	blk.StartMillis = s.UnixMilli()
+	storeServedSample(db, blk, nil, s.Add(time.Hour))
+	p, _ := buildServedPayload(db)
+	if p.Total == nil || p.Total.Bytes != 40*gb {
+		t.Fatalf("total = %+v, want only the sample's 40 GB", p.Total)
+	}
+}
+
+func TestServedTotalAddsAnEpochWhoseBlockEndedExactlyAtTheBlockStart(t *testing.T) {
+	s := time.Date(2030, 11, 10, 0, 0, 0, 0, time.UTC)
+	db := servedTestDB(t)
+	storeEpochs(db, []epochRow{{Epoch: 5, StartMillis: s.UnixMilli(), EndMillis: s.UnixMilli()}}, s.AddDate(0, 0, 30))
+	db.Exec(`UPDATE epoch_stats SET served_bytes = ? WHERE epoch = 5`, 100*gb)
+	blk := blockAt(9, 40*gb, s.Add(time.Hour))
+	blk.StartMillis = s.UnixMilli()
+	storeServedSample(db, blk, nil, s.Add(time.Hour))
+	p, _ := buildServedPayload(db)
+	if p.Total == nil || p.Total.Bytes != 140*gb {
+		t.Fatalf("total = %+v, want the epoch plus the week = 140 GB", p.Total)
 	}
 }
 

@@ -557,13 +557,36 @@ func servedTotalSoFar(db *sql.DB, newest servedSample) (*servedTotal, error) {
 	if hasAnchor {
 		minEnd = anchorStart + int64(servedBlockLength/time.Millisecond)
 	}
-	var sum sql.NullInt64
-	if err := db.QueryRow(`SELECT SUM(served_bytes) FROM epoch_stats
+	/* a week can arrive twice here: a response that carries the epoch
+	   figures but no current_block leaves the newest sample on an older
+	   week, and once that week finalizes its figure is added next to the
+	   sample's partial bytes. Only add an epoch whose block ended at or
+	   before the start of the newest sample's block. The check reads the
+	   block boundary, not the epoch's own window: a finalized epoch normally
+	   ends after the current block began, and that is fine. */
+	rows, err := db.Query(`SELECT end_millis, served_bytes FROM epoch_stats
 		WHERE finalized = 1 AND served_bytes IS NOT NULL AND epoch <> ? AND end_millis >= ?`,
-		openEpoch, minEnd).Scan(&sum); err != nil {
+		openEpoch, minEnd)
+	if err != nil {
 		return nil, err
 	}
-	counted := sum.Int64 + newest.BlockBytes
+	var counted int64
+	for rows.Next() {
+		var end, bytes int64
+		if err := rows.Scan(&end, &bytes); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if newest.BlockStartMillis > 0 &&
+			servedSunday(time.UnixMilli(end)).UnixMilli() > newest.BlockStartMillis {
+			continue
+		}
+		counted += bytes
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	counted += newest.BlockBytes
 	if newest.EpochBytes != nil {
 		counted += *newest.EpochBytes
 	}
@@ -705,7 +728,15 @@ func checkServedSpike(db *sql.DB, asOf int64, now time.Time) {
 		return
 	}
 	span := time.Duration(iv[0].ToMillis-iv[0].FromMillis) * time.Millisecond
-	if span <= 0 || span > backfillSkipSpan() {
+	/* the guard has to scale with the poll window: a longer STATS_INTERVAL
+	   puts consecutive samples further apart, so a fixed ceiling would skip
+	   every live interval at once. A gap past three poll windows is a
+	   backfill lump, not a live burst. */
+	liveSpan := backfillSkipSpan()
+	if w := 3 * statsInterval(); w > liveSpan {
+		liveSpan = w
+	}
+	if span <= 0 || span > liveSpan {
 		return
 	}
 	scaled := float64(*iv[0].Bytes) * float64(servedSpikeWindow()) / float64(span)
