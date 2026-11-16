@@ -6,7 +6,7 @@ All notable changes. Format loosely follows Keep a Changelog.
 
 ### Changed
 
-- The Bittensor hero shows longer packet trails and scales its visual activity smoothly with recent served traffic. The band is taller on desktop and fits phone screens.
+- The Bittensor hero shows longer packet trails and scales its visual activity smoothly with recent served traffic. The band is taller on desktop and fits phone screens. The Streaks selector offers Soft and Bright styles, with Bright as the default.
 
 ### Fixed
 

@@ -365,6 +365,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="tb-group"><span class="tb-page" id="page-name">Data Stats</span></div>
     <div class="tb-group tb-right">
       <span id="theme-hint" class="theme-hint"></span>
+      <span id="hero-controls" hidden><label class="field-label" for="hero-mode">Hero</label> <select id="hero-mode" onchange="setHeroMode(this.value)"><option value="band">Band</option><option value="footer">Footer</option><option value="off">Off</option></select> <label class="field-label" for="hero-streaks">Streaks</label> <select id="hero-streaks" onchange="setHeroStreaks(this.value)"><option value="soft">Soft</option><option value="bright">Bright</option></select></span>
       <label class="field-label" for="clock-select">Clock</label>
       <select id="clock-select" onchange="clockSet(this.value)"><option value="auto">Auto</option><option value="12h">12h</option><option value="24h">24h</option></select>
       <span class="field-label">Theme</span>
@@ -1579,6 +1580,7 @@ function go(name){
   window.scrollTo(0,0);
   const label={wallet:'Data Stats',payout:'Legacy Payouts',bittensor:'Bittensor Stats',webhook:'Webhook'}[name]||'';
   const pn=document.getElementById('page-name'); if(pn) pn.textContent=label;
+  const hc=document.getElementById('hero-controls'); if(hc) hc.hidden=name!=='bittensor';
   /* the data table pages over the whole store, so it loads when the section is
      first opened rather than on every page load */
   if(name==='wallet' && !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
@@ -2666,6 +2668,36 @@ function heroDensity(rates){
 }
 function heroEase(value,target,dt){ return value+(target-value)*heroSpawnChance(0.02,dt); }
 
+const HERO_STYLES={
+  soft:{width:1,tail:0,head:1,headSize:0,glowSize:0,glowAlpha:0},
+  bright:{width:2,tail:.2,head:1,headSize:1.5,glowSize:3,glowAlpha:.2}
+};
+function heroStyle(name){ return Object.hasOwn(HERO_STYLES,name)?HERO_STYLES[name]:HERO_STYLES.bright; }
+function loadHeroStyle(){
+  try{ return heroStyle(localStorage.getItem('heroStreaks')); }catch(_){ return heroStyle(); }
+}
+let currentHeroStyle=loadHeroStyle();
+function setHeroStreaks(name){
+  currentHeroStyle=heroStyle(name);
+  const value=currentHeroStyle===HERO_STYLES.soft?'soft':'bright';
+  const sel=document.getElementById('hero-streaks'); if(sel) sel.value=value;
+  try{ localStorage.setItem('heroStreaks',value); }catch(_){}
+}
+function drawHeroTrail(ctx,pt,style){
+  const trail=pt.trail;
+  ctx.strokeStyle=pt.color;ctx.lineWidth=style.width;
+  for(let i=1;i<trail.length;i++){
+    ctx.globalAlpha=style.headSize?style.tail+(style.head-style.tail)*(i-1)/Math.max(1,trail.length-2):i/trail.length;
+    ctx.beginPath();ctx.moveTo(trail[i-1].x,trail[i-1].y);ctx.lineTo(trail[i].x,trail[i].y);ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  if(style.headSize&&trail.length){
+    const p=trail[trail.length-1];ctx.fillStyle=pt.color;
+    ctx.globalAlpha=style.glowAlpha;ctx.beginPath();ctx.arc(p.x,p.y,style.glowSize,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=style.head;ctx.beginPath();ctx.arc(p.x,p.y,style.headSize,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
+  }
+}
+
 function startHeroSim(){
   const canvas=document.getElementById('hero-canvas');
   const wrap=document.getElementById('hero-sim');
@@ -2799,11 +2831,7 @@ function startHeroSim(){
           if(pt.trail.length>HERO_TRAIL_LENGTH) pt.trail.shift();
         }
         pt.trailTime%=1;
-        ctx.strokeStyle=pt.color;ctx.lineWidth=1;
-        for(let i=1;i<pt.trail.length;i++){
-          ctx.globalAlpha=i/pt.trail.length;ctx.beginPath();ctx.moveTo(pt.trail[i-1].x,pt.trail[i-1].y);ctx.lineTo(pt.trail[i].x,pt.trail[i].y);ctx.stroke();
-        }
-        ctx.globalAlpha=1;
+        drawHeroTrail(ctx,pt,currentHeroStyle);
       }
       if(pt.p>=1) finished.push(pt);
     }
@@ -2844,7 +2872,10 @@ let heroMode='band';
 function setHeroMode(mode){
   const el=document.getElementById('hero-sim');
   if(!el) return;
+  if(!['band','footer','off'].includes(mode)) mode='band';
   heroMode=mode;
+  const sel=document.getElementById('hero-mode'); if(sel) sel.value=mode;
+  try{ localStorage.setItem('heroMode',mode); }catch(_){}
   el.className='hero-sim'+(mode==='footer'?' mode-footer':'')+(mode==='background'?' mode-background':'');
   if(mode==='off'){ el.style.display='none'; window.__heroStop && window.__heroStop(); return; }
   el.style.display='';
@@ -2855,7 +2886,6 @@ function setHeroMode(mode){
   else { sec.insertBefore(el, sec.querySelector('.theme-meta')); }
   window.__heroResize && window.__heroResize();
   window.__heroStart && window.__heroStart(true);
-  const sel=document.getElementById('hero-mode'); if(sel) sel.value=mode;
 }
 
 /* ---------- themes + accent ---------- */
@@ -3360,7 +3390,8 @@ setTimeout(refreshDashData, 2000);
   if(want && document.getElementById('section-'+want)) go(want);
 })();
 renderPrice();
-setHeroMode('band');
+try{ setHeroMode(localStorage.getItem('heroMode')||'band'); }catch(_){ setHeroMode('band'); }
+setHeroStreaks(currentHeroStyle===HERO_STYLES.soft?'soft':'bright');
 startHeroSim();
 { const n=document.getElementById('hero-net-name'); if(n) n.textContent=D.networkName||'network';
   const w=document.getElementById('net-name'); if(w) w.textContent=D.networkName||'—'; }
