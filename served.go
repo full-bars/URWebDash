@@ -586,8 +586,12 @@ func servedTotalSoFar(db *sql.DB, newest servedSample) (*servedTotal, error) {
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
-	// The anchor already holds completed blocks before it. The open epoch's
-	// figure holds finished weeks before the current block, not that block.
+	// The anchor already holds completed blocks before it. The open epoch
+	// lasts 7 days and has not ended, so it starts less than 7 days before the
+	// current block. When that block starts after the anchor, the epoch starts
+	// after the anchor too and its figure is not in the legacy total. When the
+	// block starts at the anchor, the epoch began before it and the legacy total
+	// already holds the epoch's bytes up to the anchor.
 	if !hasAnchor || newest.BlockStartMillis <= 0 || newest.BlockStartMillis >= anchorStart {
 		counted += newest.BlockBytes
 	}
