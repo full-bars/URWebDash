@@ -1,3 +1,37 @@
+# v0.0.24
+
+The server stopped counting unpaid bytes when USDC provider payouts ended, so the paid and unpaid boxes no longer moved. This release shows the bytes the server now reports per epoch.
+
+### Features
+
+- **Served bytes.** Data Stats shows Total served, Served this week, Open epoch and Last 24 hours, with a Served per week chart over the whole history. The data comes from `/account/epochs` and `GET /api/served` returns it. The Bittensor Stats tab has the same panel.
+- **Timezone.** Times follow the browser's timezone, and Discord alerts use it too.
+- **Spike alert on served bytes.** It runs on the served-byte intervals, scaled to one poll window, in all nine styles. It skips block changes, server revisions and gaps longer than three poll windows.
+- **Epoch dates.** Every epoch shows its date range.
+- **Webhook tab.** The examples and the test message use the latest real interval, and the table-style previews use the alert text the server builds.
+
+### Changed
+
+- `STATS_INTERVAL` now defaults to `1h` (was `15m`), because the server reports served bytes about hourly. An explicit value still wins. Stored rows stay.
+- The join between the old counter and the server's weeks uses the latest week where the two agree. A drop of a tenth of the old counter is the fallback.
+- The page header says "Counted through" with the server's as-of time.
+
+### Removed
+
+- The Paid, Unpaid, Total Volume and 24h Change boxes, the daily change cards and the Paid, Unpaid and Transfer Rate charts. The stored rows stay in an archive section. The page no longer loads Chart.js from a CDN.
+- The spike check on the paid plus unpaid counters. The served-byte alert replaces it.
+
+### Fixed
+
+- The spike alert no longer skips every interval when `STATS_INTERVAL` is longer than six hours.
+- Total served no longer counts a week twice when a stale sample sits next to a finished epoch or next to the join point.
+
+### Upgrade notes
+
+- `SPIKE_THRESHOLD` now means GB per poll window. A value chosen for 15-minute windows is four times too small for hourly ones. Multiply it by 4, or set `STATS_INTERVAL=15m`.
+- The served-byte figures need a server that reports `served_byte_count`, `current_epoch` and `current_block`. Against an older server the page says there are no samples yet.
+- New tables and columns are added on start and nothing is removed, so the previous version still runs on an upgraded database.
+
 # v0.0.23
 
 ### Fixed

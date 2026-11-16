@@ -2,7 +2,7 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
-## Unreleased
+## v0.0.24 - 2026-11-15
 
 ### Added
 
@@ -26,6 +26,11 @@ All notable changes. Format loosely follows Keep a Changelog.
 
 - The Paid, Unpaid, Total Volume and 24h Change boxes, the seven daily change cards and the Paid, Unpaid and Transfer Rate charts, which read counters that stopped moving. The Chart.js script is no longer loaded. The stored rows stay in an archive section. The functions that drove them are removed too: the chart code, the daily-card and 24h flash code, the unpaid growth flash and the live row insert.
 - The spike check on the paid plus unpaid counters, run by the poller and by the manual refresh. Those counters no longer carry traffic, so it could not see a burst, and the served-byte alert replaces it.
+
+### Fixed
+
+- The spike alert skipped every interval when `STATS_INTERVAL` was longer than six hours. The skip ceiling is now the larger of six hours and three poll windows.
+- Total served could count a week twice: once from a stale sample and again from the finished epoch, or once from the sample and again inside the old counter at the join point. Both are excluded now.
 
 ### Upgrade notes
 
