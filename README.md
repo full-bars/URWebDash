@@ -40,7 +40,16 @@ When it finishes it starts the dashboard and prints the URL. The first poll happ
 
 ### Updating
 
-Re-run the install command above. It replaces the binary and restarts services if installed. Data survives untouched. Clicking the update badge shows the update command for your install.
+For installer installs, run `urwebdash update` (or `urwebdash update --check` to check only). After a terminal-session install, stop it with Ctrl+C and run `urwebdash setup` again. The download is verified against `SHA256SUMS` published with the same release; this catches a broken or truncated download but cannot catch a compromised release. Clicking the update badge in the dashboard shows the right command for your install.
+
+For containers, pull the new image and re-create the container:
+
+```bash
+docker pull ghcr.io/full-bars/urwebdash:latest
+docker compose pull && docker compose up -d
+```
+
+Older releases without checksums require the install command above.
 
 ### Uninstall
 
