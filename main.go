@@ -921,7 +921,6 @@ func runPolling() {
 		fmt.Printf("[stats] stored: paid=%d unpaid=%d window=%s\n", stats.PaidBytes, stats.UnpaidBytes, windowStr)
 
 		reconcileGap(windowStart)
-		checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, completedAt, windowStr)
 		return windowStart
 	}
 
@@ -1403,7 +1402,6 @@ func handleRefresh(token string, db *sql.DB) http.HandlerFunc {
 			// the check and the insert: an ordinary dedupe, and its sample
 			// already went through the spike check.
 			if n, _ := res.RowsAffected(); n > 0 {
-				checkTrafficSpike(db, stats.PaidBytes, stats.UnpaidBytes, now, windowStart.Format(time.RFC3339))
 			}
 		}
 
@@ -1767,63 +1765,6 @@ func parseSize(s string) (int64, error) {
 		return 0, fmt.Errorf("unknown size unit %q", unit)
 	}
 	return int64(num * mult), nil
-}
-
-func checkTrafficSpike(db *sql.DB, paidBytes, unpaidBytes uint64, now time.Time, currentAt string) {
-	// The spike delta is computed on paid+unpaid (total bytes served), not
-	// unpaid alone: when a payment settles mid-window, unpaid decreases and
-	// paid increases by the same amount, so the unpaid-only delta went
-	// backwards and the unpaid-only check skipped a genuine burst.
-	var prevTotal sql.NullInt64
-	var prevAt sql.NullString
-	db.QueryRow(
-		"SELECT paid_bytes + unpaid_bytes, created_at FROM wallet_stats WHERE created_at <= ? ORDER BY created_at DESC LIMIT 1 OFFSET 1",
-		currentAt,
-	).Scan(&prevTotal, &prevAt)
-	if !prevTotal.Valid {
-		return
-	}
-	// The span between the previous row and this one is usually one poll
-	// interval, but a dropped window (failed fetch, API outage) makes it
-	// longer. Alert on the real delta either way and label it with the
-	// actual span instead of skipping: skipping silenced every real burst
-	// that followed a missed window (five missed alerts on 2026-10-11 when
-	// the stats API flapped). Only spans past backfillSkipSpan are dropped,
-	// so a months-old row restored by import can't fire a bogus alert.
-	span := statsInterval()
-	if prevAt.Valid {
-		pt, perr := time.Parse(time.RFC3339, prevAt.String)
-		if perr != nil {
-			fmt.Printf("[webhook] traffic spike: could not parse prev created_at %q: %v (assuming one window)\n",
-				prevAt.String, perr)
-		} else {
-			gap := now.Sub(pt)
-			if gap > backfillSkipSpan() {
-				fmt.Printf("[webhook] traffic spike skipped: prev row %s is %.0fm old (backfill, not a live window)\n",
-					pt.Format("15:04"), gap.Minutes())
-				return
-			}
-			span = gap
-		}
-	}
-	// Compare unsigned to avoid int64 overflow if the counter ever exceeds
-	// MaxInt64 (would wrap negative and fire a bogus spike). A decrease in
-	// the total is an API correction, not a spike.
-	curTotal := paidBytes + unpaidBytes
-	if prevTotal.Int64 >= 0 && uint64(prevTotal.Int64) > curTotal {
-		fmt.Printf("[webhook] traffic spike skipped: total went backwards (%d -> %d) at %s (correction, not a spike)\n",
-			prevTotal.Int64, curTotal, currentAt)
-		return
-	}
-	var deltaBytes uint64 = curTotal - uint64(prevTotal.Int64)
-	if deltaBytes <= uint64(spikeThreshold()) {
-		return
-	}
-	deltaGB := float64(deltaBytes) / 1e9
-	totalGB := float64(unpaidBytes) / 1e9
-	style := webhookStyle()
-	body := formatSpikeAlert(style, span, deltaGB, totalGB, now)
-	sendDiscordNotificationJSON(body)
 }
 
 func formatSpikeAlert(style string, span time.Duration, deltaGB, totalGB float64, now time.Time) string {

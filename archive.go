@@ -39,7 +39,7 @@ func archiveEnd(db *sql.DB) string {
 			       paid_bytes + unpaid_bytes AS total,
 			       LAG(paid_bytes + unpaid_bytes) OVER (ORDER BY created_at) AS prev_total
 			FROM wallet_stats)
-		WHERE prev_total IS NOT NULL AND total < prev_total * 0.9 AND prev_total - total >= 1000000000
+		WHERE prev_total IS NOT NULL AND total * 10 <= prev_total * 9 AND prev_total - total >= 1000000000
 		ORDER BY created_at DESC LIMIT 1`).Scan(&dropAt)
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
 		return ""

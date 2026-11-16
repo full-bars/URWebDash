@@ -519,7 +519,7 @@ func anchorByDrop(db *sql.DB) (servedAnchorPoint, bool, error) {
 			       LAG(created_at) OVER (ORDER BY created_at) AS prev_at,
 			       LAG(paid_bytes + unpaid_bytes) OVER (ORDER BY created_at) AS prev_total
 			FROM wallet_stats)
-		WHERE prev_total IS NOT NULL AND total < prev_total * 0.9 AND prev_total - total >= 1000000000
+		WHERE prev_total IS NOT NULL AND total * 10 <= prev_total * 9 AND prev_total - total >= 1000000000
 		ORDER BY created_at DESC LIMIT 1`).Scan(&lastGood)
 	if errors.Is(err, sql.ErrNoRows) {
 		return servedAnchorPoint{}, false, nil

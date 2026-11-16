@@ -25,6 +25,7 @@ All notable changes. Format loosely follows Keep a Changelog.
 ### Removed
 
 - The Paid, Unpaid, Total Volume and 24h Change boxes, the seven daily change cards and the Paid, Unpaid and Transfer Rate charts, which read counters that stopped moving. The Chart.js script is no longer loaded. The stored rows stay in an archive section. The functions that drove them are removed too: the chart code, the daily-card and 24h flash code, the unpaid growth flash and the live row insert.
+- The spike check on the paid plus unpaid counters, run by the poller and by the manual refresh. Those counters no longer carry traffic, so it could not see a burst, and the served-byte alert replaces it.
 
 ### Upgrade notes
 

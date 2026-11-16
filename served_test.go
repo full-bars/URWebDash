@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -744,5 +745,39 @@ func TestTestMessageWithNoSamplesUsesTheConfiguredWindow(t *testing.T) {
 	alertSampleSource = nil
 	if body := sampleAlertBody("plain-lines"); strings.Contains(body, "15m") {
 		t.Fatalf("test message with no source = %q, still says 15m", body)
+	}
+}
+
+// "A tenth or more" includes a drop of exactly a tenth.
+func TestAnExactTenthDropIsTheTransition(t *testing.T) {
+	resetArchiveEnd()
+	t.Cleanup(resetArchiveEnd)
+	db := servedTestDB(t)
+	put := func(at string, total int64) {
+		db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(?,0,?,?)", total, at, at)
+	}
+	put("2030-11-10T00:00:00Z", 100*gb) // the Sunday the join would read the counter at
+	put("2030-11-10T10:00:00Z", 100*gb)
+	put("2030-11-10T11:00:00Z", 90*gb) // exactly a tenth lower
+	put("2030-11-10T12:00:00Z", 90*gb)
+	put("2030-11-10T13:00:00Z", 90*gb)
+	if got := archiveEnd(db); got != "2030-11-10T12:00:00Z" {
+		t.Fatalf("archive end for an exact 10%% drop = %q, want one row after it", got)
+	}
+	pt, ok, err := anchorByDrop(db)
+	if err != nil || !ok {
+		t.Fatalf("the fallback rule missed an exact 10%% drop: %+v %v %v", pt, ok, err)
+	}
+}
+
+// The old paid plus unpaid alert is gone, so a rise in those counters can no
+// longer produce an alert labelled with the served-byte wording.
+func TestRefreshAndPollerNoLongerRunALegacyCounterAlert(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(src), "checkTrafficSpike") {
+		t.Fatal("main.go still has the paid plus unpaid spike check")
 	}
 }
