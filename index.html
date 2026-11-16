@@ -3150,12 +3150,14 @@ function servedPanelHTML(D,withCards){
     const sub=d.bytes==null?'no samples':(d.hours>=23.5?'whole day counted':d.hours.toFixed(1)+' h counted');
     return '<div class="srvd-card"><div class="srvd-k">'+label+'</div><div class="srvd-v" data-sv="day'+i+'">'+(d.bytes==null?'—':'+'+svBytes(d.bytes))+'</div><div class="srvd-s">'+sub+'</div></div>';
   }).join('');
-  const displayed=ivs.slice(-24), maxRate=displayed.reduce((m,i)=>i.kind==='interval'?Math.max(m,i.bytesPerSec):m,0);
-  const rows=displayed.slice().reverse().map((i,n)=>{
+  const displayed=ivs.slice(-24).reverse();
+  const histories=displayed.map((i,n)=>i.kind==='interval'?ivs.slice(0,ivs.length-n).filter(x=>x.kind==='interval').slice(-12).map(x=>x.bytesPerSec):[]);
+  const maxRate=histories.reduce((m,rates)=>rates.reduce((max,rate)=>Math.max(max,rate),m),0);
+  const rows=displayed.map((i,n)=>{
     const span=svTime(i.fromMillis)+' → '+svTime(i.toMillis);
     const fresh=window.__srvdPrevAsOf&&i.toMillis>window.__srvdPrevAsOf?' class="ep-row-new"':'';
     if(i.kind==='interval'){
-      const rates=ivs.slice(0,ivs.length-n).filter(x=>x.kind==='interval').slice(-12).map(x=>x.bytesPerSec);
+      const rates=histories[n];
       const spark=svSparkline(rates,maxRate);
       const strip=spark?'<span class="srvd-spark" aria-hidden="true" title="'+rates.map(r=>r+' B/s').join(', ')+'">'+spark+'</span>':'';
       return '<tr'+fresh+'><td>'+span+'</td><td class="r">'+svBytes(i.bytes)+'</td><td class="r dim'+(spark?' srvd-rate':'')+'">'+svRate(i.bytesPerSec)+strip+'</td></tr>';

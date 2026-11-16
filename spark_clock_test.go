@@ -47,6 +47,10 @@ D.served.intervals=many;
 const table2=servedPanelHTML(D,false).split('Counted between (')[1].split('</table>')[0];
 const strips=[...table2.matchAll(/class="srvd-spark"[^>]*>([^<]+)/g)];
 if(strips.length!==24 || strips[0][1].length!==12 || strips[23][1].length!==7) throw Error('history length');
+D.served.intervals=Array.from({length:25},(_,i)=>({kind:'interval',bytesPerSec:i===0?100:1,bytes:100,fromMillis:1893456000000+i*3600000,toMillis:1893459600000+i*3600000}));
+const fallingTable=servedPanelHTML(D,false).split('Counted between (')[1].split('</table>')[0];
+const fallingStrips=[...fallingTable.matchAll(/class="srvd-spark"[^>]*>([^<]+)/g)];
+if(fallingStrips.length!==24 || fallingStrips[23][1]!=='█▁') throw Error('falling rate: '+fallingStrips.map(s=>s[1]).join(','));
 `)
 }
 
