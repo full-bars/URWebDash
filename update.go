@@ -51,6 +51,7 @@ type updateResult struct {
 	Available bool   `json:"available"`
 	URL       string `json:"url"`
 	CheckedAt string `json:"checkedAt"`
+	Install   string `json:"install"`
 }
 type updateRelease struct {
 	Tag string `json:"tag_name"`
@@ -175,5 +176,7 @@ func (c *updateChecker) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(c.snapshot())
+	result := c.snapshot()
+	result.Install = installKind()
+	_ = json.NewEncoder(w).Encode(result)
 }

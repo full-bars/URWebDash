@@ -17,7 +17,8 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 ENV STATS_DB=/data/.urwebdash/wallet_stats.db \
     JWT_PATH=/data/jwt \
     PAYOUT_NOTIFY_STORE=/data/.urwebdash/payout_notified.json \
-    HOST=0.0.0.0
+    HOST=0.0.0.0 \
+    URWEBDASH_INSTALL=docker
 VOLUME /data
 EXPOSE 3001
 
