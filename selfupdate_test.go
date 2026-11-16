@@ -225,13 +225,13 @@ func TestSelfUpdateBackupExistsCleansCandidate(t *testing.T) {
 	if err := os.WriteFile(backup, []byte("existing"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if selfUpdate(nil, c) != 1 {
-		t.Fatalf("existing backup accepted: %s", out)
+	if selfUpdate(nil, c) != 0 {
+		t.Fatalf("existing backup blocked update: %s", out)
 	}
 	old, _ := os.ReadFile(exe)
 	kept, _ := os.ReadFile(backup)
-	if string(old) != "old" || string(kept) != "existing" {
-		t.Fatal("existing files changed")
+	if !bytes.Contains(old, []byte("v1.0.1")) || string(kept) != "old" {
+		t.Fatalf("binary=%q backup=%q", old, kept)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(exe), ".urwebdash.new")); !os.IsNotExist(err) {
 		t.Fatal("candidate remains")
@@ -311,12 +311,148 @@ func TestSelfUpdateRollback(t *testing.T) {
 }
 func TestSelfUpdateSelfTestFailure(t *testing.T) {
 	d := t.TempDir()
-	p := filepath.Join(d, ".urwebdash.new")
-	err := writeCandidate(p, []byte("#!/bin/sh\necho wrong\n"), "v1.0.1")
+	_, err := writeCandidate(d, []byte("#!/bin/sh\necho wrong\n"), "v1.0.1")
 	if err == nil {
 		t.Fatal("wrong version accepted")
 	}
+	entries, readErr := os.ReadDir(d)
+	if readErr != nil || len(entries) != 0 {
+		t.Fatalf("failed candidate left files: %v %v", entries, readErr)
+	}
 }
+func TestRetryCleansOnlyOldCandidates(t *testing.T) {
+	c, out, exe := selfUpdateFixture(t, false, false)
+	dir := filepath.Dir(exe)
+	for _, name := range []string{".urwebdash.new", ".urwebdash.new-stale", ".urwebdash.new-fresh", "unrelated"} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(name), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if name != ".urwebdash.new-fresh" {
+			old := time.Now().Add(-time.Hour)
+			if err := os.Chtimes(p, old, old); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := os.Symlink(filepath.Join(dir, "unrelated"), filepath.Join(dir, ".urwebdash.new-link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, ".urwebdash.new-dir"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if rc := selfUpdate(nil, c); rc != 0 {
+		t.Fatalf("rc=%d %s", rc, out)
+	}
+	for _, name := range []string{".urwebdash.new", ".urwebdash.new-stale"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s remains: %v", name, err)
+		}
+	}
+	for _, name := range []string{".urwebdash.new-fresh", ".urwebdash.new-link", ".urwebdash.new-dir", "unrelated"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("%s removed: %v", name, err)
+		}
+	}
+}
+
+func TestRetryBackupAtomic(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src"), filepath.Join(dir, "backup")
+	if err := os.WriteFile(src, []byte("new"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("old"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	errs := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-done:
+				errs <- nil
+				return
+			default:
+			}
+			b, err := os.ReadFile(dst)
+			if err != nil {
+				errs <- err
+				return
+			}
+			if string(b) != "old" && string(b) != "new" {
+				errs <- fmt.Errorf("partial backup %q", b)
+				return
+			}
+		}
+	}()
+	for i := 0; i < 100; i++ {
+		if err := copyBackup(src, dst); err != nil {
+			close(done)
+			<-errs
+			t.Fatal(err)
+		}
+	}
+	close(done)
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRetryPermissionHint(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("directory permissions do not constrain root")
+	}
+	c, out, exe := selfUpdateFixture(t, false, false)
+	dir := filepath.Dir(exe)
+	if err := os.Chmod(dir, 0555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0755)
+	if rc := selfUpdate(nil, c); rc != 1 {
+		t.Fatalf("rc=%d %s", rc, out)
+	}
+	if !strings.Contains(out.String(), "permissions") || !strings.Contains(out.String(), installCommand) {
+		t.Fatalf("missing permission hint: %s", out)
+	}
+}
+
+func TestRetryHonestNonPermissionError(t *testing.T) {
+	c, out, exe := selfUpdateFixture(t, false, false)
+	if err := os.Mkdir(exe+".pre-v1.0.0", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if rc := selfUpdate(nil, c); rc != 1 {
+		t.Fatalf("rc=%d %s", rc, out)
+	}
+	if strings.Contains(out.String(), "permissions") || (!strings.Contains(out.String(), "file exists") && !strings.Contains(out.String(), "is a directory")) {
+		t.Fatalf("dishonest error: %s", out)
+	}
+}
+
+func TestRetryRollbackWithLeftover(t *testing.T) {
+	c, out, exe := selfUpdateFixture(t, false, false)
+	c.kind = "systemd"
+	calls := 0
+	c.runner = func(_ context.Context, _ string, _ ...string) error {
+		calls++
+		if calls == 1 {
+			if err := os.WriteFile(filepath.Join(filepath.Dir(exe), ".urwebdash.new"), []byte("leftover"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			return fmt.Errorf("restart failed")
+		}
+		return nil
+	}
+	if rc := selfUpdate(nil, c); rc != 1 {
+		t.Fatalf("rc=%d %s", rc, out)
+	}
+	b, err := os.ReadFile(exe)
+	if err != nil || string(b) != "old" || strings.Contains(out.String(), "ROLLBACK FAILED") {
+		t.Fatalf("binary=%q err=%v %s", b, err, out)
+	}
+}
+
 func TestSelfUpdateReleaseChecksums(t *testing.T) {
 	b, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {

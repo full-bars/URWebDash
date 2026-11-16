@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -125,10 +126,12 @@ func copyBackup(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0755)
+	out, err := os.CreateTemp(filepath.Dir(dst), ".urwebdash.backup-*")
 	if err != nil {
 		return err
 	}
+	tmp := out.Name()
+	defer os.Remove(tmp)
 	_, err = io.Copy(out, in)
 	if err == nil {
 		err = out.Chmod(0755)
@@ -141,17 +144,53 @@ func copyBackup(src, dst string) error {
 		err = closeErr
 	}
 	if err != nil {
-		_ = os.Remove(dst)
-	}
-	return err
-}
-
-func writeCandidate(path string, data []byte, tag string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0755)
-	if err != nil {
 		return err
 	}
-	_, err = f.Write(data)
+	return os.Rename(tmp, dst)
+}
+
+func cleanCandidates(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-10 * time.Minute)
+	for _, entry := range entries {
+		name := entry.Name()
+		if name != ".urwebdash.new" && !strings.HasPrefix(name, ".urwebdash.new-") {
+			continue
+		}
+		info, err := entry.Info()
+		if err == nil && info.Mode().IsRegular() && info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
+}
+
+func updateFileError(out io.Writer, action string, err error) {
+	if errors.Is(err, fs.ErrPermission) {
+		fmt.Fprintf(out, "%s (check directory permissions or re-run the installer): %v\n%s\n", action, err, installCommand)
+	} else {
+		fmt.Fprintf(out, "%s: %v\n", action, err)
+	}
+}
+
+func writeCandidate(dir string, data []byte, tag string) (string, error) {
+	f, err := os.CreateTemp(dir, ".urwebdash.new-*")
+	if err != nil {
+		return "", err
+	}
+	path := f.Name()
+	keep := false
+	defer func() {
+		if !keep {
+			_ = os.Remove(path)
+		}
+	}()
+	err = f.Chmod(0700)
+	if err == nil {
+		_, err = f.Write(data)
+	}
 	if err == nil {
 		err = f.Chmod(0755)
 	}
@@ -163,15 +202,16 @@ func writeCandidate(path string, data []byte, tag string) error {
 		err = closeErr
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, path, "version").Output()
 	if err != nil || strings.TrimSpace(string(out)) != tag {
-		return errors.New("new binary failed version self-test")
+		return "", errors.New("new binary failed version self-test")
 	}
-	return nil
+	keep = true
+	return path, nil
 }
 
 type updateRunner func(context.Context, string, ...string) error
@@ -244,6 +284,15 @@ func selfUpdate(args []string, c selfUpdateConfig) int {
 		fmt.Fprintln(out, "Cannot update: unsupported platform.")
 		return 2
 	}
+	var exe string
+	if !check {
+		exe, err = filepath.EvalSymlinks(c.exe)
+		if err != nil {
+			fmt.Fprintf(out, "Resolve executable: %v\n", err)
+			return 1
+		}
+		cleanCandidates(filepath.Dir(exe))
+	}
 	rel, err := fetchUpdate(c.client, c.endpoint)
 	if err != nil {
 		fmt.Fprintf(out, "Release check failed: %v\n", err)
@@ -287,28 +336,19 @@ func selfUpdate(args []string, c selfUpdateConfig) int {
 		fmt.Fprintf(out, "Invalid archive: %v\n", err)
 		return 1
 	}
-	exe, err := filepath.EvalSymlinks(c.exe)
+	candidate, err := writeCandidate(filepath.Dir(exe), binary, rel.Tag)
 	if err != nil {
-		fmt.Fprintf(out, "Resolve executable: %v\n", err)
-		return 1
-	}
-	candidate := filepath.Join(filepath.Dir(exe), ".urwebdash.new")
-	// Exclusive creation avoids following or deleting another updater's file.
-	if err = writeCandidate(candidate, binary, rel.Tag); err != nil {
-		if !errors.Is(err, os.ErrExist) {
-			_ = os.Remove(candidate)
-		}
-		fmt.Fprintf(out, "Could not prepare update (check directory permissions or re-run the installer): %v\n", err)
+		updateFileError(out, "Could not prepare update", err)
 		return 1
 	}
 	defer os.Remove(candidate)
 	backup := exe + ".pre-" + c.version
 	if err = copyBackup(exe, backup); err != nil {
-		fmt.Fprintf(out, "Could not back up binary (check directory permissions or re-run the installer): %v\n", err)
+		updateFileError(out, "Could not back up binary", err)
 		return 1
 	}
 	if err = os.Rename(candidate, exe); err != nil {
-		fmt.Fprintf(out, "Could not replace binary (check directory permissions or re-run the installer): %v\n", err)
+		updateFileError(out, "Could not replace binary", err)
 		return 1
 	}
 	if c.kind == "systemd" {
@@ -340,13 +380,7 @@ func selfUpdate(args []string, c selfUpdateConfig) int {
 		}
 		if err != nil {
 			fmt.Fprintf(out, "Restart failed; restoring old binary. If needed, run:\n%s\n", manualRestart)
-			restore := candidate
-			if e := copyBackup(backup, restore); e == nil {
-				e = os.Rename(restore, exe)
-				if e != nil {
-					fmt.Fprintf(out, "ROLLBACK FAILED: %v; restore %s manually.\n", e, backup)
-				}
-			} else {
+			if e := copyBackup(backup, exe); e != nil {
 				fmt.Fprintf(out, "ROLLBACK FAILED: %v; restore %s manually.\n", e, backup)
 			}
 			rctx, rcancel := context.WithTimeout(context.Background(), 15*time.Second)
