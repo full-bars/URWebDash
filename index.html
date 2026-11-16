@@ -143,6 +143,17 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
 .hidebal[data-hidden="1"]{color:var(--accent);border-color:var(--accent)}
 /* the balance pair gets its own line so it cannot break mid-figure */
 #theme-mount [data-ep-bal]{white-space:normal;overflow:visible;height:auto}
+
+.srvd .tp-card{min-width:0;border:1px solid var(--line);background:var(--panel2);border-radius:10px;padding:16px}
+.srvd .tp-card h3{font-size:15px;color:var(--head);margin:0 0 10px}.srvd .tp-card p{color:var(--muted);font-size:12px;line-height:1.5;margin:10px 0}
+.srvd .tp-clock-card{margin-top:18px}.srvd .tp-clock{display:block;width:100%;max-width:330px;margin:auto;overflow:visible}
+.srvd .tp-clock text,.srvd .tp-comparison text{font-size:11px;fill:var(--muted)}.srvd .tp-clock .tp-clock-strong{font-size:20px;font-weight:bold;fill:var(--head)}
+.srvd .tp-wedge{fill:var(--accent);opacity:.5}.srvd .tp-best{fill:var(--accent)}.srvd .tp-missing{fill:none;stroke:var(--muted);stroke-width:1;opacity:.6}.srvd .tp-clock path:focus,.srvd .tp-cell:focus{outline:2px solid var(--head)}
+.srvd .tp-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}.srvd .tp-wide{grid-column:1/-1}.srvd .tp-comparison{width:100%;max-height:250px}.srvd .tp-current,.srvd .tp-previous{fill:none;stroke-width:3;stroke:var(--accent)}.srvd .tp-previous{stroke:var(--accent3,#638bfc);stroke-dasharray:6 5}
+.srvd .tp-record{padding:12px 0;border-bottom:1px solid var(--line)}.srvd .tp-record span,.srvd .tp-record small{display:block;color:var(--muted);font-size:12px}.srvd .tp-record strong{display:block;color:var(--head);font-size:20px;margin:4px 0}
+.srvd .tp-heat-scroll{overflow-x:auto}.srvd .tp-heat{display:grid;grid-template-columns:70px repeat(24,minmax(16px,1fr));min-width:600px;gap:3px;align-items:center;color:var(--muted);font-size:10px}.srvd .tp-heat>span{text-align:center}.srvd .tp-cell{height:21px;border-radius:3px;background:var(--accent);opacity:var(--strength)}.srvd .tp-cell.tp-empty{opacity:1;background:transparent;border:1px solid var(--line)}
+@media(max-width:820px){.srvd .tp-grid{grid-template-columns:1fr}.srvd .tp-wide{grid-column:auto}}
+
 #theme-mount .wallet-extra{white-space:normal}
 #theme-mount .wbal{white-space:nowrap;display:inline-block;font-size:1.18em;font-weight:600;letter-spacing:.01em}
 details.legacy-hist{margin:0 0 18px}
@@ -3126,6 +3137,91 @@ function svEpochOfWeek(startMillis){
 }
 function svSetWin(w){ window.__srvdWin=w; svFill(); }
 
+/* Traffic patterns use measured intervals only. Long gaps and server revisions
+   are excluded. Bytes are apportioned uniformly within each measured interval. */
+function tpBuckets(ivs, end){
+  const start=end-7*86400e3, hours=Array.from({length:24},()=>({bytes:0,ms:0})), days={};
+  for(let day=svDayStart(start);day<end;day=svNextDay(day)) days[String(day)]={start:day,bytes:0,ms:0,hours:Array.from({length:24},()=>({bytes:0,ms:0}))};
+  for(const i of ivs){
+    const duration=i.toMillis-i.fromMillis;
+    if(i.kind!=='interval'||!Number.isFinite(i.bytes)||i.bytes<0||duration<=0||duration>3*3600e3) continue;
+    let t=Math.max(start,i.fromMillis), stop=Math.min(end,i.toMillis);
+    while(t<stop){
+      const d=new Date(t), next=t+(60-d.getMinutes())*60000-d.getSeconds()*1000-d.getMilliseconds();
+      const until=Math.min(stop,next), ms=until-t, h=d.getHours(), day=svDayStart(t), key=String(day);
+      if(!days[key]) days[key]={start:day,bytes:0,ms:0,hours:Array.from({length:24},()=>({bytes:0,ms:0}))};
+      const bytes=i.bytes*ms/duration;
+      for(const b of [hours[h],days[key].hours[h],days[key]]){b.bytes+=bytes;b.ms+=ms;}
+      t=until;
+    }
+  }
+  return {hours,days:Object.values(days).sort((a,b)=>a.start-b.start)};
+}
+function tpWeekStart(ms){const d=new Date(ms);d.setHours(0,0,0,0);d.setDate(d.getDate()-d.getDay());return d.getTime();}
+function tpCoverage(ivs,start,end){
+  if(end<=start) return null;
+  let cursor=start, sum=0, points=[[0,0]];
+  for(const i of ivs){
+    if(i.toMillis<=start||i.fromMillis>=end) continue;
+    const len=i.toMillis-i.fromMillis, from=Math.max(start,i.fromMillis), to=Math.min(end,i.toMillis);
+    if(i.kind!=='interval'||!Number.isFinite(i.bytes)||i.bytes<0||len<=0||len>3*3600e3||from>cursor+1000||from<cursor-1000) return null;
+    sum+=i.bytes*(to-from)/len; cursor=to; points.push([(to-start)/(end-start),sum]);
+  }
+  return cursor>=end-1000?{bytes:sum,points}:null;
+}
+function tpClock(data){
+  const values=data.hours.map(x=>x.ms?x.bytes/(x.ms/1000):null), valid=values.filter(x=>x!==null);
+  if(!valid.length) return '<div class="srvd-sub">The traffic clock needs measured intervals.</div>';
+  const max=Math.max(...valid), best=values.indexOf(max), p=(r,a)=>`${150+r*Math.cos(a)},${150+r*Math.sin(a)}`;
+  let wedges='';
+  values.forEach((v,h)=>{const a=(h*15-88.5)*Math.PI/180,b=((h+1)*15-91.5)*Math.PI/180,r=v===null?91:91+35*(max?v/max:0), x=data.hours[h];
+    const label=SV_P(h)+':00 - '+SV_P((h+1)%24)+':00: '+(v===null?'no measured data':svBytes(v*3600)+'/hour average, '+(x.ms/3600e3).toFixed(1)+' hours measured');
+    wedges+=`<path d="M${p(62,a)} L${p(r,a)} A${r},${r} 0 0 1 ${p(r,b)} L${p(62,b)} A62,62 0 0 0 ${p(62,a)} Z" class="${v===null?'tp-missing':h===best?'tp-best':'tp-wedge'}" tabindex="0" aria-label="${label}"><title>${label}</title></path>`;
+  });
+  return `<svg class="tp-clock" viewBox="-12 -12 324 324" role="group" aria-label="Average measured traffic by local hour">${wedges}<text x="150" y="139" text-anchor="middle">Busiest</text><text class="tp-clock-strong" x="150" y="161" text-anchor="middle">${SV_P(best)}:00</text><text x="150" y="5" text-anchor="middle">00:00</text><text x="300" y="154" text-anchor="end">06:00</text><text x="150" y="302" text-anchor="middle">12:00</text><text x="0" y="154">18:00</text></svg><p>Average rate by local hour over the last 7 days. Outlined hours have no measurements. Hover or focus an hour for coverage.</p>`;
+}
+function tpComparison(ivs,end){
+  const start=tpWeekStart(end), elapsed=end-start;
+  if(elapsed<=0) return '<p>The comparison begins after the first measured interval of the week.</p>';
+  let current=0, previous=0, measured=0, a=[], b=[], segmentA=null, segmentB=null;
+  for(let t=start;t<end;){
+    const next=Math.min(end,t+3600e3), old=new Date(t), oldEnd=new Date(next);
+    old.setDate(old.getDate()-7); oldEnd.setDate(oldEnd.getDate()-7);
+    const x=tpCoverage(ivs,t,next), y=tpCoverage(ivs,old.getTime(),oldEnd.getTime());
+    if(x&&y&&oldEnd.getTime()-old.getTime()===next-t){
+      if(!segmentA){segmentA=[[(t-start)/elapsed,current]];segmentB=[[(t-start)/elapsed,previous]];a.push(segmentA);b.push(segmentB);}
+      current+=x.bytes;previous+=y.bytes;measured+=next-t;
+      segmentA.push([(next-start)/elapsed,current]);segmentB.push([(next-start)/elapsed,previous]);
+    }else{segmentA=null;segmentB=null;}
+    t=next;
+  }
+  if(!measured) return '<p>No matching measured periods yet. A comparison needs interval history from both weeks.</p>';
+  const max=Math.max(current,previous,1), path=points=>points.map(([t,v])=>`${(20+t*360).toFixed(1)},${(130-v/max*110).toFixed(1)}`).join(' ');
+  const diff=previous?((current-previous)/previous*100):null;
+  return `<svg class="tp-comparison" viewBox="0 0 400 160" role="img" aria-label="Cumulative traffic in matched periods this week and last week"><path d="M20 20H380 M20 75H380 M20 130H380" stroke="var(--line)" fill="none"/>${b.map(p=>`<polyline points="${path(p)}" class="tp-previous"/>`).join('')}${a.map(p=>`<polyline points="${path(p)}" class="tp-current"/>`).join('')}<text x="20" y="152">Week start</text><text x="380" y="152" text-anchor="end">Same local time</text></svg><p>This week: ${svBytes(current)} · Last week: ${svBytes(previous)}${diff===null?'':` · ${Math.abs(diff).toFixed(1)}% ${diff>=0?'ahead':'behind'}`}</p><p>${(measured/3600e3).toFixed(1)} of ${(elapsed/3600e3).toFixed(1)} hours matched. Both lines omit periods missing from either week.</p>`;
+}
+function tpRecords(ivs,data,weeks){
+  const valid=ivs.filter(i=>i.kind==='interval'&&Number.isFinite(i.bytes)&&i.bytes>=0&&i.toMillis>i.fromMillis&&i.toMillis-i.fromMillis<=3*3600e3);
+  const best=valid.reduce((a,i)=>!a||i.bytes/(i.toMillis-i.fromMillis)>a.bytes/(a.toMillis-a.fromMillis)?i:a,null);
+  const days=data.days.filter(d=>d.ms>=svNextDay(d.start)-d.start-1000), day=days.reduce((a,d)=>!a||d.bytes>a.bytes?d:a,null);
+  const completed=(weeks||[]).filter(w=>!w.partial&&Number.isFinite(w.bytes));const week=completed.reduce((a,w)=>!a||w.bytes>a.bytes?w:a,null);
+  const item=(label,value,caption)=>`<div class="tp-record"><span>${label}</span><strong>${value}</strong><small>${caption}</small></div>`;
+  return item('Fastest measured interval',best?svBytes(best.bytes*3600e3/(best.toMillis-best.fromMillis))+'/hour':'—',best?svTime(best.fromMillis)+' - '+svTime(best.toMillis):'No measured intervals')+
+    item('Busiest complete day',day?svBytes(day.bytes):'—',day?new Date(day.start).toLocaleDateString():'No fully measured day in the last 7 days')+
+    item('Best completed week',week?svBytes(week.bytes):'—',week?'Week of '+new Date(week.startMillis).toLocaleDateString():'No completed weeks');
+}
+function tpHeatmap(data){
+  if(!data.days.some(d=>d.ms)) return '<p>No measured intervals yet.</p>';
+  const max=Math.max(0,...data.days.flatMap(d=>d.hours.map(h=>h.ms?h.bytes/(h.ms/1000):0)));
+  let rows='<div></div>'+Array.from({length:24},(_,h)=>`<span>${h%3===0?SV_P(h):''}</span>`).join('');
+  for(const day of data.days){rows+=`<span>${new Date(day.start).toLocaleDateString(undefined,{weekday:'short',month:'numeric',day:'numeric'})}</span>`;day.hours.forEach((x,h)=>{const v=x.ms?x.bytes/(x.ms/1000):null, label=new Date(day.start).toLocaleDateString()+' '+SV_P(h)+':00: '+(v===null?'no measured data':svBytes(v*3600)+'/hour average; '+(x.ms/60000).toFixed(0)+' minutes measured');rows+=`<div class="tp-cell ${v===null?'tp-empty':''}" style="--strength:${v===null?0:(max?Math.max(.15,v/max):.15)}" tabindex="0" aria-label="${label}" title="${label}"></div>`;});}
+  return `<div class="tp-heat-scroll"><div class="tp-heat">${rows}</div></div><p>Local dates and hours. Brighter cells show higher average rates. Outlined cells have no measurements; partial hours show their coverage on hover or focus.</p>`;
+}
+function tpPanels(ivs,weeks,end){
+  const data=tpBuckets(ivs,end);
+  return {clock:`<section class="tp-card tp-clock-card"><h3>When traffic flows</h3>${tpClock(data)}</section>`, rest:`<div class="tp-grid"><section class="tp-card"><h3>This week vs. last week</h3>${tpComparison(ivs,end)}</section><section class="tp-card"><h3>Traffic records</h3><p>Based on available history</p>${tpRecords(ivs,data,weeks)}</section><section class="tp-card tp-wide"><h3>Traffic by day &amp; hour</h3>${tpHeatmap(data)}</section></div>`};
+}
+
 function servedPanelHTML(D,withCards){
   const S=D&&D.served, tz=svTz();
   const head='<h3>Served bytes</h3>';
@@ -3165,6 +3261,7 @@ function servedPanelHTML(D,withCards){
     return '<tr'+fresh+'><td>'+span+'</td><td class="dim" colspan="2">'+(i.kind==='rollover'?'new week, not measured':'revised by the server')+'</td></tr>';
   }).join('');
   const table=rows?'<table><thead><tr><th>Counted between ('+tz+')</th><th class="r">Served</th><th class="r">Rate</th></tr></thead><tbody>'+rows+'</tbody></table>':'<div class="srvd-sub">One sample so far. Intervals appear once a second one arrives.</div>';
+  const patterns=tpPanels(ivs,S.weeks,b.asOfMillis);
   const eps=(D.epochs||[]).filter(e=>e.servedBytes!=null).slice(0,12);
   const epTable=eps.length?'<table><thead><tr><th>Epoch</th><th class="r">Served</th></tr></thead><tbody>'+eps.map(e=>'<tr><td>epoch '+e.epoch+EPR(e)+'</td><td class="r">'+svBytes(e.servedBytes)+'</td></tr>').join('')+'</tbody></table>':'<div class="srvd-sub">No finalized epoch reports served bytes yet.</div>';
   const btn=(w,t)=>'<button class="btn btn-sm'+(win===w?' active':'')+'" onclick="svSetWin(\''+w+'\')">'+t+'</button>';
@@ -3173,7 +3270,7 @@ function servedPanelHTML(D,withCards){
     '<div class="srvd-k" style="margin:4px 0 6px">Per day ('+tz+', by the time the server counted it)</div><div class="srvd-days">'+dayCards+'</div>'+
     '<div class="srvd-head"><div class="srvd-k">Served per week</div><div style="display:flex;gap:4px">'+wbtn('12w','12W')+wbtn('26w','26W')+wbtn('all','ALL')+'</div></div>'+svWeeksChart(S.weeks,wwin)+
     '<div class="srvd-head" style="margin-top:16px"><div class="srvd-k">Transfer rate</div><div style="display:flex;gap:4px">'+btn('24h','24H')+btn('7d','7D')+btn('all','ALL')+'</div></div>'+svChart(ivs,win)+
-    '<div class="srvd-grid" style="margin-top:14px"><div>'+table+'</div><div><div class="srvd-k" style="margin-bottom:6px">Finalized epochs</div>'+epTable+'</div></div></section>';
+    '<div class="srvd-grid" style="margin-top:14px"><div>'+table+'</div><div><div class="srvd-k" style="margin-bottom:6px">Finalized epochs</div>'+epTable+patterns.clock+'</div></div>'+patterns.rest+'</section>';
 }
 
 /* The three figures that lead the Data Stats tab. */

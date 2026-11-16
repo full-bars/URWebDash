@@ -7,6 +7,7 @@ Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.io) pro
 **Features**
 
 - Served bytes from the server's per-epoch figures, which arrive about hourly and two to three hours behind live traffic: total served, this week, the open epoch, last 24 hours, a weekly chart and a transfer rate chart, with byte counts auto-scaled between GB and TB. The old paid and unpaid counters stopped moving when USDC payouts ended and stay as an archive
+- Traffic patterns from sampled served-byte intervals: a local-hour clock, day-and-hour heatmap, matched week comparison, and records. Gaps and intervals longer than three hours are excluded, and bytes are spread evenly across each measured interval. Comparisons use up to 15 days of history (subject to the sample cap).
 - Per-day served totals for the last 7 days, and every time on the page follows the browser's timezone (Discord alerts use it too)
 - Full payment history: amounts, points per payment, Solana tx links
 - Estimated amounts for pending payouts
@@ -246,7 +247,7 @@ says which time the traffic is counted through.
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/served` | Newest sample, the last eight days of intervals, the total and the weekly series |
+| `GET /api/served` | Newest sample, up to 15 days of intervals (subject to a 5,000-sample cap), the total and the weekly series |
 | `GET /api/alert-sample` | The latest real interval, for the alert examples |
 | `GET`, `POST /api/timezone` | The zone alerts are written in. The page sets it |
 

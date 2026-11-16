@@ -2,6 +2,16 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## Unreleased
+
+### Added
+
+- Traffic patterns in Data Stats: a local-hour clock, a day-and-hour heatmap, a comparison of matched periods in this week and last week, and records from available history. Missing intervals remain visible as gaps. Intervals longer than three hours are excluded from these views, and traffic is apportioned evenly within each interval.
+
+### Changed
+
+- The served interval history returned to the page and `/api/served` now spans up to 15 days (subject to the existing 5,000-sample cap) to support week comparisons.
+
 ## v0.0.25 - 2026-11-15
 
 ### Added
