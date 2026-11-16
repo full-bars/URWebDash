@@ -1,13 +1,13 @@
 # URWebDash
 
-Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.io) providers. Polls the bringyour.com API, stores history in local SQLite, and serves a dark-theme Chart.js UI.
+Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.io) providers. Polls the bringyour.com API, stores history in local SQLite, and serves a dark-theme dashboard.
 
 ![dashboard screenshot](https://i.postimg.cc/d3wcVFsg/image.png)
 
 **Features**
 
-- Paid/unpaid bytes tracking with hourly snapshots and transfer-rate charts, with byte counts auto-scaled between GB and TB
-- Last-7-days usage strip (calendar-day buckets, DST-safe)
+- Served bytes from the server's per-epoch figures, which arrive about hourly and two to three hours behind live traffic: total served, this week, the open epoch, last 24 hours, a weekly chart and a transfer rate chart, with byte counts auto-scaled between GB and TB. The old paid and unpaid counters stopped moving when USDC payouts ended and stay as an archive
+- Per-day served totals for the last 7 days, and every time on the page follows the browser's timezone (Discord alerts use it too)
 - Full payment history: amounts, points per payment, Solana tx links
 - Estimated amounts for pending payouts
 - Optional Discord notifications on new/completed payments and traffic spikes — configured from the dashboard's 🔔 Webhook section or the `DISCORD_WEBHOOK_URL` env var
