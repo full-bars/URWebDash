@@ -2,6 +2,13 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## Unreleased
+
+### Added
+
+- Interval rates now include sparklines with a shared scale.
+- A Clock selector changes dashboard times between Auto, 12-hour and 24-hour formats. Auto keeps the previous display formats.
+
 ## v0.0.24 - 2026-11-15
 
 ### Added
