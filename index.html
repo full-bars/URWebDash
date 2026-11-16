@@ -332,6 +332,18 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
 .chart-box canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media(max-width:1000px){.split{grid-template-columns:1fr}}
+@media(max-width:600px){
+  body{display:block}
+  nav{position:static;width:auto;height:auto;padding:8px 12px;overflow:visible}
+  nav h1{margin:0;padding:0 0 6px}
+  nav .nav-links{display:flex;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}
+  nav .nav-links::-webkit-scrollbar{display:none}
+  nav a{white-space:nowrap;padding:8px;font-size:12px;border-left:3px solid transparent}
+  nav .nav-footer{display:none}
+  main{padding:16px}
+  .theme-hint{display:none}
+  .tb-right{margin-left:0;flex-wrap:wrap}
+}
 </style>
 <style></style>
 </head>
