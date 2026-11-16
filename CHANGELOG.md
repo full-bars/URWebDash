@@ -2,12 +2,16 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
-## Unreleased
+## v0.0.25 - 2026-11-15
 
 ### Added
 
-- Interval rates now include sparklines with a shared scale.
-- A Clock selector changes dashboard times between Auto, 12-hour and 24-hour formats. Auto keeps the previous display formats.
+- Sparklines in the Rate column of the interval table. Each row shows the rates of the last 12 intervals ending at that row, in block glyphs (`▁▂▃▄▅▆▇█`), on one scale shared by every strip in the table. Rollover and revised rows have none.
+- A Clock selector in the top bar next to Theme: Auto, 12h or 24h. The choice is saved in the browser and applies to every time on the page. Auto keeps the format each display used before. Discord alerts are unchanged.
+
+### Changed
+
+- On screens under 600px wide the sidebar becomes a row of tabs across the top and the content uses the full width. The tab row swipes sideways without a scrollbar, and the Webhook page no longer scrolls sideways at 320 to 375px.
 
 ## v0.0.24 - 2026-11-15
 

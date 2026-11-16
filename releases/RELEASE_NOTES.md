@@ -1,3 +1,33 @@
+# v0.0.25
+
+This release adds a small trend graph beside each rate, a clock format choice, and a phone layout.
+
+### Quick install
+
+Linux, macOS and WSL2:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/full-bars/URWebDash/master/install.sh | bash
+```
+
+Docker:
+
+```bash
+docker run -d --name urwebdash \
+  -p 127.0.0.1:3001:3001 \
+  -v urwebdash-data:/data \
+  -e URNETWORK_AUTH_CODE='AUTH_CODE_HERE' \
+  ghcr.io/full-bars/urwebdash
+```
+
+Replace `AUTH_CODE_HERE` with a code from https://ur.io and keep the single quotes. To update, run the install command again or pull the new image.
+
+### Features
+
+- **Rate sparklines.** Each interval row shows a strip of block glyphs for the last 12 intervals ending at that row. All strips share one scale, so a high rate and a low rate look different.
+- **Clock selector.** A Clock control in the top bar switches every time on the page between Auto, 12h and 24h. Auto keeps the format the page used before. The choice is saved in the browser. Discord alerts are unchanged.
+- **Phone layout.** Under 600px wide the sidebar becomes a row of tabs and the content fills the screen. The Webhook page no longer scrolls sideways on phones from 320 to 375px wide.
+
 # v0.0.24
 
 The server stopped counting unpaid bytes when USDC provider payouts ended, so the paid and unpaid boxes no longer moved. This release shows the bytes the server now reports per epoch.
