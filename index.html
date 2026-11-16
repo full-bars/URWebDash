@@ -317,6 +317,10 @@ background:var(--panel);border:1px solid var(--line);border-radius:var(--radius)
 .tb-group{display:flex;align-items:center;gap:10px}
 .tb-right{margin-left:auto;gap:8px}
 .tb-page{font-size:12px;color:var(--muted);letter-spacing:.04em}
+.update-badge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--badge);border-radius:var(--radius);padding:4px 7px;font-size:11px;white-space:nowrap}
+.update-badge[hidden]{display:none}
+.update-badge a{color:var(--head);text-decoration:none}
+.update-badge button{border:0;background:transparent;color:var(--muted);cursor:pointer;font:inherit}
 .swatches{display:flex;gap:6px;align-items:center}
 .swatch{width:18px;height:18px;border-radius:50%;border:1px solid var(--line);cursor:pointer;padding:0;transition:transform .12s,box-shadow .12s}
 .swatch:hover{transform:scale(1.12)}
@@ -366,6 +370,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="tb-group tb-right">
       <span id="theme-hint" class="theme-hint"></span>
       <span id="hero-controls" hidden><label class="field-label" for="hero-mode">Hero</label> <select id="hero-mode" onchange="setHeroMode(this.value)"><option value="band">Band</option><option value="footer">Footer</option><option value="off">Off</option></select> <label class="field-label" for="hero-streaks">Streaks</label> <select id="hero-streaks" onchange="setHeroStreaks(this.value)"><option value="soft">Soft</option><option value="bright">Bright</option></select></span>
+      <span id="update-badge" class="update-badge" hidden><a id="update-link" target="_blank" rel="noopener noreferrer" title="Re-run the install command, or pull the new image"></a><button id="update-dismiss" type="button" aria-label="Dismiss update notice">x</button></span>
       <label class="field-label" for="clock-select">Clock</label>
       <select id="clock-select" onchange="clockSet(this.value)"><option value="auto">Auto</option><option value="12h">12h</option><option value="24h">24h</option></select>
       <span class="field-label">Theme</span>
@@ -549,6 +554,33 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
 </main>
 
 <script>
+function updateShouldShow(data,dismissed){
+  if(!data.available || !/^v\d+\.\d+\.\d+$/.test(data.latest)) return false;
+  if(!/^v\d+\.\d+\.\d+$/.test(dismissed)) return true;
+  const a=data.latest.slice(1).split('.').map(BigInt), b=dismissed.slice(1).split('.').map(BigInt);
+  for(let i=0;i<3;i++){ if(a[i]!==b[i]) return a[i]>b[i]; }
+  return false;
+}
+let dismissedUpdate='';
+try{ dismissedUpdate=localStorage.getItem('urwebdash.update.dismissed')||''; }catch(_){}
+let shownUpdate='';
+document.getElementById('update-dismiss').addEventListener('click',()=>{
+  dismissedUpdate=shownUpdate;
+  try{ localStorage.setItem('urwebdash.update.dismissed',dismissedUpdate); }catch(_){}
+  document.getElementById('update-badge').hidden=true;
+});
+async function refreshUpdate(){
+  try{
+    const response=await fetch('/api/update'); if(!response.ok) return;
+    const data=await response.json(), badge=document.getElementById('update-badge');
+    if(!updateShouldShow(data,dismissedUpdate)){ badge.hidden=true; return; }
+    if(typeof data.url!=='string' || !data.url.startsWith('https://github.com/full-bars/URWebDash/releases/')) return;
+    const link=document.getElementById('update-link');
+    link.textContent=data.latest+' available'; link.setAttribute('href',data.url);
+    shownUpdate=data.latest; badge.hidden=false;
+  }catch(_){}
+}
+refreshUpdate(); setTimeout(refreshUpdate,45*1000); setInterval(refreshUpdate,60*60*1000);
 
 /* ---- theme set ---- */
 // Legacy: the shipped dashboard look, applied to the Bittensor page so the app

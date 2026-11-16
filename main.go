@@ -1099,6 +1099,8 @@ func cleanupDB() {
 // --- HTTP Server ---
 
 func serveHTTP(port string) {
+	updates := newUpdateChecker(Version, updateEnabled(), updateURL())
+	updates.start()
 	if port == "" {
 		port = "3001"
 	}
@@ -1147,6 +1149,7 @@ func serveHTTP(port string) {
 	}()
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/update", updates.handle)
 	mux.HandleFunc("/api/wallet-stats", handleWalletStats(db))
 	mux.HandleFunc("/api/wallet-summary", handleWalletSummary(db))
 	mux.HandleFunc("/api/payout-stats", handlePayoutStats(token))

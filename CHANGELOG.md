@@ -4,6 +4,10 @@ All notable changes. Format loosely follows Keep a Changelog.
 
 ## Unreleased
 
+### Added
+
+- A dismissible badge links to a newer URWebDash release when one is available. It never installs updates.
+
 ### Changed
 
 - The Bittensor hero shows longer packet trails and scales its visual activity smoothly with recent served traffic. The band is taller on desktop and fits phone screens. The Streaks selector offers Soft and Bright styles, with Bright as the default.
