@@ -18,6 +18,22 @@ func TestIndexHTML_UpdateDialogMarkers(t *testing.T) {
 	}
 }
 
+func TestIndexHTML_UpdateDialogPhoneWrap(t *testing.T) {
+	phone := sliceBetween(t, indexHTML, "@media(max-width:600px){", "\n}")
+	if !strings.Contains(phone, ".update-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:visible}") {
+		t.Error("phone media block must wrap update commands without horizontal scrolling")
+	}
+}
+
+func TestIndexHTML_UpdateDialogSelectedTab(t *testing.T) {
+	if !strings.Contains(indexHTML, ".update-tabs [aria-selected=true]{border:2px solid var(--accent);color:var(--head);font-weight:700}") {
+		t.Error("selected update tab must have a prominent accent border and bold text")
+	}
+	if !strings.Contains(indexHTML, ".update-tabs [role=tab]:focus-visible{outline:2px solid var(--head);outline-offset:2px}") {
+		t.Error("keyboard focus on update tabs must remain visible")
+	}
+}
+
 func TestIndexHTML_UpdateDialogTab(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {

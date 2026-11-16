@@ -327,7 +327,8 @@ background:var(--panel);border:1px solid var(--line);border-radius:var(--radius)
 .update-dialog-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .update-dialog h2{margin:0;color:var(--head);font-size:18px}
 .update-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:18px 0 12px}
-.update-tabs [aria-selected=true]{border-color:var(--accent);color:var(--head)}
+.update-tabs [aria-selected=true]{border:2px solid var(--accent);color:var(--head);font-weight:700}
+.update-tabs [role=tab]:focus-visible{outline:2px solid var(--head);outline-offset:2px}
 .update-dialog pre{box-sizing:border-box;max-width:100%;overflow-x:auto;background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);padding:12px;white-space:pre;font-size:12px}
 .update-dialog p{color:var(--muted);line-height:1.5}
 .update-dialog a{display:inline-block;color:var(--head);margin-top:8px}
@@ -360,6 +361,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
   .theme-hint{display:none}
   .tb-right{margin-left:0;flex-wrap:wrap}
   .dc-row{grid-template-columns:minmax(0,1fr)}
+  .update-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:visible}
 }
 </style>
 <style></style>
