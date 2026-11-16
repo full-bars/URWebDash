@@ -2,7 +2,6 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>URWebDash &middot; Bittensor Stats</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>body[data-theme="legacy"]{--bg:#111827;--panel:#1f2937;--panel2:#162032;--line:#374151;--text:#e5e7eb;--head:#f9fafb;--muted:#9ca3af;--faint:#6b7280;--accent:#10b981;--accent2:#f59e0b;--accent3:#3b82f6;--badge:#065f46;--radius:10px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;--mono:'SF Mono','Fira Code',monospace;--labels:uppercase;--navw:220px}
 body[data-theme="hero"]{--bg:#0b1220;--panel:#0d1526;--panel2:#101a2e;--line:#1a2740;--text:#e2e8f0;--head:#eaf1fb;--muted:#7c8aa5;--faint:#5b6b88;--accent:#3b82f6;--accent2:#8b5cf6;--accent3:#5fd6a4;--badge:#12233f;--radius:14px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--labels:uppercase;--navw:224px}
 body[data-theme="console"]{--bg:#08090b;--panel:#0d1013;--panel2:#11161b;--line:#1c2229;--text:#c9d1d9;--head:#f0f6fc;--muted:#8b98a5;--faint:#5c6873;--accent:#3ecf8e;--accent2:#e3b341;--accent3:#2f81f7;--badge:#0f2a22;--radius:0px;--font:ui-monospace,SFMono-Regular,Menlo,monospace;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--labels:uppercase;--navw:210px}
@@ -146,6 +145,42 @@ text-transform:uppercase;padding:5px 14px;border-radius:999px;cursor:pointer;fon
 #theme-mount [data-ep-bal]{white-space:normal;overflow:visible;height:auto}
 #theme-mount .wallet-extra{white-space:normal}
 #theme-mount .wbal{white-space:nowrap;display:inline-block;font-size:1.18em;font-weight:600;letter-spacing:.01em}
+details.legacy-hist{margin:0 0 18px}
+details.legacy-hist>summary{cursor:pointer;padding:10px 14px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--muted);font-size:12.5px;margin-bottom:10px}
+details.legacy-hist[open]>summary{color:var(--text)}
+.srvd .srvd-days{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px;margin-bottom:14px}
+.srvd .srvd-days .srvd-v{font-size:15px}
+.srvd .srvd-head{display:flex;justify-content:space-between;align-items:center;margin:4px 0 6px}
+.srvd .srvd-chart{position:relative;height:150px;margin:8px 0 0 70px;border-left:1px solid var(--line)}
+.srvd .srvd-gridline{position:absolute;left:0;right:0;border-top:1px solid var(--line);height:0}
+.srvd .srvd-gridline span{position:absolute;left:-68px;width:62px;text-align:right;top:-7px;font-size:11px;color:var(--muted)}
+.srvd .srvd-bar2{position:absolute;bottom:0;background:var(--accent,#10b981);opacity:.8;border-radius:2px 2px 0 0}
+.srvd .srvd-bar2:hover{opacity:1}
+.srvd .srvd-part{opacity:.4!important;background-image:repeating-linear-gradient(45deg,transparent 0 4px,rgba(255,255,255,.25) 4px 6px)}
+.srvd .srvd-gap{position:absolute;top:0;bottom:0;background:var(--muted);opacity:.18}
+.srvd .srvd-axis{display:flex;justify-content:space-between;margin:4px 0 0 70px;font-size:11px;color:var(--muted)}
+.epr{opacity:.65;font-weight:400;font-size:.82em;white-space:nowrap;margin-left:6px}
+.srvd.srvd-grow .srvd-bar2{transform-origin:bottom;animation:srvdGrow .8s cubic-bezier(.2,.8,.2,1) both}
+@keyframes srvdGrow{from{transform:scaleY(0);opacity:0}to{transform:scaleY(1)}}
+.srvd .srvd-pop{animation:srvdPop 1.4s cubic-bezier(.2,.8,.2,1)}
+@keyframes srvdPop{0%{filter:none;transform:scaleY(.2)}25%{filter:brightness(2) drop-shadow(0 0 10px currentColor);transform:scaleY(1.1)}60%{filter:brightness(1.3)}100%{filter:none;transform:scaleY(1)}}
+@media (prefers-reduced-motion: reduce){.srvd.srvd-grow .srvd-bar2,.srvd .srvd-pop{animation:none}}
+.srvd{margin:18px 0 0;padding:16px 18px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text)}
+.srvd h3{margin:0 0 4px;font-size:13px;font-weight:600;color:var(--head)}
+.srvd .srvd-sub{font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5}
+.srvd .srvd-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
+.srvd .srvd-card{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}
+.srvd .srvd-k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.srvd .srvd-v{font-size:18px;font-weight:600;color:var(--head);margin-top:3px}
+.srvd .srvd-s{font-size:11px;color:var(--muted);margin-top:2px}
+.srvd table{width:100%;border-collapse:collapse;font-size:12.5px}
+.srvd th{text-align:left;padding:6px 8px;color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--line)}
+.srvd td{padding:6px 8px;border-bottom:1px solid var(--line)}
+.srvd .r{text-align:right;font-variant-numeric:tabular-nums}
+.srvd .dim{color:var(--muted)}
+.srvd .srvd-bar{height:6px;border-radius:3px;background:var(--text);opacity:.55;min-width:1px}
+.srvd .srvd-grid{display:grid;grid-template-columns:2fr 1fr;gap:18px}
+@media(max-width:820px){.srvd .srvd-grid{grid-template-columns:1fr}}
 #theme-mount .wallet-extra{display:block;margin-top:3px;line-height:1.45}
 /* a point that just landed in the history table */
 tr.ep-row-new{animation:epRowIn 1.9s ease-out}
@@ -324,48 +359,15 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
   <div id="section-wallet" class="section active">
     <div class="header">
       <div><h2>&#128202; Data Statistics</h2>
-      <p>Real-time tracking of data transfer earnings</p>
-      <div class="sub">Network: <span id="net-name">&mdash;</span> &middot; Last updated: <span id="last-updated">&mdash;</span></div></div>
+      <p>Data your network served, as the server reports it. The figures run behind live traffic.</p>
+      <div class="sub">Network: <span id="net-name">&mdash;</span> &middot; Counted through: <span id="last-updated">&mdash;</span></div></div>
       <div class="right"><span class="note" id="header-rows-note" style="margin:0">&mdash;</span></div>
     </div>
-    <div class="cards">
-      <div class="card"><div class="label">Paid Data</div><div class="value green" id="c-paid">&mdash;</div></div>
-      <div class="card"><div class="label">Unpaid Data</div><div class="value yellow" id="c-unpaid">&mdash;</div></div>
-      <div class="card"><div class="label">Total Volume</div><div class="value white" id="c-total">&mdash;</div></div>
-      <div class="card"><div class="label">24h Change</div><div class="value blue" id="c-24h">&mdash;</div></div>
-      <div class="card"><div class="label">Data Points</div><div class="value white" id="data-points">&mdash;</div></div>
-    </div>
-    <div class="weekly-header">&#128197; 24h Change &middot; Last 7 Days</div>
-    <div class="weekly-cards" id="weekly"></div>
-    <div class="toolbar"><span class="info" id="toolbar-rows-info">&mdash;</span>
-      <button class="btn primary" onclick="fakeRefresh(this)">&#128260; Refresh</button></div>
-    <div class="toolbar">
-      <span class="info">Charts</span>
-      <span class="field-label">Graph style</span>
-      <select id="chart-style" onchange="setChartStyle(this.value)">
-        <option value="legacy">Legacy — filled line</option>
-        <option value="line">Line</option>
-        <option value="area">Area — gradient</option>
-        <option value="stepped">Stepped</option>
-        <option value="dots">Line + points</option>
-        <option value="bars">Bars</option>
-        <option value="minimal">Minimal — no grid</option>
-      </select>
-    </div>
-    <div class="chart-row">
-      <div class="chart-container"><div class="chart-title" id="paid-chart-title">Paid Data</div><div class="chart-box"><canvas id="paid-chart"></canvas></div></div>
-      <div class="chart-container"><div class="chart-title" id="unpaid-chart-title">Unpaid Data</div><div class="chart-box"><canvas id="unpaid-chart"></canvas></div></div>
-      <div class="chart-container"><div class="chart-title">Transfer Rate</div>
-        <div style="display:flex;gap:4px;margin-bottom:8px">
-          <button class="btn btn-sm" onclick="setWin('1h',this)">1H</button>
-          <button class="btn btn-sm" onclick="setWin('6h',this)">6H</button>
-          <button class="btn btn-sm active" onclick="setWin('24h',this)">24H</button>
-          <button class="btn btn-sm" onclick="setWin('7d',this)">7D</button>
-          <button class="btn btn-sm" onclick="setWin('30d',this)">30D</button>
-          <button class="btn btn-sm" onclick="setWin('gbd',this)">GB/d</button>
-          <button class="btn btn-sm" onclick="setWin('all',this)">ALL</button>
-        </div><div class="chart-box"><canvas id="rate-chart"></canvas></div></div>
-    </div>
+    <div class="cards" id="served-top" data-srvd-slot="top"></div>
+    <div id="served-ds" data-srvd-slot="lean"></div>
+    <details class="legacy-hist">
+    <summary>Archive: <span id="data-points">&mdash;</span> stored poll windows from the paid and unpaid counters. The weekly chart above carries the same history forward.</summary>
+    <div class="note" id="toolbar-rows-info" style="margin:8px 0">&mdash;</div>
     <div class="table-wrap"><table>
       <thead><tr><th>&#128197; Timestamp</th><th class="text-right">&#128181; Paid (GB)</th>
       <th class="text-right">&#128230; Unpaid Bytes</th><th class="text-right">&#10133; Change Bytes</th>
@@ -374,6 +376,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
       <tbody id="history-table"></tbody></table></div>
     <div id="table-pagination" class="hist-pager"></div>
     <div class="note" id="table-footer-note">&mdash;</div>
+    </details>
   </div>
 
   <div id="section-payout" class="section">
@@ -467,7 +470,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
         <div class="sub" id="wh-state" style="margin:6px 0">checking&hellip;</div>
         <input type="url" id="wh-url" placeholder="paste a Discord webhook URL to start alerts" style="width:100%">
         <div class="sub">masked on read &mdash; the URL is a bearer secret</div></div>
-      <div class="card"><div class="label">Spike threshold (GB / 15m)</div>
+      <div class="card"><div class="label">Spike threshold (GB per <span id="wh-window">poll window</span>)</div>
         <input type="number" id="wh-threshold" value="1.00" step="0.25" min="0" style="width:100%;margin-top:8px">
         <div class="sub">per webhook; the delta is computed once</div></div>
       <div class="card"><div class="label">Alert types</div>
@@ -577,7 +580,7 @@ window.URTHEMES = window.URTHEMES || {};
       var max = Math.max.apply(null, D.epochs.map(function (e) { return e.points; })) || 1;
       var rows = D.epochs.map(function (e) {
         var bar = Math.round(e.points / max * 80);
-        return '<tr><td>epoch ' + e.epoch + '</td>' +
+        return '<tr><td>epoch ' + e.epoch + EPR(e) + '</td>' +
           '<td class="right blue">' + (e.points ? f(e.points, 2) : '<span class="dim">0</span>') + '</td>' +
           '<td class="right dim">' + (e.shareBps / 100).toFixed(2) + '%</td>' +
           '<td class="right dim">' + (e.alpha == null ? '\u2014' : f(e.alpha, 2)) + '</td>' +
@@ -606,7 +609,7 @@ window.URTHEMES = window.URTHEMES || {};
         '<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">' +
           '<div class="card"><div class="label">Wallet</div><div class="value mono green" style="font-size:14px">' + short(D.wallet.coldkey) + '</div><div class="sub">consent ' + D.wallet.scope + ' \u00b7 epoch ' + D.wallet.fromEpoch + ' \u2192 ' + f(D.wallet.throughEpoch) + '</div></div>' +
           '<div class="card"><div class="label">Best Epoch</div><div class="value">' + D.points.bestEpoch + '</div><div class="sub">' + f(D.points.bestPoints, 2) + ' points</div></div>' +
-          '<div class="card"><div class="label">Traffic</div><div class="value">' + fmtBytes(D.traffic.paidBytes) + '</div><div class="sub">' + fmtBytes(D.traffic.unpaidBytes) + ' unpaid</div></div>' +
+          '<div class="card"><div class="label">Traffic</div><div class="value">' + fmtBytes(D.traffic.paidBytes) + '</div><div class="sub">' + SV_WEEK() + ' served this week</div></div>' +
           '<div class="card"><div class="label">Legacy USDC</div><div class="value">$' + f(D.legacy.usdc, 2) + '</div><div class="sub">' + D.legacy.count + ' payments \u00b7 last ' + D.legacy.last + '</div></div>' +
         '</div>' +
         '<div class="wrap"><table><thead><tr><th>Epoch</th><th class="right">Points</th><th class="right">Share</th><th class="right">Alpha</th><th>Settlement</th><th></th></tr></thead>' +
@@ -673,7 +676,7 @@ window.URTHEMES['hero'] = {
     }).join('');
     var rows = D.epochs.map(function (e) {
       var pts = e.points ? DS_FMT(e.points, 2) : '<span class="dim">0</span>';
-      return '<tr><td>epoch ' + e.epoch + '</td><td class="violet">' + pts + '</td><td class="dim">' +
+      return '<tr><td>epoch ' + e.epoch + EPR(e) + '</td><td class="violet">' + pts + '</td><td class="dim">' +
         (e.shareBps / 100).toFixed(2) + '%</td><td class="dim">—</td><td class="dim">' + e.settlement +
         (e.epoch >= 4 ? ' · pending' : ' · cohort') + '</td></tr>';
     }).join('');
@@ -702,7 +705,7 @@ window.URTHEMES['hero'] = {
           '<div class="idr"><span class="kk">Consent</span><span>' + D.wallet.scope + ' · epoch ' + D.wallet.fromEpoch + ' → ' + DS_FMT(D.wallet.throughEpoch) + '</span></div>' +
           '<div class="idr"><span class="kk">α unclaimed</span><span class="dim">—</span></div>' +
           '<div class="idr"><span class="kk">Best epoch</span><span>' + D.points.bestEpoch + ' · ' + DS_FMT(D.points.bestPoints, 2) + ' pts</span></div>' +
-          '<div class="idr"><span class="kk">Traffic</span><span>' + fmtBytes(D.traffic.paidBytes) + ' paid · ' + fmtBytes(D.traffic.unpaidBytes) + ' unpaid</span></div>' +
+          '<div class="idr"><span class="kk">Traffic</span><span>' + fmtBytes(D.traffic.paidBytes) + ' paid · ' + SV_WEEK() + ' served this week</span></div>' +
           '<div class="idr"><span class="kk">Legacy USDC</span><span class="dim">$' + DS_FMT(D.legacy.usdc, 2) + ' · ' + D.legacy.count + ' payments · last ' + D.legacy.last + '</span></div>' +
           '<div class="note">First epoch that can pay α is ' + D.alpha.firstPayingEpoch + '. Consent is not retroactive.</div>' +
         '</div>' +
@@ -746,7 +749,7 @@ window.URTHEMES['console'] = {
     var max = Math.max.apply(null, D.epochs.map(function (e) { return e.points; })) || 1;
     var rows = D.epochs.map(function (e) {
       var w = Math.round(e.points / max * 90);
-      return '<tr><td>' + e.epoch + '</td><td>' + (e.points ? DS_FMT(e.points, 2) : '0') + '</td>' +
+      return '<tr><td>' + e.epoch + EPR(e) + '</td><td>' + (e.points ? DS_FMT(e.points, 2) : '0') + '</td>' +
         '<td><span class="spark" style="width:' + w + 'px"></span></td><td>' + e.shareBps + '</td><td>—</td>' +
         '<td class="muted">' + e.settlement + (e.epoch >= 4 ? ' · pending' : '') + '</td></tr>';
     }).join('');
@@ -781,7 +784,7 @@ window.URTHEMES['console'] = {
         '</div></div>' +
         '<div class="panel"><h2>Traffic <span>cumulative</span></h2><div class="kv">' +
           '<div class="k">paid bytes</div><div class="v">' + fmtBytes(D.traffic.paidBytes) + '</div>' +
-          '<div class="k">unpaid bytes</div><div class="v y">' + fmtBytes(D.traffic.unpaidBytes) + '</div>' +
+          '<div class="k">served this week</div><div class="v y">' + SV_WEEK() + '</div>' +
           '<div class="k">legacy usdc</div><div class="v d">$' + DS_FMT(D.legacy.usdc, 2) + ' · ' + D.legacy.count + ' · ' + D.legacy.last + '</div>' +
         '</div></div>' +
         '<div class="panel full"><h2>Finalized epochs <span>points · share · α</span></h2>' +
@@ -868,7 +871,7 @@ window.URTHEMES['urnetwork'] = {
       return '<i class="' + (e.points ? '' : 'zero') + '" style="height:' + h + 'px"></i>';
     }).join('');
     var rows = D.epochs.map(function (e) {
-      return '<tr><td>' + e.epoch + '</td><td>' + (e.points ? DS_FMT(e.points, 2) : '0') + '</td><td>' +
+      return '<tr><td>' + e.epoch + EPR(e) + '</td><td>' + (e.points ? DS_FMT(e.points, 2) : '0') + '</td><td>' +
         (e.shareBps / 100).toFixed(2) + '%</td><td><span class="pill">—</span></td><td>' + e.settlement + '</td></tr>';
     }).join('');
     return '<div class="th-urnetwork">' +
@@ -889,7 +892,7 @@ window.URTHEMES['urnetwork'] = {
         '<div class="cell"><div class="k">Commits in</div><div class="v pink">' + D.epoch.commitIn + '</div><div class="s">root posted to the coordinator</div></div>' +
         '<div class="cell"><div class="k">Claimable in</div><div class="v green">' + D.epoch.finalizeIn + '</div><div class="s">first paying epoch ' + D.alpha.firstPayingEpoch + '</div></div>' +
         '<div class="cell"><div class="k">Points all time</div><div class="v">' + DS_FMT(D.points.total, 2) + '</div><div class="s">' + D.points.epochsWithPoints + ' of ' + D.points.epochsFinalized + ' epochs · best ' + D.points.bestEpoch + '</div></div>' +
-        '<div class="cell"><div class="k">Traffic</div><div class="v">' + fmtBytes(D.traffic.paidBytes) + '</div><div class="s">' + fmtBytes(D.traffic.unpaidBytes) + ' unpaid</div></div>' +
+        '<div class="cell"><div class="k">Traffic</div><div class="v">' + fmtBytes(D.traffic.paidBytes) + '</div><div class="s">' + SV_WEEK() + ' served this week</div></div>' +
       '</div>' +
       '<div class="body">' +
         '<div class="col"><h3>Epoch history</h3><div class="tb">' + tb + '</div>' +
@@ -932,11 +935,11 @@ window.URTHEMES = window.URTHEMES || {};
     }).join('');
     var rows = D.epochs.map(function (row) {
       var alpha = row.alpha == null ? '— <small>not reported</small>' : num(row.alpha, 2);
-      return '<tr><th scope="row">' + esc(row.epoch) + '</th><td>' + num(row.points, 2) + '</td><td>' + num(row.shareBps / 100, 2) + '%</td><td>' + alpha + '</td><td>' + esc(row.settlement) + '</td></tr>';
+      return '<tr><th scope="row">' + esc(row.epoch) + EPR(row) + '</th><td>' + num(row.points, 2) + '</td><td>' + num(row.shareBps / 100, 2) + '%</td><td>' + alpha + '</td><td>' + esc(row.settlement) + '</td></tr>';
     }).join('');
     var bars = D.epochs.map(function (row) {
       var width = Math.max(0, Math.min(100, (Number(row.points) || 0) / max * 100));
-      return '<div class="barrow"><span>Epoch ' + esc(row.epoch) + '</span><span class="track"><i style="width:' + width + '%"></i></span><b>' + num(row.points, 2) + '</b></div>';
+      return '<div class="barrow"><span>Epoch ' + esc(row.epoch) + EPR(row) + '</span><span class="track"><i style="width:' + width + '%"></i></span><b>' + num(row.points, 2) + '</b></div>';
     }).join('');
     return {
       title: 'Epoch ' + esc(e.n),
@@ -951,7 +954,7 @@ window.URTHEMES = window.URTHEMES || {};
       record: num(p.epochsWithPoints, 0) + ' of ' + num(p.epochsFinalized, 0) + ' finalized epochs with points · best: epoch ' + esc(p.bestEpoch) + ' (' + num(p.bestPoints, 2) + ')',
       wallet: esc(w.coldkey.slice(0, 8) + '…' + w.coldkey.slice(-6)),
       consent: esc(w.scope) + ' consent · epochs ' + num(w.fromEpoch, 0) + ' → ' + num(w.throughEpoch, 0),
-      traffic: fmtBytes(D.traffic.paidBytes) + ' paid · ' + fmtBytes(D.traffic.unpaidBytes) + ' unpaid',
+      traffic: fmtBytes(D.traffic.paidBytes) + ' paid · ' + SV_WEEK() + ' served this week',
       legacy: money(D.legacy.usdc) + ' across ' + num(D.legacy.count, 0) + ' USDC payments on ' + esc(D.legacy.network) + ' · last ' + esc(D.legacy.last),
       table: '<div class="scroll"><table><thead><tr><th>Epoch</th><th>Points</th><th>Share</th><th>Alpha</th><th>Settlement</th></tr></thead><tbody>' + rows + '</tbody></table></div>',
       bars: bars
@@ -1142,7 +1145,7 @@ window.URTHEMES = window.URTHEMES || {};
       }).join('');
       var rows = D.epochs.map(function (r) {
         var w2 = Math.max(r.points / max * 100, r.points > 0 ? 1.5 : 0);
-        return '<tr><td class="ep">' + r.epoch + '</td><td>' + H.n(r.points, 2) + '</td>' +
+        return '<tr><td class="ep">' + r.epoch + EPR(r) + '</td><td>' + H.n(r.points, 2) + '</td>' +
           '<td class="bar"><div><i style="width:' + w2.toFixed(2) + '%"></i></div></td>' +
           '<td>' + H.share(r.shareBps) + '</td>' +
           '<td class="al">' + H.alphaCell(D, r) + '</td>' +
@@ -1167,7 +1170,7 @@ window.URTHEMES = window.URTHEMES || {};
 <div class="fn">
 <div><sup>1</sup>Wallet <span class="mono">${H.ck(w.coldkey)}</span>${w.balanceKnown?` · <b class="wh-inline">${w.taoFree.toFixed(4)} TAO free</b>`:''}, consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</div>
 <div><sup>2</sup>Legacy: <b>$${H.n(l.usdc, 2)}</b> across <b>${l.count}</b> USDC payments on ${H.esc(l.network)}, last <b>${H.esc(l.last)}</b>.</div>
-<div><sup>3</sup>Traffic: <b>${fmtBytes(t.paidBytes||0)}</b> paid, <b>${fmtBytes(t.unpaidBytes||0)}</b> unpaid.</div>
+<div><sup>3</sup>Traffic: <b>${fmtBytes(t.paidBytes||0)}</b> paid, <b>${SV_WEEK()}</b> served this week.</div>
 </div>
 </div></div>`;
     }
@@ -1254,7 +1257,7 @@ window.URTHEMES = window.URTHEMES || {};
           '<text x="' + x + '" y="114" text-anchor="middle">epoch ' + r.epoch + '</text>';
       });
       var rows = D.epochs.map(function (r) {
-        return '<div class="rw"><b>' + r.epoch + '</b><span>' + H.n(r.points, 2) + '</span><span class="x">' + H.share(r.shareBps) +
+        return '<div class="rw"><b>' + r.epoch + '</b>' + EPR(r) + '<span>' + H.n(r.points, 2) + '</span><span class="x">' + H.share(r.shareBps) +
           ' share</span><span class="x">' + H.esc(r.settlement) + '</span><span class="al">' + H.alphaCell(D, r) + '</span><span class="x"></span></div>';
       }).join('');
       return `<div class="tx-orbit">
@@ -1277,7 +1280,7 @@ window.URTHEMES = window.URTHEMES || {};
 <div class="pn"><h3>Wallet</h3><div class="num mono">${H.ck(w.coldkey)}</div>${w.balanceKnown?`<div class="num wh-inline" style="font-size:14px">${w.taoFree.toFixed(4)} TAO free</div>`:''}
 <p>Consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b>.</p></div>
 <div class="pn"><h3>Traffic</h3><div class="num">${fmtBytes(t.paidBytes||0)}</div>
-<p><b>${fmtBytes(t.unpaidBytes||0)}</b> unpaid.</p></div>
+<p><b>${SV_WEEK()}</b> served this week.</p></div>
 <div class="pn wide"><h3>Points per epoch</h3><svg class="lol" viewBox="0 0 400 124" role="img" aria-label="Points per finalized epoch">${lol}<line x1="20" y1="96" x2="380" y2="96" stroke="#14403c"/></svg></div>
 <div class="pn wide"><h3>Finalized epochs</h3><div class="rows">
 <div class="rw hd"><span>Epoch</span><span>Points</span><span class="x">Share</span><span class="x">Settle</span><span>Alpha</span><span class="x"></span></div>${rows}</div></div>
@@ -1372,7 +1375,7 @@ window.URTHEMES = window.URTHEMES || {};
         '<div class="meta"><span>points pending</span><span class="al">alpha — ' + H.esc(a.thisEpoch) + '</span></div></li>';
       log += D.epochs.map(function (r) {
         var wd = Math.max(r.points / max * 100, r.points > 0 ? 1.5 : 0);
-        return '<li class="' + (r.points > 0 ? 'hit' : '') + '"><div class="ln"><b>Epoch ' + r.epoch + '</b><span>settlement ' + H.esc(r.settlement) + '</span></div>' +
+        return '<li class="' + (r.points > 0 ? 'hit' : '') + '"><div class="ln"><b>Epoch ' + r.epoch + '</b>' + EPR(r) + '<span>settlement ' + H.esc(r.settlement) + '</span></div>' +
           '<div class="pb"><div><i style="width:' + wd.toFixed(2) + '%"></i></div><strong>' + H.n(r.points, 2) + '</strong></div>' +
           '<div class="meta"><span>share ' + H.share(r.shareBps) + '</span><span class="al">alpha ' + (r.alpha == null ? '\u2014 ' + H.alphaWhy(D) : H.n(r.alpha, 2)) + '</span></div></li>';
       }).join('');
@@ -1387,7 +1390,7 @@ window.URTHEMES = window.URTHEMES || {};
 <p><b>${p.epochsWithPoints}</b> of <b>${p.epochsFinalized}</b> finalized epochs have points.</p><p>Best: epoch <b>${p.bestEpoch}</b>, <b>${H.n(p.bestPoints, 2)}</b>.</p></section>
 <section><h2>Alpha</h2><p><b>${H.esc(a.thisEpoch)}</b> for epoch ${e.n}.</p><p>Epoch <b>${a.firstPayingEpoch}</b> is the first that can pay alpha.</p></section>
 <section><h2>Wallet</h2><p class="mono">${H.ck(w.coldkey)}</p>${w.balanceKnown?`<p><b class="wh-inline">${w.taoFree.toFixed(4)} TAO free</b></p>`:''}<p>consent <b>${H.esc(w.scope)}</b>, epochs <b>${w.fromEpoch}</b> → <b>${H.n(w.throughEpoch, 0)}</b></p></section>
-<section><h2>Traffic</h2><p><b>${fmtBytes(t.paidBytes||0)}</b> paid</p><p><b>${fmtBytes(t.unpaidBytes||0)}</b> unpaid</p></section>
+<section><h2>Traffic</h2><p><b>${fmtBytes(t.paidBytes||0)}</b> paid</p><p><b>${SV_WEEK()}</b> served this week</p></section>
 <section><h2>Legacy</h2><p><b>$${H.n(l.usdc, 2)}</b> across <b>${l.count}</b> USDC payments on ${H.esc(l.network)}, last <b>${H.esc(l.last)}</b>.</p></section>
 </div></div></div></div>`;
     }
@@ -1565,7 +1568,6 @@ function go(name){
   /* refresh and back should land where you were, not on the first section */
   try{ history.replaceState(null,'','#'+name); }catch(_){}
   try{ localStorage.setItem('section',name); }catch(_){}
-  if(name==='wallet') requestAnimationFrame(()=>drawCharts());
   /* the hero canvas sizes itself once at start; if that happened while this
      section was hidden it measured 1x1 and every frame's single pixel was
      stretched across the whole panel, which read as a colour strobe */
@@ -1657,9 +1659,7 @@ const last=series.length?series[series.length-1]:{t:new Date(0).toISOString(),pa
    derives from the full row list a moment later — that was the "same card, two
    numbers" flicker. leave them at the placeholder and let the full list fill
    them once. */
-document.getElementById('c-paid').textContent=fmtBytes(last.paid);
-document.getElementById('c-unpaid').textContent=fmtBytes(last.unpaid);
-document.getElementById('c-total').textContent=fmtBytes(last.paid+last.unpaid);
+/* the top boxes for these counters are gone; the history section below still draws from them */
 
 function updateMetaInfo(totalRows, rangeStart, rangeEnd, lastUpdated){
   if(totalRows !== undefined && totalRows !== null && totalRows !== ''){
@@ -1679,10 +1679,6 @@ function updateMetaInfo(totalRows, rangeStart, rangeEnd, lastUpdated){
   if(fn && (totalRows!==undefined && totalRows!==null && totalRows!=='')) {
     fn.textContent='The stored history of '+Number(totalRows).toLocaleString()+' rows. Charts and table are drawn from the theme\'s own palette.';
   }
-  if(lastUpdated){
-    const lu=document.getElementById('last-updated');
-    if(lu) lu.textContent=fmtTime(lastUpdated);
-  }
 }
 const initTotal=(typeof HIST!=='undefined'&&HIST&&HIST.rows_total)?HIST.rows_total:(series.length||0);
 const initR0=(typeof HIST!=='undefined'&&HIST&&HIST.range&&HIST.range[0])||(series.length?series[0].t:'');
@@ -1690,9 +1686,9 @@ const initR1=(typeof HIST!=='undefined'&&HIST&&HIST.range&&HIST.range[1])||(seri
 const initAsOf=(typeof D!=='undefined'&&D&&D.asOf)?D.asOf:(last.t||'');
 updateMetaInfo(initTotal, initR0, initR1, initAsOf);
 
-const weekly=document.getElementById('weekly');
+const weekly=document.getElementById('weekly'); /* the weekly cards were removed with the dead counters */
 /* newest first: today is the box a reader looks at, so it leads */
-for(let d=0;d<=6;d++){
+for(let d=0;weekly&&d<=6;d++){
   const endT=new Date(last.t).getTime()-d*86400000;
   const endRow=series.filter(r=>new Date(r.t).getTime()<=endT).pop();
   /* today is a calendar day in UTC, the clock the poller writes on. The live
@@ -1724,46 +1720,6 @@ for(let d=0;d<=6;d++){
    initial render and the live poll cannot disagree. */
 const asRows=rows=>rows.map(r=>({t:r.created_at||r.t,paid:Number(r.paid_bytes!=null?r.paid_bytes:r.paid),unpaid:Number(r.unpaid_bytes!=null?r.unpaid_bytes:r.unpaid)}));
 function dayStartMs(t){ const d=new Date(t); return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
-function paintDayCards(rows){
-  if(!rows||!rows.length) return {day24:null,today:null};
-  const sorted=rows.slice().sort((a,b)=>new Date(b.t)-new Date(a.t));
-  const last=sorted[0], total=r=>r.paid+r.unpaid;
-  /* Two refresh paths run on the same timer, and a pager click re-renders from
-     the cached rows. Whichever finishes last used to win, so an older snapshot
-     could overwrite newer figures and the cards flickered backwards. Paint only
-     when the data is at least as new as what is already on screen. */
-  if(!window.__cards) window.__cards={day24:null,today:null};
-  if(window.__cardsNewest && new Date(last.t)<new Date(window.__cardsNewest)){
-    return {day24:window.__cards.day24, today:window.__cards.today};
-  }
-  window.__cardsNewest=last.t;
-  /* 24h: the sample nearest 24h back, from the full list */
-  const target=new Date(last.t).getTime()-86400000;
-  const prev=sorted.reduce((best,r)=>Math.abs(new Date(r.t)-target)<Math.abs(new Date(best.t)-target)?r:best,sorted[sorted.length-1]);
-  const has24h=sorted.some(r=>new Date(last.t)-new Date(r.t)>=23*3600000);
-  const day24=has24h?Math.max(0,total(last)-total(prev)):null;
-  const c24=document.getElementById('c-24h');
-  if(c24) c24.textContent=day24===null?'\u2014':('+'+fmtBytes(day24));
-  /* today: the newest sample at or before local midnight, which is the baseline
-     the day's growth is measured from. Including the boundary itself matters
-     twice over: a sample on 00:00:00 would otherwise hand back the 23:45 row and
-     fold yesterday's last window into today, and a node whose history starts at
-     midnight would have no baseline at all and read "—" all day. */
-  const ds=dayStartMs(last.t);
-  const before=sorted.filter(r=>new Date(r.t).getTime()<=ds);
-  const start=before.length?before[0]:null;
-  const today=start?Math.max(0,total(last)-total(start)):null;
-  const box=document.getElementById('c-today');
-  if(box){
-    const v=box.querySelector('.value');
-    if(v){
-      if(today===null){ v.textContent='\u2014'; }
-      else { v.textContent='+'+fmtBytes(today); v.className='value '+(today>=0?'green':'yellow'); }
-    }
-  }
-  window.__cards={day24,today};
-  return {day24,today};
-}
 const tbody=document.getElementById('history-table');
 recent.forEach((r,i)=>{
   const o=recent[i+1];
@@ -1845,12 +1801,6 @@ function walletExtra(D){
   }
   return bits.join(' \u00b7 ');
 }
-function walletHTML(D,cls){
-  const extra=walletExtra(D);
-  if(!extra) return '';
-  return '<span class="'+(cls||'')+' wallet-extra">'+extra+'</span>';
-}
-
 /* ---------- charts ---------------------------------------------------------
    Base config is a port of the shipped dashboard's charts (line, tension .4,
    fill at 12%, legend on top, GB tooltips, grid #374151). Graph style is a
@@ -1958,170 +1908,6 @@ function withAlpha(hex,a){
   if(!/^[0-9a-fA-F]{6}$/.test(h)) h='ffffff';
   const a2=Math.round(a*255).toString(16).padStart(2,'0');
   return '#'+h+a2;
-}
-function chartOn(id,cfg){
-  const el=document.getElementById(id);
-  if(!el) return null;
-  const box=el.parentElement.getBoundingClientRect();
-  if(box.width<10||box.height<10) return null;
-  const ex=Chart.getChart(el); if(ex) ex.destroy();
-  return new Chart(el,cfg);
-}
-function rateSeries(win){
-  /* windows in hours; 'all' has no back edge and 'gbd' rolls a month into days.
-     a year of two-hour buckets is four thousand bars, which no chart can draw, so
-     the all-time view buckets by calendar day. */
-  /* gbd reads the whole history as days, not the last thirty: the daily view is
-     the long view, and cutting it to a month hid the rest of the year. */
-  const back={'1h':1,'6h':6,'24h':24,'7d':168,'30d':720}[win];
-  /* the hour and six-hour views need the 15-minute rows: series is downsampled
-     to one point per hour, so an hour of it is a single bar with no history */
-  const src=(win==='1h'||win==='6h')?recent.slice().reverse():series;
-  const cut=back?new Date(last.t).getTime()-back*3600000:0;
-  const rows=src.filter(r=>!back||new Date(r.t).getTime()>=cut);
-  if(win==='all'||win==='gbd'){
-    const days=new Map();
-    rows.forEach(r=>{
-      const k=new Date(r.t).toISOString().slice(0,10);
-      const cur=days.get(k);
-      if(!cur) days.set(k,{t:r.t,total:r.paid+r.unpaid});
-      else { cur.t=r.t; cur.total=r.paid+r.unpaid; }
-    });
-    const keys=[...days.keys()].sort();
-    let prev=null;
-    return keys.map(k=>{
-      const d=days.get(k);
-      const val=prev?((d.total-prev)/GB):0;
-      prev=d.total;
-      return {t:k, v:+val.toFixed(2)};
-    });
-  }
-  return rows.map((r,i)=>{
-    const o=rows[i-1], h=o?(new Date(r.t)-new Date(o.t))/3600000:0;
-    const gb=o&&h>0?((r.paid+r.unpaid)-(o.paid+o.unpaid))/h/GB:0;
-    /* byte counters only climb. a drop means the coordinator reset one of them,
-       which is not negative traffic: drawing it as a downward bar invents a
-       −158 GB hour that never happened. */
-    return {t:r.t, v:gb>0?+gb.toFixed(2):0};
-  });
-}
-function drawCharts(){
-  if(typeof Chart==='undefined'){
-    ['paid-chart','unpaid-chart','rate-chart'].forEach(id=>{
-      const el=document.getElementById(id);
-      if(el&&!el.dataset.noted){ el.dataset.noted='1';
-        el.parentElement.innerHTML='<div class="note" style="padding:16px 4px">charts need the Chart.js library, which did not load. The table below still has every row.</div>'; }
-    });
-    return;
-  }
-  const wallet=document.getElementById('section-wallet');
-  if(!wallet||!wallet.classList.contains('active')) return;
-  if(!series.length) return;
-  try{
-    const t=TOKENS[currentTheme]||TOKENS.legacy;
-    const st=GRAPH_STYLES[chartStyle]||GRAPH_STYLES.legacy;
-    const col=chartColors(currentTheme);
-    const isBar=st.type==='bar';
-    const labels=series.map(r=>r.t.slice(5,16).replace('T',' '));
-    const _maxBytes=Math.max(0,...series.map(r=>Math.max(r.paid||0,r.unpaid||0)));
-    const chartUnit=_maxBytes>=1e12?'TB':'GB';
-    const chartDiv=chartUnit==='TB'?TB:GB;
-    try{const pt=document.getElementById('paid-chart-title'); if(pt) pt.textContent='Paid Data ('+chartUnit+')';
-        const ut=document.getElementById('unpaid-chart-title'); if(ut) ut.textContent='Unpaid Data ('+chartUnit+')';}catch(e){}
-    const base={
-      responsive:true, maintainAspectRatio:false, animation:{duration:200},
-      interaction:{intersect:false, mode:'index'},
-      plugins:{
-        legend:{display:st.legend, position:'top',
-          labels:{color:t.muted, font:{size:11}, boxWidth:12, padding:14}},
-        tooltip:{backgroundColor:t.panel, titleColor:t.head, bodyColor:t.text,
-          borderColor:t.line, borderWidth:1, padding:10,
-          callbacks:{
-            label:c=>{
-              const lbl=c.dataset.label||'';
-              const val=Number(c.parsed.y);
-              return (lbl?lbl+': ':'')+(isNaN(val)?'':val.toFixed(3)+' '+chartUnit);
-            }
-          }}
-      },
-      scales:{
-        x:{ticks:{color:t.muted, font:{size:10}, maxTicksLimit:8, maxRotation:0},
-           grid:{color:st.grid?t.line:'transparent'}},
-        y:{ticks:{color:t.muted, font:{size:10}, callback:v=>v.toFixed(1)+' '+chartUnit},
-           grid:{color:st.grid?t.line:'transparent'}, border:{display:false}}
-      }
-    };
-    const series1=(id,data,color,label)=>{
-      const ds={
-        label,
-        data,
-        borderColor:color,
-        backgroundColor: st.fill? withAlpha(color, st.fill) : (isBar?withAlpha(color,.5):'transparent'),
-        fill: !!st.fill && !isBar,
-        tension: st.tension,
-        pointRadius: st.points,
-        pointHoverRadius: 4,
-        borderWidth: isBar?1:1.6,
-        borderRadius: isBar?2:0,
-        barPercentage:.6,
-        stepped: !!st.stepped
-      };
-      chartOn(id,{type:st.type, data:{labels,datasets:[ds]}, options:base});
-    };
-    chartOn('paid-chart',{type:st.type,
-      data:{labels,datasets:[{label:'Paid ('+chartUnit+')',data:series.map(r=>+(r.paid/chartDiv).toFixed(3)),
-        borderColor:col.c1, backgroundColor: st.fill?withAlpha(col.c1,st.fill):(isBar?withAlpha(col.c1,.5):'transparent'),
-        fill:!!st.fill&&!isBar, tension:st.tension, pointRadius:st.points, borderWidth:isBar?1:1.6, borderRadius:2, stepped:!!st.stepped}]},
-      options:JSON.parse(JSON.stringify(base))});
-    chartOn('unpaid-chart',{type:st.type,
-      data:{labels,datasets:[{label:'Unpaid ('+chartUnit+')',data:series.map(r=>+(r.unpaid/chartDiv).toFixed(3)),
-        borderColor:col.c2, backgroundColor: st.fill?withAlpha(col.c2,st.fill):(isBar?withAlpha(col.c2,.5):'transparent'),
-        fill:!!st.fill&&!isBar, tension:st.tension, pointRadius:st.points, borderWidth:isBar?1:1.6, borderRadius:2, stepped:!!st.stepped}]},
-      options:JSON.parse(JSON.stringify(base))});
-
-    /* rate: bars by nature, positive/negative coloured, like the shipped chart */
-    const rs=rateSeries(windowSel);
-    /* a daily bucket carries a date, an hourly one a timestamp; the axis and the
-       tooltip have to read both, or the daily view has no x labels at all */
-    const daily=windowSel==='gbd'||windowSel==='all';
-    const unit=daily?'GB/day':'GB/hr';
-    const axisLabel=t=>{
-      if(!t) return '';
-      /* a bucket key is a UTC day; formatting it in local time shows the day before */
-      if(t.length<=10){ const d=new Date(t+'T00:00:00Z'); return d.toLocaleDateString(undefined,{timeZone:'UTC',month:'short',day:'numeric'}); }
-      const d=new Date(t);
-      /* these windows hold many bars per day, so a date alone repeats on the axis */
-      if(windowSel==='30d'||windowSel==='7d'){
-        return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+
-               d.toLocaleTimeString(undefined,{hour:'2-digit',hour12:false})+'h';
-      }
-      return d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
-    };
-    const fullTime=t=>{
-      if(!t) return '';
-      if(t.length<=10){ const d=new Date(t+'T00:00:00Z');
-        return d.toLocaleDateString(undefined,{timeZone:'UTC',weekday:'short',year:'numeric',month:'short',day:'numeric'}); }
-      const d=new Date(t);
-      return d.toLocaleString(undefined,{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
-    };
-    const rateBase=JSON.parse(JSON.stringify(base));
-    rateBase.plugins.legend={display:false};
-    rateBase.plugins.tooltip.callbacks={
-      title:items=>fullTime(rs[items[0].dataIndex]&&rs[items[0].dataIndex].t),
-      label:c=>c.parsed.y.toFixed(2)+' '+unit
-    };
-    rateBase.scales.x={ticks:{color:t.muted,font:{size:10},maxTicksLimit:8,maxRotation:45},
-      grid:{color:st.grid?t.line:'transparent'}};
-    rateBase.scales.y={ticks:{color:t.muted,font:{size:10},callback:v=>v.toFixed(1)},
-      grid:{color:st.grid?t.line:'transparent'},border:{display:false}};
-    chartOn('rate-chart',{type:'bar',
-      data:{labels:rs.map(r=>axisLabel(r.t)),
-        datasets:[{label:unit, data:rs.map(r=>r.v),
-          backgroundColor:rs.map(r=>withAlpha(r.v>=0?col.c3:t.accent2,.5)),
-          borderColor:rs.map(r=>r.v>=0?col.c3:t.accent2),
-          borderWidth:1, borderRadius:2, barPercentage:.6}]},
-      options:rateBase});
-  }catch(e){console.warn('chart draw failed',e);}
 }
 function setAccent(hex){
   if(!hex) return;
@@ -2356,7 +2142,6 @@ async function loadAllHistory(){
   /* Only a fresh read repaints the day cards. A pager click re-renders the
      table from the same rows, and painting from there wrote stale figures over
      the live ones. */
-  if(WALLETROWS) paintDayCards(asRows(WALLETROWS));
 }
 function renderWalletTable(){
   const tbody=document.getElementById('history-table');
@@ -2620,150 +2405,11 @@ function enhanceEpochBar(){
    there is no bar fill to flash. Read the percentage they print, and when it
    climbs, flash that element and float the delta beside it. */
 let epLastText=null;
-/* Unpaid data only changes when the poller brings new traffic. Remember the last
-   figure so the page can say "+47.3 GB" the moment it climbs, rather than
-   leaving a reader to compare two numbers. */
-const EP_UNPAID_KEY='ep-unpaid-gb';
-function epUnpaidNodes(){
-  const out=[];
-  const push=(el,gb)=>{ if(el&&isFinite(gb)) out.push({el:el,gb:gb}); };
-  /* the page formats TB as decimal (1000), so the GB delta must use the same
-     factor or it overstates every change by 2.4% */
-  const toGB=(num,unit)=>unit.toUpperCase()==='TB'?num*1000:num;
-  document.querySelectorAll('#theme-mount *, #section-wallet *').forEach(el=>{
-    if(el.children.length) return;
-    const t=(el.textContent||'').trim();
-    let m=t.match(/^([\d.]+)\s*(TB|GB)\s*unpaid/i);
-    if(m){ push(el, toGB(parseFloat(m[1]),m[2])); return; }
-    const lab=el.parentElement&&el.parentElement.textContent||'';
-    if(el.id==='c-unpaid' && /unpaid/i.test(lab)){
-      const v=t.match(/^([\d.]+)\s*(TB|GB)$/i);
-      if(v) push(el, toGB(parseFloat(v[1]),v[2]));
-    }
-  });
-  return out;
-}
-/* The 24h box is the number that actually moves when traffic lands, so it is
-   the one worth animating in place. Poll the stats feed, rewrite the cards, and
-   flare the box with the delta whenever the figure climbs. The poller writes a
-   point every 15m; checking once a minute catches a new point quickly without
-   leaning on the server. */
-let epLastDay=null, epLastToday=null, epTodayDay=null;
-function epDayChangeNodes(){
-  return {
-    box: document.getElementById('c-24h'),
-    paid: document.getElementById('c-paid'),
-    unpaid: document.getElementById('c-unpaid'),
-    total: document.getElementById('c-total')
-  };
-}
-function epFlairBox(box,label){
-  if(!box) return;
-  box.classList.remove('ep-grow-flash'); void box.offsetWidth; box.classList.add('ep-grow-flash');
-  let d=box.parentElement.querySelector('.ep-delta.ep-float.ep-big');
-  if(!d){
-    d=document.createElement('span');
-    d.className='ep-delta ep-float ep-big';
-    box.parentElement.appendChild(d);
-    box.parentElement.style.position='relative';
-  }
-  d.textContent=label;
-  d.style.left='50%';
-  d.style.color='var(--accent3)';
-  d.classList.remove('show'); void d.offsetWidth; d.classList.add('show');
-}
-function epFlair24h(grew){
-  const {box}=epDayChangeNodes();
-  if(!box||!(grew>0)) return;
-  box.classList.remove('ep-grow-flash'); void box.offsetWidth; box.classList.add('ep-grow-flash');
-  let d=box.parentElement.querySelector('.ep-delta.ep-float.ep-big');
-  if(!d){
-    d=document.createElement('span');
-    d.className='ep-delta ep-float ep-big';
-    box.parentElement.appendChild(d);
-    box.parentElement.style.position='relative';
-  }
-  d.textContent='+'+fmtBytes(grew);
-  d.style.left='50%';
-  d.style.color='var(--accent3)';
-  d.classList.remove('show'); void d.offsetWidth; d.classList.add('show');
-}
-/* A new 15m point should look like it arrived, not silently appear. */
-function epInsertRow(r, raw){
-  const tbody=document.getElementById('history-table');
-  if(!tbody) return;
-  const idx=raw.findIndex(x=>x.created_at===r.created_at);
-  const o=raw[idx+1];
-  const dPaid=o?r.paid_bytes-o.paid_bytes:0, dUnpaid=o?r.unpaid_bytes-o.unpaid_bytes:0;
-  const dTotal=dPaid+dUnpaid;
-  const sign=dTotal>=0?'+':'';
-  const hours=windowHours(r.created_at, o&&o.created_at);
-  const tr=document.createElement('tr');
-  tr.className='ep-row-new';
-  tr.innerHTML='<td class="text-mono">'+esc(fmtTime(r.created_at))+lagNote(r.created_at,r.updated_at)+'</td>'+
-    '<td class="text-right text-green">'+fmtGB(r.paid_bytes)+'</td>'+
-    '<td class="text-right text-white text-mono">'+r.unpaid_bytes.toLocaleString()+'</td>'+
-    '<td class="text-right text-blue">'+sign+dTotal.toLocaleString()+'</td>'+
-    '<td class="text-right text-yellow">'+fmtGB(r.unpaid_bytes)+'</td>'+
-    '<td class="text-right text-blue">'+sign+fmtGB2(dTotal)+'</td>'+
-    '<td class="text-right text-blue">'+sign+fmtGB2(dTotal/hours)+'</td>';
-  tbody.insertBefore(tr, tbody.firstChild);
-}
-
 let epPolling=false;
 async function epLiveStats(){
   if(document.hidden || epPolling) return;
   epPolling=true;
   try{
-    const res=await fetch('/api/wallet-stats',{cache:'no-store'});
-    if(!res.ok) return;
-    const d=await res.json();
-    const raw=(d.entries||[]).slice().sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
-    if(!raw.length) return;
-    const last={t:raw[0].created_at, paid:raw[0].paid_bytes, unpaid:raw[0].unpaid_bytes};
-
-    /* rows are keyed by the newest timestamp already shown; advance newest before
-       inserting so a thrown row cannot trap the poller in a repeat loop */
-    const tbody=document.getElementById('history-table');
-    if(tbody){
-      const newest=tbody.dataset.newest||null;
-      if(newest===null){
-        tbody.dataset.newest=raw[0].created_at;
-      } else if(new Date(raw[0].created_at)>new Date(newest)){
-        const maxRows=tbody.rows.length;
-        tbody.dataset.newest=raw[0].created_at;
-        raw.filter(r=>new Date(r.created_at)>new Date(newest))
-           .sort((a,b)=>new Date(a.created_at)-new Date(b.created_at))
-           .forEach(r=>epInsertRow(r, raw));
-        while(tbody.rows.length>maxRows) tbody.deleteRow(tbody.rows.length-1);
-      }
-    }
-
-    const n=epDayChangeNodes();
-    if(n.paid) n.paid.textContent=fmtBytes(last.paid);
-    if(n.unpaid) n.unpaid.textContent=fmtBytes(last.unpaid);
-    if(n.total) n.total.textContent=fmtBytes(last.paid+last.unpaid);
-
-    const liveTotal=(d&&d.count)?d.count:raw.length;
-    const liveStart=raw.length?raw[raw.length-1].created_at:'';
-    const liveEnd=raw.length?raw[0].created_at:'';
-    if(typeof updateMetaInfo==='function') updateMetaInfo(liveTotal, liveStart, liveEnd, last.t);
-
-    /* the day cards come from the same full list the table uses, so the initial
-       render and this poll cannot show two different numbers for one day */
-    const cards=paintDayCards(asRows(raw));
-    if(cards.day24!==null && epLastDay!==null && cards.day24>epLastDay){
-      epFlair24h(cards.day24-epLastDay);
-    }
-    epLastDay=cards.day24;
-    const todayBox=document.getElementById('c-today');
-    const todayDay=dayStartMs(last.t);
-    if(epTodayDay!==todayDay){ epTodayDay=todayDay; epLastToday=null; }
-    if(cards.today!==null && epLastToday!==null && cards.today>epLastToday){
-      epFlairBox(todayBox,'+'+fmtBytes(cards.today-epLastToday));
-    }
-    epLastToday=cards.today;
-
     /* rewrite converted wallet figures with current prices, but only when on screen */
     const mount=document.getElementById('theme-mount');
     const wb=mount&&mount.querySelector('[data-ep-bal], .wallet-extra');
@@ -2785,30 +2431,6 @@ setInterval(()=>{ if(!document.hidden){
   if(WALLETROWS && walletPage===1 && document.getElementById('section-wallet')?.classList.contains('active')) loadAllHistory();
 } }, 20000);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) epLiveStats(); });
-
-function epUnpaidGrowth(){
-  const nodes=epUnpaidNodes();
-  if(!nodes.length) return;
-  const now=Math.max.apply(null,nodes.map(n=>n.gb));
-  let prev=null;
-  try{ const raw=localStorage.getItem(EP_UNPAID_KEY); if(raw!==null) prev=parseFloat(raw); }catch(_){}
-  try{ localStorage.setItem(EP_UNPAID_KEY,String(now)); }catch(_){}
-  if(prev===null||!(now>prev+0.05)) return;
-
-  const grew=now-prev;
-  nodes.sort((a,b)=>b.gb-a.gb);
-  const host=nodes[0].el;
-  const cs=getComputedStyle(host);
-  if(cs.position==='static') host.style.position='relative';
-  host.classList.remove('ep-grow-flash'); void host.offsetWidth; host.classList.add('ep-grow-flash');
-
-  let d=host.querySelector('.ep-delta.ep-float.ep-big');
-  if(!d){ d=document.createElement('span'); d.className='ep-delta ep-float ep-big'; host.appendChild(d); }
-  d.textContent='+'+grew.toFixed(1)+' GB';
-  d.style.left='50%';
-  d.style.color='#fde68a';
-  d.classList.remove('show'); void d.offsetWidth; d.classList.add('show');
-}
 
 /* Console, Editorial and Timeline print progress as text. Each gets a slim rule
    under its figure that fills to the current percentage and carries a travelling
@@ -2972,13 +2594,6 @@ document.addEventListener('visibilitychange',()=>{
   else epResume();
 });
 
-function setChartStyle(v){ chartStyle=v; drawCharts(); }
-function setWin(w,btn){
-  windowSel=w;
-  btn.parentElement.querySelectorAll('.btn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active'); drawCharts();
-}
-window.addEventListener('resize',()=>{clearTimeout(window.__rz);window.__rz=setTimeout(drawCharts,180);});
 
 
 /* ---------- hero simulation ------------------------------------------------
@@ -3334,14 +2949,251 @@ function applyTheme(id){
   const ap=document.getElementById('accent-pick');
   if(ap) ap.value=accent||tk.accent;
   renderSwatches();
-  drawCharts();
   savePrefs();
+}
+
+/* Served bytes. The server reports them with a delay, so every figure carries
+   the time it is counted through and how long ago that was.
+   Times are shown in the browser's own timezone. */
+/* A date range next to every epoch, in the browser's timezone. */
+function EPR(e){
+  if(!e||!e.startMillis||!e.endMillis) return '';
+  const d=ms=>new Date(ms).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+  const full=ms=>new Date(ms).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
+  return ' <small class="epr" title="'+full(e.startMillis)+' to '+full(e.endMillis)+'">'+d(e.startMillis)+' \u2013 '+d(e.endMillis)+'</small>';
+}
+function SV_WEEK(){ return (D&&D.served&&D.served.block)?svBytes(D.served.block.blockBytes):'\u2014'; }
+function svBytes(b){
+  if(b===null||b===undefined) return '—';
+  const a=Math.abs(b);
+  if(a>=1e12) return (b/1e12).toFixed(2)+' TB';
+  if(a>=1e9) return (b/1e9).toFixed(2)+' GB';
+  if(a>=1e6) return (b/1e6).toFixed(1)+' MB';
+  if(a>=1e3) return (b/1e3).toFixed(0)+' kB';
+  return Math.round(b)+' B';
+}
+function svRate(bps){ return bps>0 ? svBytes(bps)+'/s' : '—'; }
+const SV_P=n=>String(n).padStart(2,'0');
+/* How long ago a moment was, in the largest two units: "2 h 47 min ago". */
+function svAgo(ms){
+  const m=Math.max(0,Math.round((Date.now()-ms)/60000));
+  if(m<1) return 'just now';
+  if(m<60) return m+' min ago';
+  const h=Math.floor(m/60), r=m%60;
+  if(h<48) return h+' h'+(r?' '+r+' min':'')+' ago';
+  return Math.floor(h/24)+' d ago';
+}
+function svTime(ms){
+  const d=new Date(ms);
+  return SV_P(d.getMonth()+1)+'-'+SV_P(d.getDate())+' '+SV_P(d.getHours())+':'+SV_P(d.getMinutes());
+}
+function svTz(){ try{ return new Intl.DateTimeFormat(undefined,{timeZoneName:'short'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName').value; }catch(e){ return 'local'; } }
+function svDayStart(ms){ const d=new Date(ms); d.setHours(0,0,0,0); return d.getTime(); }
+function svNextDay(ms){ const d=new Date(ms); d.setDate(d.getDate()+1); return d.getTime(); }
+
+/* Bytes per local calendar day, summed from the measured intervals whose as-of
+   end falls in the day. A day the server has not covered completely says how
+   many hours were counted. */
+function svDays(ivs){
+  if(!ivs.length) return [];
+  const newest=ivs[ivs.length-1].toMillis;
+  const out=[];
+  let start=svDayStart(newest);
+  for(let d=0; d<7; d++){
+    const end=svNextDay(start);
+    let bytes=0, counted=0, n=0;
+    ivs.forEach(i=>{
+      if(i.kind==='interval'&&i.bytes!=null&&i.toMillis>start&&i.toMillis<=end){ bytes+=i.bytes; counted+=i.toMillis-i.fromMillis; n++; }
+    });
+    out.push({start:start, today:d===0, bytes:n?bytes:null, hours:counted/3600e3});
+    const prev=new Date(start); prev.setDate(prev.getDate()-1); start=prev.getTime();
+  }
+  return out;
+}
+
+/* Transfer rate: one bar per measured interval, height is bytes per second.
+   Plain elements, so the text stays one size whatever the window width. */
+function svChart(ivs,win){
+  if(!ivs.length) return '<div class="srvd-sub">The rate chart needs two samples. It starts after the next poll.</div>';
+  const to=ivs[ivs.length-1].toMillis;
+  const span={'24h':24*3600e3,'7d':7*24*3600e3}[win];
+  const from=span?to-span:ivs[0].fromMillis;
+  const pts=ivs.filter(i=>i.toMillis>from);
+  if(!pts.length) return '<div class="srvd-sub">No samples in this window.</div>';
+  const max=pts.reduce((m,i)=>Math.max(m,i.kind==='interval'?i.bytesPerSec:0),0)||1;
+  const pct=ms=>Math.max(0,(ms-from))/(to-from)*100;
+  let bars='';
+  pts.forEach(i=>{
+    const left=pct(Math.max(i.fromMillis,from)), width=Math.max(.3,pct(i.toMillis)-left-.25);
+    const tip=svTime(i.fromMillis)+' → '+svTime(i.toMillis)+': ';
+    if(i.kind==='interval'){
+      bars+='<div class="srvd-bar2" style="left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%;height:'+Math.max(1,i.bytesPerSec/max*100).toFixed(1)+'%" title="'+tip+svBytes(i.bytes)+', '+svRate(i.bytesPerSec)+'"></div>';
+    } else {
+      bars+='<div class="srvd-gap" style="left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%" title="'+tip+(i.kind==='rollover'?'new week, not measured':'revised by the server')+'"></div>';
+    }
+  });
+  const grid=[0,.5,1].map(f=>'<div class="srvd-gridline" style="bottom:'+(f*100)+'%"><span>'+(f?svRate(max*f):'0')+'</span></div>').join('');
+  return '<div class="srvd-chart">'+grid+bars+'</div><div class="srvd-axis"><span>'+svTime(from)+'</span><span>'+svTime(to)+'</span></div>';
+}
+
+/* Served per week: one bar per Sunday-to-Sunday week, the whole history. The
+   weeks before the switch come from the old counter, the later ones from the
+   server, and the running week is lighter. */
+function svWeeksChart(weeks,win){
+  if(!weeks||!weeks.length) return '<div class="srvd-sub">No weekly history yet.</div>';
+  const n={'12w':12,'26w':26}[win];
+  const w=n?weeks.slice(-n):weeks;
+  const max=w.reduce((m,x)=>Math.max(m,x.bytes),0)||1;
+  const bars=w.map((x,i)=>{
+    const left=i/w.length*100, width=100/w.length-.4;
+    const day=new Date(x.startMillis).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+    const ep=svEpochOfWeek(x.startMillis);
+    return '<div class="srvd-bar2'+(x.partial?' srvd-part':'')+'" style="left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%;height:'+Math.max(1,x.bytes/max*100).toFixed(1)+'%" title="Week of '+day+': '+svBytes(x.bytes)+(x.partial?' so far':'')+(ep!=null?' \u00b7 counts toward epoch '+ep:'')+'"></div>';
+  }).join('');
+  const grid=[0,.5,1].map(f=>'<div class="srvd-gridline" style="bottom:'+(f*100)+'%"><span>'+(f?svBytes(max*f):'0')+'</span></div>').join('');
+  const first=new Date(w[0].startMillis).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+  const last=new Date(w[w.length-1].startMillis).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+  return '<div class="srvd-chart">'+grid+bars+'</div><div class="srvd-axis"><span>week of '+first+'</span><span>week of '+last+' (running)</span></div>';
+}
+function svSetWeeks(w){ window.__srvdWeeks=w; svFill(); }
+
+/* The window of an epoch: a finalized one from the epoch list, the open one from
+   the newest sample, and the next one projected from the open one's length. */
+function svEpochWindow(n){
+  const D_=D||{}, S=D_.served, b=S&&S.block;
+  const f=(D_.epochs||[]).find(e=>e.epoch===n&&e.startMillis);
+  if(f) return {startMillis:f.startMillis,endMillis:f.endMillis,epoch:n};
+  if(b&&b.epoch!=null&&b.epochStartMillis&&b.epochEndMillis){
+    const len=b.epochEndMillis-b.epochStartMillis;
+    if(n===b.epoch) return {startMillis:b.epochStartMillis,endMillis:b.epochEndMillis,epoch:n};
+    if(n>b.epoch) return {startMillis:b.epochEndMillis+(n-b.epoch-1)*len,endMillis:b.epochEndMillis+(n-b.epoch)*len,epoch:n};
+  }
+  return null;
+}
+function svEpochOfWeek(startMillis){
+  const end=startMillis+7*86400e3;
+  const b=D&&D.served&&D.served.block;
+  const known=[...(D.epochs||[]).filter(e=>e.startMillis)];
+  for(const e of known){ if(end>=e.startMillis&&end<=e.endMillis) return e.epoch; }
+  if(b&&b.epoch!=null&&b.epochStartMillis){
+    const len=b.epochEndMillis-b.epochStartMillis;
+    const k=Math.floor((end-b.epochStartMillis)/len);
+    if(k>=0) return b.epoch+k;
+  }
+  return null;
+}
+function svSetWin(w){ window.__srvdWin=w; svFill(); }
+
+function servedPanelHTML(D,withCards){
+  const S=D&&D.served, tz=svTz();
+  const head='<h3>Served bytes</h3>';
+  if(!S||!S.block){
+    return '<section class="srvd">'+head+'<div class="srvd-sub">No samples yet. The server reports served bytes with a delay, and the first one appears after the next poll.</div></section>';
+  }
+  const b=S.block, win=window.__srvdWin||'24h', wwin=window.__srvdWeeks||'26w';
+  const wbtn=(w,t)=>'<button class="btn btn-sm'+(wwin===w?' active':'')+'" onclick="svSetWeeks(\''+w+'\')">'+t+'</button>';
+  const ivs=(S.intervals||[]);
+  const days=svDays(ivs);
+  const card=(key,k,v,sub)=>'<div class="srvd-card"><div class="srvd-k">'+k+'</div><div class="srvd-v" data-sv="'+key+'">'+v+'</div><div class="srvd-s">'+sub+'</div></div>';
+  let cards=card('block','This week so far (block '+b.blockNumber+')',svBytes(b.blockBytes),'week of '+svTime(b.blockStartMillis)+', counted through '+svTime(b.asOfMillis)+' '+tz+'. Counts toward epoch '+b.blockEpoch+'.');
+  cards+=S.last24h
+    ? card('last24','Last 24 hours',svBytes(S.last24h.bytes),'counted between '+svTime(S.last24h.fromMillis)+' and '+svTime(S.last24h.toMillis)+' '+tz)
+    : card('last24','Last 24 hours','—','needs a sample from a day earlier in the same week. It fills in after the first full day of polling, and not across the start of a new week ('+svTime(b.blockStartMillis)+' '+tz+').');
+  if(b.epochBytes!=null){
+    cards+=card('epoch','Epoch '+b.epoch+' (open)',svBytes(b.epochBytes),'the finished weeks that count toward epoch '+b.epoch+'. This week\'s figure is added to epoch '+b.blockEpoch+', not here.');
+  }
+  const dayCards=days.map((d,i)=>{
+    const dt=new Date(d.start);
+    const label=dt.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})+(d.today?' · latest':'');
+    const sub=d.bytes==null?'no samples':(d.hours>=23.5?'whole day counted':d.hours.toFixed(1)+' h counted');
+    return '<div class="srvd-card"><div class="srvd-k">'+label+'</div><div class="srvd-v" data-sv="day'+i+'">'+(d.bytes==null?'—':'+'+svBytes(d.bytes))+'</div><div class="srvd-s">'+sub+'</div></div>';
+  }).join('');
+  const rows=ivs.slice().reverse().slice(0,24).map(i=>{
+    const span=svTime(i.fromMillis)+' → '+svTime(i.toMillis);
+    const fresh=window.__srvdPrevAsOf&&i.toMillis>window.__srvdPrevAsOf?' class="ep-row-new"':'';
+    if(i.kind==='interval'){
+      return '<tr'+fresh+'><td>'+span+'</td><td class="r">'+svBytes(i.bytes)+'</td><td class="r dim">'+svRate(i.bytesPerSec)+'</td></tr>';
+    }
+    return '<tr'+fresh+'><td>'+span+'</td><td class="dim" colspan="2">'+(i.kind==='rollover'?'new week, not measured':'revised by the server')+'</td></tr>';
+  }).join('');
+  const table=rows?'<table><thead><tr><th>Counted between ('+tz+')</th><th class="r">Served</th><th class="r">Rate</th></tr></thead><tbody>'+rows+'</tbody></table>':'<div class="srvd-sub">One sample so far. Intervals appear once a second one arrives.</div>';
+  const eps=(D.epochs||[]).filter(e=>e.servedBytes!=null).slice(0,12);
+  const epTable=eps.length?'<table><thead><tr><th>Epoch</th><th class="r">Served</th></tr></thead><tbody>'+eps.map(e=>'<tr><td>epoch '+e.epoch+EPR(e)+'</td><td class="r">'+svBytes(e.servedBytes)+'</td></tr>').join('')+'</tbody></table>':'<div class="srvd-sub">No finalized epoch reports served bytes yet.</div>';
+  const btn=(w,t)=>'<button class="btn btn-sm'+(win===w?' active':'')+'" onclick="svSetWin(\''+w+'\')">'+t+'</button>';
+  return '<section class="srvd">'+head+'<div class="srvd-sub">Counted through '+svTime(b.asOfMillis)+' '+tz+' ('+svAgo(b.asOfMillis)+'). The server reports served bytes with a delay, so the newest figure is not live.</div>'+
+    (withCards?'<div class="srvd-cards">'+cards+'</div>':'')+
+    '<div class="srvd-k" style="margin:4px 0 6px">Per day ('+tz+', by the time the server counted it)</div><div class="srvd-days">'+dayCards+'</div>'+
+    '<div class="srvd-head"><div class="srvd-k">Served per week</div><div style="display:flex;gap:4px">'+wbtn('12w','12W')+wbtn('26w','26W')+wbtn('all','ALL')+'</div></div>'+svWeeksChart(S.weeks,wwin)+
+    '<div class="srvd-head" style="margin-top:16px"><div class="srvd-k">Transfer rate</div><div style="display:flex;gap:4px">'+btn('24h','24H')+btn('7d','7D')+btn('all','ALL')+'</div></div>'+svChart(ivs,win)+
+    '<div class="srvd-grid" style="margin-top:14px"><div>'+table+'</div><div><div class="srvd-k" style="margin-bottom:6px">Finalized epochs</div>'+epTable+'</div></div></section>';
+}
+
+/* The three figures that lead the Data Stats tab. */
+function servedTopHTML(D){
+  const S=D&&D.served, tz=svTz();
+  const card=(key,k,v,sub)=>'<div class="card"><div class="label">'+k+'</div><div class="value blue" data-sv="'+key+'">'+v+'</div><div class="sub" style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5">'+sub+'</div></div>';
+  if(!S||!S.block){
+    const w='waiting for the first sample';
+    return card('top-total','Total served','—',w)+card('top-block','Served this week','—',w)+card('top-24','Last 24 hours','—',w)+card('top-epoch','Open epoch','—',w);
+  }
+  const b=S.block, t=S.total;
+  let out=t
+    ? card('top-total','Total served',svBytes(t.bytes),'everything your network has served, counted through '+svTime(b.asOfMillis)+' '+tz+' ('+svAgo(b.asOfMillis)+')')
+    : card('top-total','Total served','—','not reported');
+  const bw=svEpochWindow(b.blockEpoch), ow=(b.epoch!=null)?svEpochWindow(b.epoch):null;
+  const rng=w=>w?' ('+new Date(w.startMillis).toLocaleDateString(undefined,{month:'short',day:'numeric'})+' \u2013 '+new Date(w.endMillis).toLocaleDateString(undefined,{month:'short',day:'numeric'})+')':'';
+  out+=card('top-block','Served this week',svBytes(b.blockBytes),'since '+svTime(b.blockStartMillis)+' '+tz+', counts toward epoch '+b.blockEpoch+rng(bw));
+  out+=S.last24h
+    ? card('top-24','Last 24 hours',svBytes(S.last24h.bytes),'counted through '+svTime(S.last24h.toMillis)+' '+tz)
+    : card('top-24','Last 24 hours','—','fills in after a full day of samples');
+  out+=b.epochBytes!=null
+    ? card('top-epoch','Epoch '+b.epoch+' (open)',svBytes(b.epochBytes),'finished weeks counted so far'+rng(ow))
+    : card('top-epoch','Open epoch','—','not reported');
+  return out;
+}
+
+/* Fill every served slot and pop the figures that changed since the last fill. */
+function svFill(){
+  const slots=document.querySelectorAll('[data-srvd-slot]');
+  if(!slots.length) return;
+  const prev=window.__srvdPrev||{};
+  const now={};
+  const full=servedPanelHTML(D,true), lean=servedPanelHTML(D,false), top=servedTopHTML(D);
+  slots.forEach(el=>{
+    const kind=el.getAttribute('data-srvd-slot');
+    el.innerHTML=kind==='top'?top:(kind==='lean'?lean:full);
+    el.querySelectorAll('[data-sv]').forEach(v=>{
+      const key=v.getAttribute('data-sv'), val=v.textContent;
+      now[key]=val;
+      if(prev[key]!==undefined&&prev[key]!==val){ v.classList.remove('ep-grow-flash'); void v.offsetWidth; v.classList.add('ep-grow-flash'); }
+    });
+  });
+  window.__srvdPrev=now;
+  const S=D&&D.served;
+  const lu=document.getElementById('last-updated');
+  if(lu&&S&&S.block) lu.textContent=svTime(S.block.asOfMillis)+' '+svTz()+' ('+svAgo(S.block.asOfMillis)+')';
+  /* Bars grow in when the chart is drawn for the first time or its window changes.
+     When a new sample arrives, only the newest bars pop. A refresh that changed
+     nothing does not move anything. */
+  const sig=(S&&S.block?S.block.asOfMillis:0)+'|'+(window.__srvdWin||'24h')+'|'+(window.__srvdWeeks||'26w');
+  const prevSig=window.__srvdSig;
+  const fresh=prevSig!==undefined&&prevSig.split('|')[0]!==sig.split('|')[0];
+  slots.forEach(el=>{
+    el.querySelectorAll('.srvd').forEach(root=>{
+      if(prevSig===undefined||prevSig.split('|').slice(1).join('|')!==sig.split('|').slice(1).join('|')) root.classList.add('srvd-grow');
+      if(fresh) root.querySelectorAll('.srvd-bar2:last-child').forEach(b=>b.classList.add('srvd-pop'));
+    });
+  });
+  window.__srvdSig=sig;
+  if(S&&S.block) window.__srvdPrevAsOf=S.block.asOfMillis;
 }
 
 function renderMountedTheme(){
   const t=(window.URTHEMES||{})[currentTheme]; if(!t) return;
   const mount=document.getElementById('theme-mount'); if(!mount) return;
   mount.innerHTML=t.render(D);
+  mount.insertAdjacentHTML('beforeend', '<div data-srvd-slot></div>');
+  svFill();
   setTimeout(enhanceEpochBar, 0);
   setTimeout(enhanceOrbit, 0);
   setTimeout(epWalletBalance, 0);
@@ -3402,7 +3254,6 @@ loadPrefs();
 applyTheme(currentTheme||'legacy');
 updateEpochSub();
 /* refresh and back land where you were, not on the first section */
-setTimeout(epUnpaidGrowth, 400);
 setTimeout(epLiveStats, 1200);
 setTimeout(refreshDashData, 2000);
 (function restoreSection(){
@@ -3418,9 +3269,78 @@ setHeroMode('band');
 startHeroSim();
 { const n=document.getElementById('hero-net-name'); if(n) n.textContent=D.networkName||'network';
   const w=document.getElementById('net-name'); if(w) w.textContent=D.networkName||'—'; }
-if(document.getElementById('section-wallet').classList.contains('active')) drawCharts();
 
 /* ---------- webhook formats ---------- */
+/* The examples are written once with made-up figures and the old wording. Fill
+   them from the real latest interval and the browser's timezone before they are
+   shown, so an example is what the alert would say. */
+const UF_ORIG=Object.values(window.URFORMATS||{}).map(f=>({id:f.id,html:f.html,payload:f.payload,note:f.note}));
+function ufLocalize(sample){
+  const words=[
+    [/Total Unpaid/g,'Week so far'],[/the unpaid total/g,'the week-so-far total'],[/Unpaid total/g,'Week so far'],[/unpaid in total/g,'so far this week'],
+    [/Total unpaid is now/g,'The week so far is'],[/The unpaid total is/g,'The week so far is'],[/Total unpaid/g,'Week so far'],
+    [/of unpaid traffic/g,'of traffic'],[/Unpaid(\s+)/g,'This week$1'],[/At \(UTC\)/g,'Counted through'],
+    [/Window closed/g,'Counted through'],[/Window time:/g,'Counted through'],[/Window:/g,'Counted through:'],[/\*\*At\*\*/g,'**Counted through**'],[/>At</g,'>Counted through<']
+  ];
+  const real=!!sample;
+  Object.values(window.URFORMATS||{}).forEach(f=>{
+    const o=UF_ORIG.find(x=>x.id===f.id); if(!o) return;
+    const fix=str=>{
+      if(typeof str!=='string') return str;
+      str=str.replace(/[\u00a0\u202f]/g,' ');
+      words.forEach(([a,b])=>{ str=str.replace(a,b); });
+      if(!real){ str=str.replace(/01:15:01 UTC/g,'a moment ago').replace(/01:15:01/g,'now').replace(/in 15 min\b/g,'in the last poll window').replace(/last 15 minutes/g,'last poll window').replace(/in 15 minutes/g,'in the last poll window').replace(/Period: 15 minutes/g,'Period: one poll window').replace(/15m Delta/g,'Window Delta').replace(/15m delta/g,'Window delta').replace(/15m window/g,'poll window'); }
+      if(real){
+        str=str.replace(/\+1\.45 GB/g,'+'+sample.deltaGB.toFixed(2)+' GB').replace(/1\.45 GB/g,sample.deltaGB.toFixed(2)+' GB')
+               .replace(/742\.29 GB/g,sample.totalGB.toFixed(2)+' GB')
+               .replace(/01:15:01 UTC/g,sample.clock).replace(/01:15:01/g,sample.clock)
+               .replace(/last 15 minutes/g,'last '+sample.span).replace(/in 15 minutes/g,'in '+sample.span).replace(/Period: 15 minutes/g,'Period: '+sample.span)
+               .replace(/in 15 min\b/g,'in '+sample.span).replace(/15m Delta/g,sample.span+' Delta').replace(/15m delta/g,sample.span+' delta').replace(/15m window/g,sample.span+' interval')
+               .replace(/1793495701/g,String(sample.unix)).replace(/2026-11-01T01:15:01\.000Z/g,sample.iso);
+      }
+      return str;
+    };
+    f.html=fix(o.html); f.payload=fix(o.payload); f.note=fix(o.note);
+    const body=sample&&sample.bodies&&sample.bodies[f.id];
+    if(body){
+      let obj=null; try{ obj=JSON.parse(body); }catch(_){}
+      if(obj&&typeof obj.content==='string'){
+        f.payload=obj.content;
+        const m=obj.content.match(/```(?:ansi)?\n([\s\S]*?)\n```/);
+        if(m&&(f.id==='box-table'||f.id==='ascii-table')){
+          const esc2=t=>t.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+          f.html=f.html.replace(/(<pre[^>]*>)[\s\S]*?(<\/pre>)/,(_,a,b)=>a+esc2(m[1])+b);
+        }
+        if(m&&f.id==='ansi'){
+          const colors={30:'#4f545c',31:'#dc322f',32:'#8ccf5a',33:'#b58900',34:'#268bd2',35:'#d33682',36:'#4ec9c0',37:'#f2f3f5'};
+          let out='', color='#dbdee1';
+          m[1].split(/(\u001b\[[0-9;]*m)/).forEach(part=>{
+            const c=part.match(/^\u001b\[([0-9;]*)m$/);
+            if(c){ const codes=c[1].split(';').map(Number); const col=codes.filter(n=>n>=30&&n<=37).pop(); color=col?colors[col]:(codes.includes(0)&&!col?'#dbdee1':color); }
+            else out+='<span style="color:'+color+'">'+part.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</span>';
+          });
+          f.html=f.html.replace(/(<pre[^>]*>)[\s\S]*?(<\/pre>)/,(_,a,b)=>a+out+b);
+        }
+      } else if(obj&&obj.embeds){
+        f.payload=body;
+      }
+    }
+  });
+}
+async function ufRefreshSample(){
+  try{
+    const r=await fetch('/api/alert-sample',{cache:'no-store'});
+    if(r.ok){
+      const s=await r.json();
+      ufLocalize(s);
+      const d=new Date((s.unix||Math.floor(Date.now()/1000))*1000);
+      const hhmm=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+      document.querySelectorAll('.who .ts').forEach(e=>{ e.textContent='today at '+hhmm; });
+    }
+    if(typeof whRender==='function') whRender();
+  }catch(_){ ufLocalize(null); }
+}
+ufLocalize(null);
 const FORMATS=Object.values(window.URFORMATS||{});
 const tiles=document.getElementById('wh-tiles');
 FORMATS.sort((a,b)=>a.id===('box-table')?-1:b.id===('box-table')?1:0);
@@ -3489,6 +3409,18 @@ function whRender(){
 }
 whRender();
 initWebhookStyle();
+/* Tell the server which timezone this browser is in, so the text alerts it
+   sends are in the same clock the page shows. Sent once per session and when
+   the zone changes. */
+(function(){
+  let tz=''; try{ tz=Intl.DateTimeFormat().resolvedOptions().timeZone||''; }catch(_){}
+  if(!tz) return;
+  let sent=''; try{ sent=sessionStorage.getItem('urwebdash.tz')||''; }catch(_){}
+  if(sent===tz) return;
+  fetch('/api/timezone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({timezone:tz})})
+    .then(r=>{ if(r.ok){ try{ sessionStorage.setItem('urwebdash.tz',tz); }catch(_){} ufRefreshSample(); } }).catch(()=>{});
+})();
+ufRefreshSample();
 /* these posted nothing: the button spun and reset, so a test "passed" without a
    request leaving the browser. They now call the endpoints the server already
    has, and report what came back. */
@@ -3585,6 +3517,7 @@ async function loadSpikeThreshold(){
     const d=await res.json();
     const cur=document.getElementById('spike-current');
     if(cur&&d&&d.threshold_gb!==undefined) cur.textContent=d.threshold_gb.toFixed(1)+' GB';
+    const ww=document.getElementById('wh-window'); if(ww&&d&&d.window) ww.textContent=d.window;
   }catch(_){}
 }
 async function whSave(btn){

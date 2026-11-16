@@ -52,11 +52,14 @@ type dashPoints struct {
 }
 
 type dashEpochRow struct {
-	Epoch      int64    `json:"epoch"`
-	Points     float64  `json:"points"`
-	ShareBps   int64    `json:"shareBps"`
-	Alpha      *float64 `json:"alpha"`
-	Settlement string   `json:"settlement"`
+	Epoch       int64    `json:"epoch"`
+	Points      float64  `json:"points"`
+	ShareBps    int64    `json:"shareBps"`
+	Alpha       *float64 `json:"alpha"`
+	Settlement  string   `json:"settlement"`
+	ServedBytes *int64   `json:"servedBytes"`
+	StartMillis int64    `json:"startMillis"`
+	EndMillis   int64    `json:"endMillis"`
 }
 
 type dashWallet struct {
@@ -128,6 +131,7 @@ type dashData struct {
 	Price       dashPrice          `json:"price"`
 	FX          map[string]float64 `json:"fx"`
 	FXSymbols   map[string]string  `json:"fxSymbols"`
+	Served      servedPayload      `json:"served"`
 }
 
 type dashSample struct {
@@ -178,12 +182,19 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 	}
 	d.NetworkName = networkNameFromJWT(token)
 	d.Epochs = []dashEpochRow{}
+	d.Served = servedPayload{Intervals: []servedInterval{}, Weeks: []servedWeek{}}
+	if db != nil {
+		if sp, err := buildServedPayload(db); err == nil {
+			d.Served = sp
+		}
+	}
 	h := dashHist{Series: []dashSample{}, Recent: []dashRecent{}}
 	pays := []dashPay{}
 
 	/* traffic: newest sample plus the series the charts draw */
 	if db != nil {
-		rows, err := db.Query("SELECT paid_bytes, unpaid_bytes, created_at, updated_at FROM wallet_stats ORDER BY created_at ASC")
+		cut := archiveEnd(db)
+		rows, err := db.Query("SELECT paid_bytes, unpaid_bytes, created_at, updated_at FROM wallet_stats WHERE (? = '' OR created_at <= ?) ORDER BY created_at ASC", cut, cut)
 		if err == nil {
 			var samples []dashRecent
 			for rows.Next() {
@@ -267,7 +278,8 @@ func buildDashData(db *sql.DB, token string) (dashData, dashHist, []dashPay) {
 		}
 		d.Epochs = append(d.Epochs, dashEpochRow{
 			Epoch: e.Epoch, Points: e.Points, ShareBps: e.ShareBps,
-			Alpha: e.Alpha, Settlement: e.Settlement,
+			Alpha: e.Alpha, Settlement: e.Settlement, ServedBytes: e.ServedBytes,
+			StartMillis: e.StartMillis, EndMillis: e.EndMillis,
 		})
 	}
 	d.Points = dashPoints{
