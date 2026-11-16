@@ -1452,7 +1452,7 @@ func TestPollWindow_CustomCadences(t *testing.T) {
 
 func TestCleanupDBKeepsWindowSamples(t *testing.T) {
 	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "test.db"))
-	t.Setenv("STATS_INTERVAL", "")
+	t.Setenv("STATS_INTERVAL", "15m") // the rows below sit on a 15-minute grid
 	db, err := openDB()
 	if err != nil {
 		t.Fatal(err)
@@ -2389,11 +2389,17 @@ func TestIndexHTML_DynamicDataPointsAndTBUnits(t *testing.T) {
 	if !strings.Contains(indexHTML, `id="data-points"`) {
 		t.Fatalf("indexHTML missing id=\"data-points\" element")
 	}
-	if !strings.Contains(indexHTML, `id="paid-chart-title"`) {
-		t.Fatalf("indexHTML missing dynamic paid chart title")
+	// the paid and unpaid charts were replaced by the weekly served chart, so a
+	// canvas for them must not come back and read counters that stopped
+	for _, gone := range []string{`id="paid-chart"`, `id="unpaid-chart"`, `id="c-unpaid"`, `id="c-24h"`, `chart.js`} {
+		if strings.Contains(indexHTML, gone) {
+			t.Errorf("indexHTML still has the dead component %s", gone)
+		}
 	}
-	if !strings.Contains(indexHTML, `id="unpaid-chart-title"`) {
-		t.Fatalf("indexHTML missing dynamic unpaid chart title")
+	for _, want := range []string{"svWeeksChart", "servedTopHTML", "Total served"} {
+		if !strings.Contains(indexHTML, want) {
+			t.Errorf("indexHTML missing %s", want)
+		}
 	}
 	if !strings.Contains(indexHTML, `<option value="MXN">MXN</option>`) {
 		t.Fatalf("indexHTML missing MXN currency option")
@@ -2414,5 +2420,27 @@ func TestIndexHTML_ThemesRenderEpochAlpha(t *testing.T) {
 	}
 	if !strings.Contains(indexHTML, "p.points == null") {
 		t.Error("payout table does not read p.points")
+	}
+}
+
+// Rows from the old 15 minute default are history. The one-hour default must
+// not treat them as strays.
+func TestCleanupDBKeepsTheLegacyQuarterHourGrid(t *testing.T) {
+	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "legacy.db"))
+	t.Setenv("STATS_INTERVAL", "")
+	db, err := openDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	today := time.Now().UTC().Format("2006-01-02")
+	for _, ts := range []string{"T04:00:00Z", "T04:15:00Z", "T04:30:00Z", "T04:45:00Z", "T05:07:00Z"} {
+		db.Exec("INSERT INTO wallet_stats(paid_bytes, unpaid_bytes, created_at, updated_at) VALUES(1,1,?,?)", today+ts, today+ts)
+	}
+	cleanupDB()
+	var n int
+	db.QueryRow("SELECT count(*) FROM wallet_stats").Scan(&n)
+	if n != 4 {
+		t.Fatalf("rows left = %d, want the four grid rows kept and the 05:07 stray removed", n)
 	}
 }

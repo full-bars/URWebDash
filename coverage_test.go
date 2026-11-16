@@ -186,8 +186,8 @@ func TestPollWindow_IntervalShorterAndLongerThanOffset(t *testing.T) {
 
 func TestStatsInterval_Default(t *testing.T) {
 	t.Setenv("STATS_INTERVAL", "")
-	if got := statsInterval(); got != 15*time.Minute {
-		t.Fatalf("statsInterval() = %v, want default 15m", got)
+	if got := statsInterval(); got != time.Hour {
+		t.Fatalf("statsInterval() = %v, want default 1h", got)
 	}
 }
 
@@ -201,8 +201,8 @@ func TestStatsInterval_ValidOverride(t *testing.T) {
 func TestStatsInterval_TooSmallIgnored(t *testing.T) {
 	for _, val := range []string{"30s", "0s", "59s", "-1m"} {
 		t.Setenv("STATS_INTERVAL", val)
-		if got := statsInterval(); got != 15*time.Minute {
-			t.Fatalf("statsInterval() with %q = %v, want default 15m", val, got)
+		if got := statsInterval(); got != time.Hour {
+			t.Fatalf("statsInterval() with %q = %v, want default 1h", val, got)
 		}
 	}
 }
@@ -210,8 +210,8 @@ func TestStatsInterval_TooSmallIgnored(t *testing.T) {
 func TestStatsInterval_GarbageIgnored(t *testing.T) {
 	for _, val := range []string{"invalid", "not-a-duration", "15minutes", "foo"} {
 		t.Setenv("STATS_INTERVAL", val)
-		if got := statsInterval(); got != 15*time.Minute {
-			t.Fatalf("statsInterval() with %q = %v, want default 15m", val, got)
+		if got := statsInterval(); got != time.Hour {
+			t.Fatalf("statsInterval() with %q = %v, want default 1h", val, got)
 		}
 	}
 }
@@ -224,7 +224,7 @@ func TestStatsInterval_GarbageIgnored(t *testing.T) {
 // or failed to constrain deletion to today's date boundary.
 func TestCleanupDB_RemovesOffScheduleTodayKeepsYesterday(t *testing.T) {
 	t.Setenv("STATS_DB", filepath.Join(t.TempDir(), "cleanup_test.db"))
-	t.Setenv("STATS_INTERVAL", "") // default 15m -> 900s interval
+	t.Setenv("STATS_INTERVAL", "15m") // an explicit 15m -> 900s interval
 	db, err := openDB()
 	if err != nil {
 		t.Fatalf("openDB: %v", err)

@@ -148,7 +148,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "no webhook URL configured")
 			os.Exit(1)
 		}
-		body, _ := json.Marshal(map[string]string{"content": "🛫 **Traffic Spike**\n```\n┌──────────────────────┬────────────┐\n├──────────────────────┼────────────┤\n│ 15m Delta            │   +1.45 GB │\n│ Total Unpaid         │  742.29 GB │\n│ At (UTC)             │   01:15:01 │\n└──────────────────────┴────────────┘\n```"})
+		body := []byte(sampleAlertBody(""))
 		resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "POST error: %v\n", err)
@@ -925,6 +925,19 @@ func runPolling() {
 		return windowStart
 	}
 
+	// The served-byte figures are fetched on their own schedule, one poll per
+	// window, so a slow request there can never push the stats poll past the
+	// boundary of its window.
+	go func() {
+		for {
+			if err := pollServed(db, token); err != nil {
+				fmt.Printf("[served] poll: %v\n", err)
+			}
+			_, next := pollWindow(time.Now().UTC(), interval)
+			time.Sleep(max(time.Until(next), time.Second))
+		}
+	}()
+
 	// Immediate first poll so the dashboard has data right away.
 	update()
 
@@ -1063,12 +1076,18 @@ func cleanupDB() {
 		ivSec = 1
 	}
 
+	// The grid the poller used before the default became one hour is still a
+	// valid grid: those rows are history, not strays. A row is kept when it
+	// sits on the configured grid or on the 15-minute grid.
+	const legacyGridSec = 15 * 60
+
 	today := time.Now().UTC().Format("2006-01-02")
 	res, err := db.Exec(
-		"DELETE FROM wallet_stats WHERE created_at >= ? AND created_at < ? AND (CAST(strftime('%s', created_at) AS INTEGER) % ? != 0)",
+		"DELETE FROM wallet_stats WHERE created_at >= ? AND created_at < ? AND (CAST(strftime('%s', created_at) AS INTEGER) % ? != 0) AND (CAST(strftime('%s', created_at) AS INTEGER) % ? != 0)",
 		today+"T00:00:00Z",
 		today+"T24:00:00Z",
 		ivSec,
+		legacyGridSec,
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cleanup: %v\n", err)
@@ -1141,6 +1160,10 @@ func serveHTTP(port string) {
 	mux.HandleFunc("/api/spike-threshold", handleSpikeThreshold)
 	mux.HandleFunc("/api/webhook-style", handleWebhookStyle)
 	mux.HandleFunc("/api/epochs", handleEpochs(db, token))
+	mux.HandleFunc("/api/timezone", handleTimezone)
+	mux.HandleFunc("/api/served", handleServed(db))
+	mux.HandleFunc("/api/alert-sample", handleAlertSample(db))
+	alertSampleSource = func() (alertSample, error) { return buildAlertSample(db) }
 	mux.HandleFunc("/api/price", handlePrice)
 	mux.HandleFunc("/api/price-history", handlePriceHistory)
 	mux.HandleFunc("/api/dash-data", handleDashData(db, token))
@@ -1193,7 +1216,9 @@ func handleWalletStats(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		rows, err := db.Query("SELECT paid_bytes, unpaid_bytes, created_at, updated_at FROM wallet_stats ORDER BY created_at ASC")
+		// the archive ends at the transition, so pages of zeros do not bury it
+		cut := archiveEnd(db)
+		rows, err := db.Query("SELECT paid_bytes, unpaid_bytes, created_at, updated_at FROM wallet_stats WHERE (? = '' OR created_at <= ?) ORDER BY created_at ASC", cut, cut)
 		if err != nil {
 			jsonError(w, err.Error())
 			return
@@ -1227,7 +1252,7 @@ func handleWalletStats(db *sql.DB) http.HandlerFunc {
 		}
 
 		var totalCount int
-		db.QueryRow("SELECT COUNT(*) FROM wallet_stats").Scan(&totalCount)
+		db.QueryRow("SELECT COUNT(*) FROM wallet_stats WHERE (? = '' OR created_at <= ?)", cut, cut).Scan(&totalCount)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1627,10 +1652,13 @@ func pollWindow(t time.Time, interval time.Duration) (start, end time.Time) {
 	return start, start.Add(interval)
 }
 
-// statsInterval returns the polling cadence from STATS_INTERVAL (default 15m,
-// minimum 1m), matching the ALWAYS-used start of the poller loop.
+// statsInterval returns the polling cadence from STATS_INTERVAL (default 1h,
+// minimum 1m), matching the ALWAYS-used start of the poller loop. The default
+// is an hour because the server now reports served bytes on an hourly rollup,
+// two to three hours behind live traffic. Fifteen-minute windows no longer
+// carry data. An explicit STATS_INTERVAL still wins.
 func statsInterval() time.Duration {
-	const def = 15 * time.Minute
+	const def = time.Hour
 	if s := os.Getenv("STATS_INTERVAL"); s != "" {
 		if d, err := time.ParseDuration(s); err == nil && d >= time.Minute {
 			return d
@@ -1807,8 +1835,8 @@ func formatSpikeAlert(style string, span time.Duration, deltaGB, totalGB float64
 				"color": 5793266,
 				"fields": []map[string]any{
 					{"name": spanLabel(span) + " Delta", "value": fmt.Sprintf("+%.2f GB", deltaGB), "inline": true},
-					{"name": "Total unpaid", "value": fmt.Sprintf("%.2f GB", totalGB), "inline": true},
-					{"name": "At (UTC)", "value": now.UTC().Format("15:04:05"), "inline": true},
+					{"name": "Week so far", "value": fmt.Sprintf("%.2f GB", totalGB), "inline": true},
+					{"name": "Counted through", "value": alertClock(now), "inline": true},
 				},
 				"footer": map[string]any{"text": fmt.Sprintf("URWebDash · spike threshold %.2f GB", float64(spikeThreshold())/1e9)},
 			}},
@@ -1819,9 +1847,9 @@ func formatSpikeAlert(style string, span time.Duration, deltaGB, totalGB float64
 		body := map[string]any{
 			"embeds": []map[string]any{{
 				"title":       fmt.Sprintf("🛫 +%.2f GB in %s", deltaGB, spanLabel(span)),
-				"description": fmt.Sprintf("**%.2f GB** unpaid in total", totalGB),
+				"description": fmt.Sprintf("**%.2f GB** so far this week", totalGB),
 				"color":       6523900,
-				"footer":      map[string]any{"text": fmt.Sprintf("%s window · %s UTC", spanLabel(span), now.UTC().Format("15:04:05"))},
+				"footer":      map[string]any{"text": fmt.Sprintf("%s interval · counted through %s", spanLabel(span), alertClock(now))},
 				"timestamp":   now.UTC().Format(time.RFC3339),
 			}},
 		}
@@ -1831,7 +1859,7 @@ func formatSpikeAlert(style string, span time.Duration, deltaGB, totalGB float64
 		body := map[string]any{
 			"embeds": []map[string]any{{
 				"title":       "🛫 Traffic spike",
-				"description": fmt.Sprintf("**+%.2f GB** in the last %s. The unpaid total is **%.2f GB**. Window time: %s UTC.", deltaGB, spanLabel(span), totalGB, now.UTC().Format("15:04:05")),
+				"description": fmt.Sprintf("**+%.2f GB** in the last %s. The week so far is **%.2f GB**. Counted through %s.", deltaGB, spanLabel(span), totalGB, alertClock(now)),
 				"color":       12810666,
 			}},
 		}
@@ -1849,8 +1877,8 @@ func formatSpikeAlert(style string, span time.Duration, deltaGB, totalGB float64
 				"+------------------+------------+\n"+
 				"```",
 			leftCell, fmt.Sprintf("+%.2f GB", deltaGB),
-			"Total Unpaid", fmt.Sprintf("%.2f GB", totalGB),
-			"At (UTC)", now.UTC().Format("15:04:05"),
+			"Week so far", fmt.Sprintf("%.2f GB", totalGB),
+			"Counted through", alertClock(now),
 		)
 		b, _ := json.Marshal(map[string]string{"content": content})
 		return string(b)
@@ -1858,11 +1886,11 @@ func formatSpikeAlert(style string, span time.Duration, deltaGB, totalGB float64
 		content := fmt.Sprintf(
 			"🛫 **Traffic Spike**\n"+
 				"**%s Delta** · +%.2f GB\n"+
-				"**Total Unpaid** · %.2f GB\n"+
-				"**At** · %s UTC",
+				"**Week so far** · %.2f GB\n"+
+				"**Counted through** · %s",
 			spanLabel(span), deltaGB,
 			totalGB,
-			now.UTC().Format("15:04:05"),
+			alertClock(now),
 		)
 		b, _ := json.Marshal(map[string]string{"content": content})
 		return string(b)
@@ -1870,11 +1898,11 @@ func formatSpikeAlert(style string, span time.Duration, deltaGB, totalGB float64
 		content := fmt.Sprintf(
 			"🛫 **Traffic spike**\n"+
 				"> **+%.2f GB** in %s\n"+
-				"> Unpaid total: %.2f GB\n"+
-				"> Window: %s UTC",
+				"> Week so far: %.2f GB\n"+
+				"> Counted through: %s",
 			deltaGB, spanLabel(span),
 			totalGB,
-			now.UTC().Format("15:04:05"),
+			alertClock(now),
 		)
 		b, _ := json.Marshal(map[string]string{"content": content})
 		return string(b)
@@ -1882,20 +1910,20 @@ func formatSpikeAlert(style string, span time.Duration, deltaGB, totalGB float64
 		content := fmt.Sprintf(
 			"**🛫 Traffic spike · +%.2f GB**\n"+
 				"- Period: %s\n"+
-				"- Unpaid total: %.2f GB\n"+
-				"- Window: %s UTC",
+				"- Week so far: %.2f GB\n"+
+				"- Counted through: %s",
 			deltaGB,
 			spanLabel(span),
 			totalGB,
-			now.UTC().Format("15:04:05"),
+			alertClock(now),
 		)
 		b, _ := json.Marshal(map[string]string{"content": content})
 		return string(b)
 	case "local-clock":
 		unix := now.UTC().Unix()
 		content := fmt.Sprintf(
-			"🛫 **+%.2f GB** of unpaid traffic in the last %s. Total unpaid is now **%.2f GB**.\n"+
-				"-# Window closed <t:%d:T> (<t:%d:R>)",
+			"🛫 **+%.2f GB** of traffic in the last %s. The week so far is **%.2f GB**.\n"+
+				"-# Counted through <t:%d:T> (<t:%d:R>)",
 			deltaGB, spanLabel(span), totalGB,
 			unix, unix,
 		)
@@ -1905,10 +1933,10 @@ func formatSpikeAlert(style string, span time.Duration, deltaGB, totalGB float64
 		e := "\x1b["
 		r0Label := (spanLabel(span) + " delta          ")[:10]
 		r0Val := fmt.Sprintf("%9s", fmt.Sprintf("+%.2f GB", deltaGB))
-		r1Label := ("Unpaid          ")[:10]
+		r1Label := ("This week       ")[:10]
 		r1Val := fmt.Sprintf("%9s", fmt.Sprintf("%.2f GB", totalGB))
-		r2Label := ("At (UTC)        ")[:10]
-		r2Val := fmt.Sprintf("%9s", now.UTC().Format("15:04:05"))
+		r2Label := ("Through         ")[:10]
+		r2Val := fmt.Sprintf("%9s", alertClock(now))
 
 		ansiBody := fmt.Sprintf(
 			"%s0;37m%s%s1;32m%s%s0m\n"+
@@ -1934,8 +1962,8 @@ func formatSpikeAlert(style string, span time.Duration, deltaGB, totalGB float64
 				"└──────────────────────┴────────────┘\n"+
 				"```",
 			leftCell, fmt.Sprintf("+%.2f GB", deltaGB),
-			"Total Unpaid", fmt.Sprintf("%.2f GB", totalGB),
-			"At (UTC)", now.UTC().Format("15:04:05"),
+			"Week so far", fmt.Sprintf("%.2f GB", totalGB),
+			"Counted through", alertClock(now),
 		)
 		b, _ := json.Marshal(map[string]string{"content": content})
 		return string(b)
@@ -2191,7 +2219,26 @@ func sampleAlertBody(style string) string {
 	if style == "" {
 		style = webhookStyle()
 	}
-	return formatSpikeAlert(style, 15*time.Minute, 1.45, 742.29, time.Now().UTC())
+	// With served-byte samples, the test message carries the latest real interval.
+	// Without any, it carries labelled example figures.
+	if alertSampleSource != nil {
+		if a, err := alertSampleSource(); err == nil {
+			return formatSpikeAlert(style, parseSpanLabel(a.Span), a.DeltaGB, a.TotalGB, time.Unix(a.Unix, 0))
+		}
+	}
+	return formatSpikeAlert(style, statsInterval(), 1.45, 742.29, time.Now().UTC())
+}
+
+// alertSampleSource is set once the database is open. It stays nil in tools
+// that only format alerts.
+var alertSampleSource func() (alertSample, error)
+
+// parseSpanLabel reverses spanLabel for the sample, which carries the label.
+func parseSpanLabel(l string) time.Duration {
+	if d, err := time.ParseDuration(l); err == nil {
+		return d
+	}
+	return 15 * time.Minute
 }
 
 // sanitizePreview drops ANSI escape sequences from a preview payload. Discord
@@ -2298,6 +2345,7 @@ func handleSpikeThreshold(w http.ResponseWriter, r *http.Request) {
 		bytes := spikeThreshold() // respects env, file, default 1GB
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"threshold_gb": float64(bytes) / 1e9,
+			"window":       windowWords(statsInterval()),
 			"source":       source,
 			"configured":   source != "",
 		})
@@ -2328,7 +2376,7 @@ func handleSpikeThreshold(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		fmt.Printf("[webhook] spike threshold saved to %s (%.2f GB)\n", path, req.ThresholdGB)
-		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "configured": true, "threshold_gb": req.ThresholdGB})
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "configured": true, "threshold_gb": req.ThresholdGB, "window": windowWords(statsInterval())})
 	default:
 		http.Error(w, "method not allowed", 405)
 	}

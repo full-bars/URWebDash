@@ -60,6 +60,8 @@ type epochView struct {
 	StartMillis int64    `json:"start_millis"`
 	EndMillis   int64    `json:"end_millis"`
 	Finalized   int64    `json:"finalized"`
+	/* bytes served that the epoch's points are shared by; nil until reported */
+	ServedBytes *int64 `json:"served_bytes"`
 }
 
 // snEpoch is the live epoch's block geometry.
@@ -94,7 +96,12 @@ type epochAPIAccount struct {
 		SettlementV  string  `json:"settlement_version"`
 		AlphaRao     *int64  `json:"alpha_rao"`
 		BlockchainID string  `json:"blockchain_id"`
+		/* bytes served that the epoch's operator-block points are shared by;
+		   absent from a server that predates the field */
+		ServedByteCount *int64 `json:"served_byte_count"`
 	} `json:"epochs"`
+	CurrentEpoch *servedEpochWire `json:"current_epoch"`
+	CurrentBlock *servedBlockWire `json:"current_block"`
 }
 
 func ensureEpochSchema(db *sql.DB) error {
@@ -149,7 +156,7 @@ func ensureEpochSchema(db *sql.DB) error {
 		time.Now().UnixMilli()); err != nil {
 		return fmt.Errorf("epoch schema: backfill finalized: %w", err)
 	}
-	return nil
+	return ensureServedSchema(db)
 }
 
 func addColumnIfMissing(db *sql.DB, table, col, decl string) error {
@@ -162,6 +169,12 @@ func addColumnIfMissing(db *sql.DB, table, col, decl string) error {
 		return nil
 	}
 	if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + col + ` ` + decl); err != nil {
+		/* the poller and the server start together and share one database, so
+		   the other process can add the column between the check and the ALTER.
+		   The column is then there, which is what was asked for. */
+		if strings.Contains(err.Error(), "duplicate column name") {
+			return nil
+		}
 		return fmt.Errorf("epoch schema: add %s.%s: %w", table, col, err)
 	}
 	return nil
@@ -274,7 +287,7 @@ func readEpochs(db *sql.DB, limit int) ([]epochView, error) {
 		limit = 104
 	}
 	rows, err := db.Query(`SELECT epoch, points, share_bps, alpha_rao, settlement,
-		start_millis, end_millis, finalized FROM epoch_stats ORDER BY epoch DESC LIMIT ?`, limit)
+		start_millis, end_millis, finalized, served_bytes FROM epoch_stats ORDER BY epoch DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -283,9 +296,14 @@ func readEpochs(db *sql.DB, limit int) ([]epochView, error) {
 	for rows.Next() {
 		var r epochView
 		var alpha sql.NullFloat64
+		var served sql.NullInt64
 		if err := rows.Scan(&r.Epoch, &r.Points, &r.ShareBps, &alpha, &r.Settlement,
-			&r.StartMillis, &r.EndMillis, &r.Finalized); err != nil {
+			&r.StartMillis, &r.EndMillis, &r.Finalized, &served); err != nil {
 			return nil, err
+		}
+		if served.Valid {
+			v := served.Int64
+			r.ServedBytes = &v
 		}
 		if alpha.Valid {
 			/* stored as rao; everything above this layer speaks alpha */
@@ -333,11 +351,23 @@ func fetchJSON(rawURL, token string, out interface{}) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func fetchEpochs(token string, firstV2 int64) ([]epochRow, error) {
+// fetchAccountEpochs reads /account/epochs once: the finalized epochs and, from
+// a server that has them, the running figures of the open epoch and block.
+func fetchAccountEpochs(token string, limit int) (epochAPIAccount, error) {
 	var acc epochAPIAccount
-	if err := fetchJSON(coordBaseURL+"/account/epochs?limit=104", token, &acc); err != nil {
+	err := fetchJSON(fmt.Sprintf("%s/account/epochs?limit=%d", coordBaseURL, limit), token, &acc)
+	return acc, err
+}
+
+func fetchEpochs(token string, firstV2 int64) ([]epochRow, error) {
+	acc, err := fetchAccountEpochs(token, 104)
+	if err != nil {
 		return nil, err
 	}
+	return epochRowsFrom(acc, firstV2), nil
+}
+
+func epochRowsFrom(acc epochAPIAccount, firstV2 int64) []epochRow {
 	out := make([]epochRow, 0, len(acc.Epochs))
 	for _, e := range acc.Epochs {
 		r := epochRow{
@@ -354,7 +384,7 @@ func fetchEpochs(token string, firstV2 int64) ([]epochRow, error) {
 		}
 		out = append(out, r)
 	}
-	return out, nil
+	return out
 }
 
 func fetchSNEpoch(token string) (snEpoch, error) {
@@ -432,16 +462,22 @@ func pollEpochs(db *sql.DB, token string, firstV2 int64) (err error) {
 	defer func() { storeEpochAttempt(db, time.Now(), err) }()
 	/* fetch both before storing either: committing history and then failing on
 	   the state would leave a page showing epoch N+1 next to epoch N's geometry */
-	rows, err := fetchEpochs(token, firstV2)
+	acc, err := fetchAccountEpochs(token, 104)
 	if err != nil {
 		return err
 	}
+	rows := epochRowsFrom(acc, firstV2)
 	state, err := fetchSNEpoch(token)
 	if err != nil {
 		return err
 	}
 	if err := storeEpochs(db, rows, time.Now()); err != nil {
 		return err
+	}
+	/* the served-byte figures ride on the same response; a failure here is
+	   reported but must not hide the epochs that were stored */
+	if err := ingestServed(db, acc, time.Now()); err != nil {
+		fmt.Printf("[served] %v\n", err)
 	}
 	return storeSNEpoch(db, state, time.Now())
 }

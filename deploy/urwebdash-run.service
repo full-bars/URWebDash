@@ -12,7 +12,7 @@ ExecStart=/home/YOUR_USER/.local/bin/urwebdash run
 Restart=on-failure
 RestartSec=30
 
-# Environment=STATS_INTERVAL=5m
+# Environment=STATS_INTERVAL=30m
 # Environment=DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 # Environment=STATS_DB=/home/YOUR_USER/.urnetwork/wallet_stats.db
 

@@ -2,6 +2,38 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## Unreleased
+
+### Added
+
+- Served bytes from `/account/epochs`. The server stopped counting unpaid bytes when USDC provider payouts ended, so `unpaid_bytes_provided` is 0. It now reports `served_byte_count` per finalized epoch and the running `current_epoch` and `current_block`, about two to three hours behind live traffic, each with the time it is counted through. The dashboard stores one sample per as-of time in a new `block_samples` table and derives each interval from them. `GET /api/served` returns the data.
+- Data Stats now shows figures that keep counting in place of the paid and unpaid boxes and charts: Total served (the old counter at a week boundary plus every week the server has counted since, which agree where they overlap), Served this week, Open epoch, Last 24 hours, per-day totals, a Served per week chart over the whole history and a transfer rate chart. The same panel appears on the Bittensor Stats tab.
+- Times follow the browser's timezone. The page reports it to the server (`/api/timezone`), which writes Discord alerts in it.
+- The Webhook tab's examples and the test message use the latest real interval (`/api/alert-sample`).
+- The traffic spike alert runs on the served-byte intervals, scaled to one poll window (`STATS_INTERVAL`), in all nine styles. It skips block changes, server revisions and gaps over six hours.
+- Every epoch shows its date range, in the browser's timezone. The weekly bars say which epoch each week counts toward.
+- The Webhook tab's table-style previews are drawn from the alert text the server really builds, so their columns line up.
+
+### Changed
+
+- The join between the old counter and the server's weeks uses the latest week where the two agree. A drop of a tenth or more of the old counter is only the fallback.
+- The archive of stored poll windows ends one row after the transition, so the rows of zeros after it no longer bury it. The rows stay in the database.
+- The page header says "Counted through" with the server's as-of time. It no longer shows the time of the last archive row.
+- The default `STATS_INTERVAL` is now `1h` (was `15m`), because the server reports served bytes about hourly. An explicit `STATS_INTERVAL` still wins. Existing quarter-hour rows stay, and `urwebdash cleanup` treats the 15 minute grid as valid history next to the configured one.
+- The alert wording says "week so far" and "counted through" in place of "unpaid total" and a fixed UTC time.
+
+### Removed
+
+- The Paid, Unpaid, Total Volume and 24h Change boxes, the seven daily change cards and the Paid, Unpaid and Transfer Rate charts, which read counters that stopped moving. The Chart.js script is no longer loaded. The stored rows stay in an archive section. The functions that drove them are removed too: the chart code, the daily-card and 24h flash code, the unpaid growth flash and the live row insert.
+
+### Upgrade notes
+
+- **Poll interval.** `STATS_INTERVAL` now defaults to `1h`. To keep the old cadence, set `STATS_INTERVAL=15m`. Stored rows are kept either way.
+- **Spike threshold.** `SPIKE_THRESHOLD` (and the threshold saved from the Webhook tab) now means GB per poll window, and the window is `STATS_INTERVAL`. A value you chose for 15-minute windows is four times too small for hourly ones. Multiply it by 4, or set `STATS_INTERVAL=15m`.
+- **Server version.** The served-byte figures need a server that reports `served_byte_count`, `current_epoch` and `current_block` on `/account/epochs`. Against an older server the page says there are no samples yet.
+- **Database.** New tables and columns are added on start and nothing is removed, so the previous version still runs on an upgraded database.
+- **Offline.** The page no longer loads Chart.js from a CDN.
+
 ## v0.0.23 - 2026-11-12
 
 ### Fixed
