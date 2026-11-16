@@ -40,7 +40,7 @@ When it finishes it starts the dashboard and prints the URL. The first poll happ
 
 ### Updating
 
-Re-run the install command above. It replaces the binary and restarts services if installed. Data survives untouched.
+Re-run the install command above. It replaces the binary and restarts services if installed. Data survives untouched. Clicking the update badge shows the update command for your install.
 
 ### Uninstall
 

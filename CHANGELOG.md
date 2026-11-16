@@ -7,6 +7,7 @@ All notable changes. Format loosely follows Keep a Changelog.
 ### Added
 
 - A dismissible badge links to a newer URWebDash release when one is available. It never installs updates.
+- The update badge opens a dialog with commands for binary, Docker run and Docker Compose installs.
 
 ### Changed
 
