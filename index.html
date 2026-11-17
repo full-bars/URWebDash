@@ -328,6 +328,22 @@ background:var(--panel);border:1px solid var(--line);border-radius:var(--radius)
 .tb-group{display:flex;align-items:center;gap:10px}
 .tb-right{margin-left:auto;gap:8px}
 .tb-page{font-size:12px;color:var(--muted);letter-spacing:.04em}
+.update-badge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--badge);border-radius:var(--radius);padding:4px 7px;font-size:11px;white-space:nowrap}
+.update-badge[hidden]{display:none}
+.update-badge a{color:var(--head);text-decoration:none}
+.update-badge button{border:0;background:transparent;color:var(--muted);cursor:pointer;font:inherit}
+.update-overlay{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:16px}
+.update-overlay[hidden]{display:none}
+.update-dialog{box-sizing:border-box;width:100%;max-width:580px;max-height:calc(100vh - 32px);overflow:auto;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:var(--radius);padding:20px;min-width:0}
+.update-dialog-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.update-dialog h2{margin:0;color:var(--head);font-size:18px}
+.update-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:18px 0 12px}
+.update-tabs [aria-selected=true]{border:2px solid var(--accent);color:var(--head);font-weight:700}
+.update-tabs [role=tab]:focus-visible{outline:2px solid var(--head);outline-offset:2px}
+.update-dialog pre{box-sizing:border-box;max-width:100%;overflow-x:auto;background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);padding:12px;white-space:pre;font-size:12px}
+.update-dialog p{color:var(--muted);line-height:1.5}
+.update-dialog a{display:inline-block;color:var(--head);margin-top:8px}
+.update-copy-status{margin-left:8px;color:var(--muted)}
 .swatches{display:flex;gap:6px;align-items:center}
 .swatch{width:18px;height:18px;border-radius:50%;border:1px solid var(--line);cursor:pointer;padding:0;transition:transform .12s,box-shadow .12s}
 .swatch:hover{transform:scale(1.12)}
@@ -356,6 +372,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
   .theme-hint{display:none}
   .tb-right{margin-left:0;flex-wrap:wrap}
   .dc-row{grid-template-columns:minmax(0,1fr)}
+  .update-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:visible}
 }
 </style>
 <style></style>
@@ -376,6 +393,8 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="tb-group"><span class="tb-page" id="page-name">Data Stats</span></div>
     <div class="tb-group tb-right">
       <span id="theme-hint" class="theme-hint"></span>
+      <span id="hero-controls" hidden><label class="field-label" for="hero-mode">Hero</label> <select id="hero-mode" onchange="setHeroMode(this.value)"><option value="band">Band</option><option value="footer">Footer</option><option value="off">Off</option></select> <label class="field-label" for="hero-streaks">Streaks</label> <select id="hero-streaks" onchange="setHeroStreaks(this.value)"><option value="soft">Soft</option><option value="bright">Bright</option></select></span>
+      <span id="update-badge" class="update-badge" hidden><a id="update-link" href="#" aria-haspopup="dialog" title="Show update commands"></a><button id="update-dismiss" type="button" aria-label="Dismiss update notice">x</button></span>
       <label class="field-label" for="clock-select">Clock</label>
       <select id="clock-select" onchange="clockSet(this.value)"><option value="auto">Auto</option><option value="12h">12h</option><option value="24h">24h</option></select>
       <span class="field-label">Theme</span>
@@ -557,8 +576,108 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="note">The webhook address comes from the dashboard's own configuration (an environment variable or a saved file) and is read on every send, so a change applies without a restart. The style options below change the preview only — the alert text is fixed.</div>
   </div>
 </main>
+<div id="update-overlay" class="update-overlay" hidden>
+  <div class="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-title">
+    <div class="update-dialog-head"><h2 id="update-title"></h2><button id="update-close" class="btn" type="button" aria-label="Close update dialog">Close</button></div>
+    <div class="update-tabs" role="tablist" aria-label="Installation method">
+      <button class="btn" type="button" role="tab" id="update-tab-binary" aria-controls="update-panel" data-tab="binary">Binary</button>
+      <button class="btn" type="button" role="tab" id="update-tab-docker" aria-controls="update-panel" data-tab="docker">Docker run</button>
+      <button class="btn" type="button" role="tab" id="update-tab-compose" aria-controls="update-panel" data-tab="compose">Docker Compose</button>
+    </div>
+    <div id="update-panel" role="tabpanel"><pre id="update-command"></pre><button id="update-copy" class="btn" type="button">Copy</button><span id="update-copy-status" class="update-copy-status" role="status"></span><p id="update-description"></p></div>
+    <a id="update-notes" target="_blank" rel="noopener noreferrer">Release notes</a>
+  </div>
+</div>
 
 <script>
+function updateShouldShow(data,dismissed){
+  if(!data.available || !/^v\d+\.\d+\.\d+$/.test(data.latest)) return false;
+  if(!/^v\d+\.\d+\.\d+$/.test(dismissed)) return true;
+  const a=data.latest.slice(1).split('.').map(BigInt), b=dismissed.slice(1).split('.').map(BigInt);
+  for(let i=0;i<3;i++){ if(a[i]!==b[i]) return a[i]>b[i]; }
+  return false;
+}
+const UPDATE_COMMANDS={
+  binary:'urwebdash update',
+  docker:'docker pull ghcr.io/full-bars/urwebdash:latest\ndocker rm -f urwebdash\ndocker run -d --name urwebdash \\\n  -p 127.0.0.1:3001:3001 \\\n  -v urwebdash-data:/data \\\n  ghcr.io/full-bars/urwebdash',
+  compose:'docker compose pull && docker compose up -d'
+};
+function updateDialogTab(install){ return install==='docker'?'docker':'binary'; }
+function updateCopyMethod(available){ return available?'clipboard':'fallback'; }
+let updateInstall='', updateTab='binary', updateCopyTimer;
+const updateOverlay=document.getElementById('update-overlay');
+const updateTabs=Array.from(document.querySelectorAll('.update-tabs [role=tab]'));
+function selectUpdateTab(tab,focus){
+  updateTab=tab;
+  updateTabs.forEach(button=>{ const selected=button.dataset.tab===tab; button.setAttribute('aria-selected',String(selected)); button.tabIndex=selected?0:-1; if(selected && focus) button.focus(); });
+  document.getElementById('update-panel').setAttribute('aria-labelledby','update-tab-'+tab);
+  document.getElementById('update-command').textContent=UPDATE_COMMANDS[tab];
+  document.getElementById('update-description').textContent=tab==='binary' ? "Checks the download against the release's checksum file and keeps your old copy."+(updateInstall==='systemd'?' It restarts the services and may ask you to run one sudo systemctl restart line.':'') : tab==='docker' ? 'Your data and login stay in the urwebdash-data volume; use the same -p and -v options you used before.' : '';
+  document.getElementById('update-copy-status').textContent='';
+}
+function closeUpdateDialog(){ updateOverlay.hidden=true; document.getElementById('update-link').focus(); }
+document.getElementById('update-link').addEventListener('click',event=>{
+  event.preventDefault();
+  document.getElementById('update-title').textContent='Update to '+shownUpdate;
+  selectUpdateTab(updateDialogTab(updateInstall),false);
+  updateOverlay.hidden=false; document.getElementById('update-close').focus();
+});
+document.getElementById('update-close').addEventListener('click',closeUpdateDialog);
+updateOverlay.addEventListener('click',event=>{ if(event.target===updateOverlay) closeUpdateDialog(); });
+updateOverlay.addEventListener('keydown',event=>{
+  if(event.key==='Escape'){ event.preventDefault(); closeUpdateDialog(); return; }
+  if(event.key==='Tab'){
+    const focusable=Array.from(updateOverlay.querySelectorAll('button:not([tabindex="-1"]),a[href],textarea')).filter(el=>!el.hidden);
+    if(event.shiftKey && document.activeElement===focusable[0]){ event.preventDefault(); focusable[focusable.length-1].focus(); }
+    else if(!event.shiftKey && document.activeElement===focusable[focusable.length-1]){ event.preventDefault(); focusable[0].focus(); }
+  }
+});
+updateTabs.forEach((button,index)=>{
+  button.addEventListener('click',()=>selectUpdateTab(button.dataset.tab,false));
+  button.addEventListener('keydown',event=>{
+    if(event.key!=='ArrowRight' && event.key!=='ArrowLeft') return;
+    event.preventDefault(); const next=(index+(event.key==='ArrowRight'?1:-1)+updateTabs.length)%updateTabs.length;
+    selectUpdateTab(updateTabs[next].dataset.tab,true);
+  });
+});
+document.getElementById('update-copy').addEventListener('click',async()=>{
+  const text=UPDATE_COMMANDS[updateTab], status=document.getElementById('update-copy-status');
+  let copied=false;
+  if(updateCopyMethod(!!(navigator.clipboard && navigator.clipboard.writeText))==='clipboard'){
+    try{ await navigator.clipboard.writeText(text); copied=true; }catch(_){}
+  }
+  if(!copied){
+    const area=document.createElement('textarea'); area.value=text; area.readOnly=true; area.setAttribute('aria-label','Update command');
+    area.style.cssText='position:fixed;left:16px;top:16px;width:1px;height:1px;opacity:0';
+    updateOverlay.querySelector('.update-dialog').appendChild(area); area.focus(); area.select();
+    try{ copied=document.execCommand('copy'); }catch(_){}
+    if(copied){ area.remove(); document.getElementById('update-copy').focus(); }
+    else { area.style.cssText='display:block;box-sizing:border-box;width:100%;height:100px;margin-top:10px'; area.focus(); area.select(); area.addEventListener('blur',()=>area.remove(),{once:true}); }
+  }
+  clearTimeout(updateCopyTimer); status.textContent=copied?'Copied':'Press Ctrl+C';
+  if(copied) updateCopyTimer=setTimeout(()=>{ status.textContent=''; },2000);
+});
+let dismissedUpdate='';
+try{ dismissedUpdate=localStorage.getItem('urwebdash.update.dismissed')||''; }catch(_){}
+let shownUpdate='';
+document.getElementById('update-dismiss').addEventListener('click',()=>{
+  dismissedUpdate=shownUpdate;
+  try{ localStorage.setItem('urwebdash.update.dismissed',dismissedUpdate); }catch(_){}
+  document.getElementById('update-badge').hidden=true;
+});
+async function refreshUpdate(){
+  try{
+    const response=await fetch('/api/update'); if(!response.ok) return;
+    const data=await response.json(), badge=document.getElementById('update-badge');
+    if(!updateShouldShow(data,dismissedUpdate)){ badge.hidden=true; return; }
+    if(typeof data.url!=='string' || !data.url.startsWith('https://github.com/full-bars/URWebDash/releases/')) return;
+    const link=document.getElementById('update-link');
+    link.textContent=data.latest+' available'; link.setAttribute('href',data.url);
+    document.getElementById('update-notes').setAttribute('href',data.url);
+    updateInstall=data.install; shownUpdate=data.latest; badge.hidden=false;
+  }catch(_){}
+}
+refreshUpdate(); setTimeout(refreshUpdate,45*1000); setInterval(refreshUpdate,60*60*1000);
 
 /* ---- theme set ---- */
 // Legacy: the shipped dashboard look, applied to the Bittensor page so the app
@@ -1567,7 +1686,7 @@ window.URFORMATS['bullets'] = {
 
 </script>
 <script>
-const D = __D__;
+let D = __D__;
 const HIST = __HIST__;
 let PAY = __PAY__;
 /* the page is rendered on the server: if it went out before the cache was warm
@@ -1590,6 +1709,7 @@ function go(name){
   window.scrollTo(0,0);
   const label={wallet:'Data Stats',payout:'Legacy Payouts',bittensor:'Bittensor Stats',webhook:'Webhook'}[name]||'';
   const pn=document.getElementById('page-name'); if(pn) pn.textContent=label;
+  const hc=document.getElementById('hero-controls'); if(hc) hc.hidden=name!=='bittensor';
   /* the data table pages over the whole store, so it loads when the section is
      first opened rather than on every page load */
   if(name==='wallet' && !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
@@ -2683,6 +2803,36 @@ function heroDensity(rates){
 }
 function heroEase(value,target,dt){ return value+(target-value)*heroSpawnChance(0.02,dt); }
 
+const HERO_STYLES={
+  soft:{width:1,tail:0,head:1,headSize:0,glowSize:0,glowAlpha:0},
+  bright:{width:2,tail:.2,head:1,headSize:1.5,glowSize:3,glowAlpha:.2}
+};
+function heroStyle(name){ return Object.hasOwn(HERO_STYLES,name)?HERO_STYLES[name]:HERO_STYLES.bright; }
+function loadHeroStyle(){
+  try{ return heroStyle(localStorage.getItem('heroStreaks')); }catch(_){ return heroStyle(); }
+}
+let currentHeroStyle=loadHeroStyle();
+function setHeroStreaks(name){
+  currentHeroStyle=heroStyle(name);
+  const value=currentHeroStyle===HERO_STYLES.soft?'soft':'bright';
+  const sel=document.getElementById('hero-streaks'); if(sel) sel.value=value;
+  try{ localStorage.setItem('heroStreaks',value); }catch(_){}
+}
+function drawHeroTrail(ctx,pt,style){
+  const trail=pt.trail;
+  ctx.strokeStyle=pt.color;ctx.lineWidth=style.width;
+  for(let i=1;i<trail.length;i++){
+    ctx.globalAlpha=style.headSize?style.tail+(style.head-style.tail)*(i-1)/Math.max(1,trail.length-2):i/trail.length;
+    ctx.beginPath();ctx.moveTo(trail[i-1].x,trail[i-1].y);ctx.lineTo(trail[i].x,trail[i].y);ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  if(style.headSize&&trail.length){
+    const p=trail[trail.length-1];ctx.fillStyle=pt.color;
+    ctx.globalAlpha=style.glowAlpha;ctx.beginPath();ctx.arc(p.x,p.y,style.glowSize,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=style.head;ctx.beginPath();ctx.arc(p.x,p.y,style.headSize,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
+  }
+}
+
 function startHeroSim(){
   const canvas=document.getElementById('hero-canvas');
   const wrap=document.getElementById('hero-sim');
@@ -2816,11 +2966,7 @@ function startHeroSim(){
           if(pt.trail.length>HERO_TRAIL_LENGTH) pt.trail.shift();
         }
         pt.trailTime%=1;
-        ctx.strokeStyle=pt.color;ctx.lineWidth=1;
-        for(let i=1;i<pt.trail.length;i++){
-          ctx.globalAlpha=i/pt.trail.length;ctx.beginPath();ctx.moveTo(pt.trail[i-1].x,pt.trail[i-1].y);ctx.lineTo(pt.trail[i].x,pt.trail[i].y);ctx.stroke();
-        }
-        ctx.globalAlpha=1;
+        drawHeroTrail(ctx,pt,currentHeroStyle);
       }
       if(pt.p>=1) finished.push(pt);
     }
@@ -2861,7 +3007,10 @@ let heroMode='band';
 function setHeroMode(mode){
   const el=document.getElementById('hero-sim');
   if(!el) return;
+  if(!['band','footer','off'].includes(mode)) mode='band';
   heroMode=mode;
+  const sel=document.getElementById('hero-mode'); if(sel) sel.value=mode;
+  try{ localStorage.setItem('heroMode',mode); }catch(_){}
   el.className='hero-sim'+(mode==='footer'?' mode-footer':'')+(mode==='background'?' mode-background':'');
   if(mode==='off'){ el.style.display='none'; window.__heroStop && window.__heroStop(); return; }
   el.style.display='';
@@ -2872,7 +3021,6 @@ function setHeroMode(mode){
   else { sec.insertBefore(el, sec.querySelector('.theme-meta')); }
   window.__heroResize && window.__heroResize();
   window.__heroStart && window.__heroStart(true);
-  const sel=document.getElementById('hero-mode'); if(sel) sel.value=mode;
 }
 
 /* ---------- themes + accent ---------- */
@@ -3406,7 +3554,7 @@ function updateEpochSub(){
   }
 }
 
-let dashPolling=false;
+let dashPolling=false, dashRefreshFailed=false;
 async function refreshDashData(){
   if(document.hidden || dashPolling) return;
   dashPolling=true;
@@ -3415,6 +3563,9 @@ async function refreshDashData(){
     if(!res.ok) return;
     const data=await res.json();
     if(!data || typeof data!=='object') return;
+    if(!data.epoch || typeof data.epoch.pct!=='number' || !Array.isArray(data.epochs) ||
+       !data.points || !data.wallet || !data.alpha || !data.traffic || !data.legacy)
+      throw new Error('invalid dashboard data');
     D=data;
     if(D.epoch && epLive){
       epLive.done=D.epoch.elapsedBlocks||epLive.done;
@@ -3435,7 +3586,11 @@ async function refreshDashData(){
         cTotal.textContent=fmtBytes(D.traffic.paidBytes+D.traffic.unpaidBytes);
       }
     }
-  }catch(_){}
+    dashRefreshFailed=false;
+  }catch(e){
+    if(!dashRefreshFailed) console.warn('dashboard refresh failed', e);
+    dashRefreshFailed=true;
+  }
   finally{ dashPolling=false; }
 }
 setInterval(()=>{ if(!document.hidden) refreshDashData(); }, 15000);
@@ -3456,7 +3611,8 @@ setTimeout(refreshDashData, 2000);
   if(want && document.getElementById('section-'+want)) go(want);
 })();
 renderPrice();
-setHeroMode('band');
+try{ setHeroMode(localStorage.getItem('heroMode')||'band'); }catch(_){ setHeroMode('band'); }
+setHeroStreaks(currentHeroStyle===HERO_STYLES.soft?'soft':'bright');
 startHeroSim();
 { const n=document.getElementById('hero-net-name'); if(n) n.textContent=D.networkName||'network';
   const w=document.getElementById('net-name'); if(w) w.textContent=D.networkName||'—'; }

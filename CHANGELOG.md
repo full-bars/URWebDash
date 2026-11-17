@@ -7,11 +7,18 @@ All notable changes. Format loosely follows Keep a Changelog.
 ### Added
 
 - Traffic patterns in Data Stats: a local-hour clock, a day-and-hour heatmap, a comparison of matched periods in this week and last week, and records from available history. Missing intervals remain visible as gaps. Intervals longer than three hours are excluded from these views, and traffic is apportioned evenly within each interval.
+- `urwebdash update` verifies and installs binary releases, with a check-only mode and rollback if system services fail to start.
+- A dismissible badge links to a newer URWebDash release when one is available. It never installs updates.
+- The update badge opens a dialog with commands for binary, Docker run and Docker Compose installs.
 
 ### Changed
 
 - The served interval history returned to the page and `/api/served` now spans up to 15 days (subject to the existing 5,000-sample cap) to support week comparisons.
-- The Bittensor hero shows longer packet trails and scales its visual activity smoothly with recent served traffic. The band is taller on desktop and fits phone screens.
+- The Bittensor hero shows longer packet trails and scales its visual activity smoothly with recent served traffic. The band is taller on desktop and fits phone screens. The Streaks selector offers Soft and Bright styles, with Bright as the default.
+
+### Fixed
+
+- Dashboard data now refreshes in open tabs, and refresh errors are reported once per failure streak.
 
 ## v0.0.25 - 2026-11-15
 

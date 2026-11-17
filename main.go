@@ -124,6 +124,15 @@ func main() {
 	flag.Parse()
 	cmd := flag.Arg(0)
 
+	// These commands must not migrate or open dashboard state.
+	if cmd == "version" {
+		fmt.Println(Version)
+		return
+	}
+	if cmd == "update" {
+		os.Exit(runSelfUpdate(flag.Args()[1:]))
+	}
+
 	migrateLegacyState()
 
 	switch cmd {
@@ -169,6 +178,8 @@ func main() {
   urwebdash history                — print stored history
   urwebdash cleanup                — delete off-schedule wallet_stats entries for today
   urwebdash setup [--install-services] — configure token/webhook; --install-services installs systemd units (root)
+  urwebdash update [--check]       — update the installed binary or check for a release
+  urwebdash version                — print the installed version
   urwebdash extract-by-jwt         — read JSON on stdin, print its by_jwt value (installer helper)
   urwebdash testwebhook           — send a test Discord notification`)
 	}
@@ -1099,6 +1110,8 @@ func cleanupDB() {
 // --- HTTP Server ---
 
 func serveHTTP(port string) {
+	updates := newUpdateChecker(Version, updateEnabled(), updateURL())
+	updates.start()
 	if port == "" {
 		port = "3001"
 	}
@@ -1147,6 +1160,7 @@ func serveHTTP(port string) {
 	}()
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/update", updates.handle)
 	mux.HandleFunc("/api/wallet-stats", handleWalletStats(db))
 	mux.HandleFunc("/api/wallet-summary", handleWalletSummary(db))
 	mux.HandleFunc("/api/payout-stats", handlePayoutStats(token))
