@@ -2,6 +2,12 @@
 
 All notable changes. Format loosely follows Keep a Changelog.
 
+## Unreleased
+
+### Changed
+
+- The Bittensor hero shows longer packet trails and scales its visual activity smoothly with recent served traffic. The band is taller on desktop and fits phone screens.
+
 ## v0.0.25 - 2026-11-15
 
 ### Added

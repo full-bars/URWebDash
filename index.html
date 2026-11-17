@@ -285,7 +285,7 @@ border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)
 .price-strip .v.sm{font-size:14px;color:var(--text)}
 .price-strip .d{font-size:11px;font-family:var(--mono)}
 .price-strip .d.up{color:#4ade80}.price-strip .d.down{color:#f87171}
-.hero-sim{position:relative;height:clamp(240px,26vh,320px);margin:0 0 18px;border:1px solid var(--line);
+.hero-sim{position:relative;height:400px;margin:0 0 18px;border:1px solid var(--line);
 border-radius:var(--radius);overflow:hidden;background:#050505}
 .hero-net{position:absolute;left:0;bottom:16px;width:44%;text-align:center;pointer-events:none;
 font-family:'UR Display',var(--font);z-index:2}
@@ -293,6 +293,7 @@ font-family:'UR Display',var(--font);z-index:2}
 text-transform:uppercase;color:rgba(214,230,244,.42);margin-bottom:6px}
 .hero-net .v{display:inline-block;font-size:30px;letter-spacing:.2em;text-transform:uppercase;
 color:#F2D9FF;text-shadow:0 0 6px rgba(237,143,255,.75),0 0 18px rgba(237,143,255,.45),0 0 42px rgba(237,143,255,.22)}
+@media(max-width:599px){.hero-sim{height:260px}.hero-net{width:56%}.hero-net .v{font-size:clamp(14px,5vw,21px);letter-spacing:.12em}}
 .hero-sim.mode-footer .hero-net{bottom:10px}
 .hero-sim.mode-footer .hero-net .v{font-size:20px}
 .hero-sim.mode-background .hero-net{bottom:auto;top:calc(50% + 40px)}
@@ -2652,152 +2653,197 @@ function heroGround(){
   return (getComputedStyle(document.body).getPropertyValue('--bg')||'').trim()||'#101010';
 }
 
+const HERO_TRAIL_LENGTH=10;
+const HERO_PARTICLE_CAP=180;
+function heroDt(ms){ return Math.max(0,Math.min(50,ms))*60/1000; }
+function heroSpawnChance(p,dt){ return 1-Math.pow(1-p,dt); }
+function heroSpawnCount(p,dt,random=Math.random){
+  let count=0, whole=Math.floor(dt);
+  for(let i=0;i<whole;i++) if(random()<p) count++;
+  if(random()<p*(dt-whole)) count++;
+  return count;
+}
+function heroDensity(rates){
+  const valid=rates.filter(x=>Number.isFinite(x)&&x>=0);
+  if(!valid.length) return 1;
+  const sorted=valid.slice().sort((a,b)=>a-b), mid=Math.floor(sorted.length/2);
+  const median=sorted.length%2?sorted[mid]:(sorted[mid-1]+sorted[mid])/2;
+  return median>0?Math.max(0.5,Math.min(3,valid[valid.length-1]/median)):1;
+}
+function heroEase(value,target,dt){ return value+(target-value)*heroSpawnChance(0.02,dt); }
+
 function startHeroSim(){
   const canvas=document.getElementById('hero-canvas');
   const wrap=document.getElementById('hero-sim');
   if(!canvas||!wrap) return;
+  // A mode change reuses the existing simulation and its observers.
+  if(window.__heroResize){ window.__heroResize(); return; }
   const ctx=canvas.getContext('2d');
-  /* ground colour comes from whatever the canvas sits on */
   const ground=heroGround(); if(ground) HERO_COLORS.bg=ground;
   const reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  let W=0,H=0,R=0,cx=0,cy=0,rot=0;
-  const N=140, nodes=[], users=[], parts=[], bolts=[];
-  let hub={x:0,y:0}, hubR=9, pulse=0;
-
+  let W=0,H=0,R=0,cx=0,cy=0,rot=0,lastTime=null,distTimer=0;
+  let density=1,targetDensity=1,lastIntervals=null,lastPoll=0,polling=false;
+  // D is a const in the page, so its existing dash-data refresh cannot replace
+  // it. Refresh just the hero's served data from the local dashboard endpoint.
+  function refreshHeroRates(now){
+    if(polling||now-lastPoll<15000) return;
+    lastPoll=now; polling=true;
+    fetch('/api/served',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(served=>{
+      if(served&&Array.isArray(served.intervals)) D.served=served;
+    }).catch(()=>{}).finally(()=>{polling=false;});
+  }
+  const N=160, nodes=[], users=[], parts=[], bolts=[];
+  const ops={x:0,y:0}, hub={x:0,y:0}, hubR=9;
   for(let i=0;i<N;i++){
-    const phi=Math.acos(-1+(2*i+1)/N), theta=Math.sqrt(N*Math.PI)*phi;
-    nodes.push({phi,theta,excite:0});
-    const phiU=Math.acos(-1+(2*(i+0.5))/N), thetaU=Math.sqrt(N*Math.PI)*phiU;
-    users.push({phi:phiU,theta:thetaU,glow:0});
+    const phi=Math.acos(-1+2*i/N), theta=Math.sqrt(N*Math.PI)*phi;
+    nodes.push({phi,theta,excite:0,balance:0});
+    const phiU=Math.acos(-1+2*(i+0.5)/N), thetaU=Math.sqrt(N*Math.PI)*phiU;
+    users.push({phi:phiU,theta:thetaU,glow:0,balance:0});
   }
-
   function size(){
-    const r=wrap.getBoundingClientRect();
-    const dpr=Math.min(window.devicePixelRatio||1,2);
-    W=Math.max(1,Math.round(r.width)); H=Math.max(1,Math.round(r.height));
-    canvas.width=W*dpr; canvas.height=H*dpr;
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-    const mobile=W<820;
-    R=Math.min(W,H)*(mobile?0.40:0.46);
-    cx=W*(mobile?0.55:0.64); cy=H*0.5;
-    hub={x:W*(mobile?0.2:0.22), y:H*0.5};
+    const r=wrap.getBoundingClientRect(), dpr=Math.min(window.devicePixelRatio||1,2);
+    W=Math.max(1,Math.floor(r.width)); H=Math.max(1,Math.floor(r.height));
+    canvas.width=W*dpr; canvas.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+    const mobile=W<600;
+    R=Math.min(W,H)*(mobile?0.3:0.35);
+    cx=W*(mobile?0.58:0.62); cy=H*(mobile?0.68:0.5);
+    ops.x=W*(mobile?0.1:0.1); ops.y=H*(mobile?0.32:0.5);
+    hub.x=W*(mobile?0.28:0.25); hub.y=H*(mobile?0.32:0.5);
   }
-  function project(n,rotv){
-    const x=Math.sin(n.phi)*Math.cos(n.theta+rotv);
-    const y=Math.cos(n.phi);
-    const z=Math.sin(n.phi)*Math.sin(n.theta+rotv);
-    return {x:cx+x*R, y:cy+y*R, z, vis:z>0};
+  function project(n){
+    const x=Math.sin(n.phi)*Math.cos(n.theta+rot), y=Math.cos(n.phi);
+    const z=Math.sin(n.phi)*Math.sin(n.theta+rot);
+    return {x:cx+x*R,y:cy+y*R,vis:z>0};
   }
-  function spawn(from,kind,color,spd){
-    parts.push({fx:from.x, fy:from.y, kind, color, p:0, spd, hubAt:{x:hub.x,y:hub.y}});
+  function spawn(s,end,idx,color,type,spd,val){
+    if(parts.length<HERO_PARTICLE_CAP) parts.push({s,end,idx,color,type,spd,val,p:0,trail:[],trailTime:0,angle:type==='stake'?Math.random()*Math.PI*2:0});
   }
-  function frame(){
-    if(!heroRunning) return;
-    /* paint the ground rather than clearing to transparent: the panel behind is
-       not always the theme background, which made the animation look like a
-       darker rectangle on the URnetwork theme */
+  function hop(idx,left){
+    if(left<=0||bolts.length>=HERO_PARTICLE_CAP) return;
+    nodes[idx].excite=1;
+    const end=(idx+Math.floor(Math.random()*20)+1)%N;
+    bolts.push({start:idx,end,life:1,left});
+  }
+  function scene(dt,animate){
     ctx.fillStyle=HERO_COLORS.bg; ctx.fillRect(0,0,W,H);
-    rot+=0.0018;
-
-    // demand: users buying data, and the pink token flow to settlement
-    if(Math.random()<0.22){
-      const u=users[Math.floor(Math.random()*users.length)], pt=project(u,rot);
-      if(pt.vis){ spawn(pt,'hub',HERO_COLORS.prov,0.02); u.glow=1; }
-    }
-    if(Math.random()<0.12){
-      const u=users[Math.floor(Math.random()*users.length)], pt=project(u,rot);
-      if(pt.vis) spawn(pt,'hub',HERO_COLORS.usd,0.018);
-    }
-    // emission pulse from the hub outward
-    pulse++;
-    if(pulse>150){
-      pulse=0;
-      for(let i=0;i<6;i++){
-        const n=nodes[Math.floor(Math.random()*nodes.length)], pt=project(n,rot);
-        if(pt.vis) parts.push({fx:hub.x,fy:hub.y,kind:'out',color:HERO_COLORS.ur,p:0,spd:0.012,tx:pt.x,ty:pt.y});
+    if(animate){
+      rot+=0.002*dt;
+      // This is a visual scale of the real served rate, not an exact count.
+      const intervals=(D&&D.served&&D.served.intervals)||[];
+      if(intervals!==lastIntervals){
+        lastIntervals=intervals;
+        const rates=intervals.filter(x=>x.kind==='interval'&&Number.isFinite(x.bytesPerSec)&&x.bytesPerSec>=0).slice(-24).map(x=>x.bytesPerSec);
+        targetDensity=heroDensity(rates);
+      }
+      density=heroEase(density,targetDensity,dt);
+      const count=p=>heroSpawnCount(p,dt*density);
+      for(let i=count(0.25);i>0;i--){
+        const u=users[Math.floor(Math.random()*N)], idx=Math.floor(Math.random()*N);
+        spawn(u,'ops',null,HERO_COLORS.usd,'usd',0.015,0); u.balance+=0.5;
+        spawn(u,'provider',idx,HERO_COLORS.prov,'data',0.015,0);
+      }
+      for(let i=count(0.1);i>0;i--) spawn(ops,'hub',null,HERO_COLORS.ur,'ur',0.012,0);
+      for(let i=count(0.08);i>0;i--){
+        const u=users[Math.floor(Math.random()*N)];
+        spawn(u,'hub',null,HERO_COLORS.ur,'ur_direct',0.015,0);
+        if(Math.min(0.9,u.balance*0.05)>0.2) u.glow=1;
+      }
+      distTimer+=dt*density;
+      if(distTimer>400){
+        nodes.forEach((n,i)=>{if(Math.random()>0.8) spawn(hub,'provider',i,HERO_COLORS.ur,'dist',0.005,6);});
+        distTimer%=400;
       }
     }
-
-    // sphere
-    nodes.forEach((n,i)=>{
-      const p=project(n,rot);
-      n.excite*=0.96;
-      ctx.beginPath();
-      ctx.arc(p.x,p.y,2.2,0,Math.PI*2);
-      const a=0.16+(p.vis?0.38:0)+n.excite*0.5;
-      ctx.fillStyle='rgba(214,230,244,'+a.toFixed(3)+')';
-      ctx.fill();
+    ctx.save(); ctx.setLineDash([4,5]); ctx.strokeStyle=HERO_COLORS.ur; ctx.globalAlpha=0.55;
+    ctx.beginPath(); ctx.moveTo(ops.x,ops.y); ctx.lineTo(hub.x,hub.y); ctx.stroke(); ctx.restore();
+    for(const h of [ops,hub]){
+      ctx.beginPath(); ctx.arc(h.x,h.y,h===hub?hubR:4,0,Math.PI*2);
+      ctx.fillStyle=HERO_COLORS.bg; ctx.fill(); ctx.strokeStyle=HERO_COLORS.ur; ctx.lineWidth=2;
+      ctx.shadowBlur=h===hub?hubR*0.5:0; ctx.shadowColor=HERO_COLORS.ur; ctx.stroke(); ctx.shadowBlur=0;
+    }
+    nodes.forEach(n=>{
+      const p=project(n);
+      if(p.vis){
+        const size=1.5+Math.sqrt(n.balance)*0.8+n.excite*4;
+        ctx.fillStyle=n.excite>0.1?'#4d7cff':HERO_COLORS.prov; ctx.globalAlpha=0.6+n.excite*0.4;
+        ctx.shadowBlur=n.excite>0.1?8:0; ctx.shadowColor=HERO_COLORS.prov;
+        ctx.beginPath();ctx.arc(p.x,p.y,size,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;ctx.globalAlpha=1;
+      }
+      if(animate){ n.excite*=Math.pow(0.92,dt); n.balance*=Math.pow(0.999,dt); }
     });
-
-    // faint arcs hub -> sphere, so the scene reads as connected
-    ctx.save();
-    for(let i=0;i<nodes.length;i+=14){
-      const p=project(nodes[i],rot);
-      if(!p.vis) continue;
-      ctx.beginPath(); ctx.moveTo(hub.x,hub.y);
-      ctx.quadraticCurveTo((hub.x+p.x)/2,(hub.y+p.y)/2-14,p.x,p.y);
-      ctx.strokeStyle='rgba(214,230,244,0.075)'; ctx.lineWidth=1; ctx.stroke();
+    users.forEach(u=>{
+      const p=project(u);
+      if(p.vis){
+        const size=1.2+Math.sqrt(u.balance)*0.6;
+        ctx.fillStyle=HERO_COLORS.ui;ctx.globalAlpha=0.5;ctx.beginPath();ctx.arc(p.x,p.y,size,0,Math.PI*2);ctx.fill();
+        if(u.glow>0.01){ctx.fillStyle=HERO_COLORS.ur;ctx.globalAlpha=u.glow*0.9;ctx.beginPath();ctx.arc(p.x,p.y,size*0.8,0,Math.PI*2);ctx.fill();}
+        ctx.globalAlpha=1;
+      }
+      if(animate){u.balance*=Math.pow(0.999,dt);u.glow*=Math.pow(0.93,dt);}
+    });
+    if(!animate) return;
+    for(let i=bolts.length-1;i>=0;i--){
+      const b=bolts[i], a=project(nodes[b.start]), z=project(nodes[b.end]);
+      if(a.vis&&z.vis){ctx.beginPath();ctx.strokeStyle=HERO_COLORS.prov;ctx.globalAlpha=b.life*0.5;ctx.moveTo(a.x,a.y);ctx.lineTo((a.x+z.x)/2+(Math.random()-0.5)*15,(a.y+z.y)/2+(Math.random()-0.5)*15);ctx.lineTo(z.x,z.y);ctx.stroke();ctx.globalAlpha=1;}
+      b.life-=0.04*dt;
+      if(b.life<=0){bolts.splice(i,1);hop(b.end,b.left-1);}
     }
-    ctx.restore();
-
-    // hub
-    const glow=Math.min(1,0.35+parts.length*0.02);
-    ctx.beginPath(); ctx.arc(hub.x,hub.y,hubR,0,Math.PI*2);
-    ctx.fillStyle=HERO_COLORS.bg; ctx.fill();
-    ctx.strokeStyle=HERO_COLORS.ur; ctx.lineWidth=1.6;
-    ctx.shadowBlur=hubR*1.6*glow; ctx.shadowColor=HERO_COLORS.ur; ctx.stroke(); ctx.shadowBlur=0;
-
-    // packets
-    for(let i=parts.length-1;i>=0;i--){
-      const q=parts[i];
-      q.p+=q.spd;
-      if(q.p>=1){ parts.splice(i,1); continue; }
-      let x,y;
-      if(q.kind==='hub'){ x=q.fx+(hub.x-q.fx)*q.p; y=q.fy+(hub.y-q.fy)*q.p; }
-      else { x=q.fx+(q.tx-q.fx)*q.p; y=q.fy+(q.ty-q.fy)*q.p; }
-      const fade=Math.sin(Math.PI*q.p);
-      ctx.beginPath(); ctx.arc(x,y,2.8,0,Math.PI*2);
-      ctx.fillStyle=q.color; ctx.globalAlpha=0.25+0.75*fade; ctx.fill(); ctx.globalAlpha=1;
-      // short trail
-      const tx=q.kind==='hub'?(hub.x-q.fx):(q.tx-q.fx), ty=q.kind==='hub'?(hub.y-q.fy):(q.ty-q.fy);
-      ctx.beginPath();
-      ctx.moveTo(x,y); ctx.lineTo(x-tx*0.03,y-ty*0.03);
-      ctx.strokeStyle=q.color; ctx.globalAlpha=0.35*fade; ctx.lineWidth=1; ctx.stroke(); ctx.globalAlpha=1;
+    // Keep 60 Hz trail samples even on high-refresh displays.
+    const finished=[];
+    for(const pt of parts){
+      const previous=pt.p; pt.p+=pt.spd*dt;
+      if(pt.type==='stake'){
+        const r=hubR*(1-pt.p), angle=pt.angle;
+        if(r>0){ctx.beginPath();ctx.arc(hub.x+Math.cos(angle)*r,hub.y+Math.sin(angle)*r,2,0,Math.PI*2);ctx.fillStyle=HERO_COLORS.ur;ctx.fill();}
+      } else {
+        const a=pt.s.phi!==undefined?project(pt.s):pt.s;
+        const b=pt.end==='ops'?ops:pt.end==='hub'?hub:project(nodes[pt.idx]);
+        const before=pt.trailTime; pt.trailTime+=dt;
+        for(let t=1-before;t<=dt;t+=1){
+          const p=Math.min(1,previous+pt.spd*t);
+          pt.trail.push({x:a.x+(b.x-a.x)*p,y:a.y+(b.y-a.y)*p});
+          if(pt.trail.length>HERO_TRAIL_LENGTH) pt.trail.shift();
+        }
+        pt.trailTime%=1;
+        ctx.strokeStyle=pt.color;ctx.lineWidth=1;
+        for(let i=1;i<pt.trail.length;i++){
+          ctx.globalAlpha=i/pt.trail.length;ctx.beginPath();ctx.moveTo(pt.trail[i-1].x,pt.trail[i-1].y);ctx.lineTo(pt.trail[i].x,pt.trail[i].y);ctx.stroke();
+        }
+        ctx.globalAlpha=1;
+      }
+      if(pt.p>=1) finished.push(pt);
     }
-    heroRaf=requestAnimationFrame(frame);
+    for(const pt of finished){
+      parts.splice(parts.indexOf(pt),1);
+      if(pt.type==='ur'||pt.type==='ur_direct'){
+        for(let k=0;k<2;k++) spawn(hub,'hub',null,HERO_COLORS.ur,'stake',0.01,0);
+      }
+      if(pt.type==='data') hop(pt.idx,5);
+      if(pt.type==='dist'){nodes[pt.idx].excite=1;nodes[pt.idx].balance+=pt.val;}
+    }
   }
-  function start(force){
-    if(heroRunning&&!force) return;
-    if(reduce) return;
-    if(heroMode==='off') return;   /* the section observer must not resurrect it */
-    heroRunning=true; heroRaf=requestAnimationFrame(frame);
+  function frame(now){
+    if(!heroRunning) return;
+    const dt=lastTime===null?0:heroDt(now-lastTime); lastTime=now;
+    refreshHeroRates(now); scene(dt,true); heroRaf=requestAnimationFrame(frame);
   }
-  function stop(){ heroRunning=false; if(heroRaf) cancelAnimationFrame(heroRaf); heroRaf=null; }
-  function staticFrame(){ ctx.fillStyle=HERO_COLORS.bg; ctx.fillRect(0,0,W,H); rot=0.6;
-    nodes.forEach(n=>{const p=project(n,rot);ctx.beginPath();ctx.arc(p.x,p.y,1.5,0,Math.PI*2);
-      ctx.fillStyle='rgba(214,230,244,'+(0.10+(p.vis?0.26:0))+')';ctx.fill();});
-    ctx.beginPath();ctx.arc(hub.x,hub.y,hubR,0,Math.PI*2);ctx.strokeStyle=HERO_COLORS.ur;
-    ctx.lineWidth=1.6;ctx.stroke();
+  function active(){ const on=document.querySelector('.section.active'); return !document.hidden&&on&&on.id==='section-bittensor'&&heroMode!=='off'; }
+  function start(){
+    if(heroRunning||reduce||!active()) return;
+    if(heroMode==='off') return; /* the section observer must not resurrect it */
+    lastTime=null; heroRunning=true; heroRaf=requestAnimationFrame(frame);
   }
+  function stop(){heroRunning=false;lastTime=null;if(heroRaf)cancelAnimationFrame(heroRaf);heroRaf=null;}
+  function staticFrame(){rot=0.6;scene(0,false);}
   size();
-  /* a second call must produce a live loop: start() bails while heroRunning is
-     true, so a loop that had stopped scheduling frames looked "running" */
-  if(heroRaf){ cancelAnimationFrame(heroRaf); heroRaf=null; }
-  heroRunning=false;
-  reduce?staticFrame():start(true);
-  window.__heroResize=()=>{size(); if(!reduce) { stop(); start(true); } else staticFrame();};
-  window.__heroStop=()=>{ stop(); };
-  window.addEventListener('resize',()=>{size(); if(reduce) staticFrame();});
-  document.addEventListener('visibilitychange',()=>{document.hidden?stop():start();});
-  // only run while the Bittensor section is the active one
-  const mo=new MutationObserver(()=>{
-    const on=document.querySelector('.section.active');
-    if(heroMode==='off'){ stop(); return; }
-    if(on&&on.id==='section-bittensor'){ if(!reduce) start(); } else stop();
-  });
+  window.__heroResize=()=>{size();if(reduce) staticFrame();else {stop();start();}};
+  window.__heroStop=stop;
+  window.__heroStats=()=>({particles:parts.length,density});
+  window.addEventListener('resize',()=>{size();if(reduce)staticFrame();});
+  document.addEventListener('visibilitychange',()=>{if(active())start();else stop();});
+  const mo=new MutationObserver(()=>{if(active())start();else stop();});
   mo.observe(document.querySelector('main'),{subtree:true,attributes:true,attributeFilter:['class']});
-  if(reduce) stop();
+  if(reduce) staticFrame();else start();
 }
 window.__heroStart=startHeroSim;
 let heroMode='band';
