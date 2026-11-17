@@ -43,7 +43,7 @@ When it finishes it starts the dashboard and prints the URL. The first poll happ
 
 ### Updating
 
-For installer installs, run `urwebdash update` (or `urwebdash update --check` to check only). After a terminal-session install, stop it with Ctrl+C and run `urwebdash setup` again. The download is verified against `SHA256SUMS` published with the same release; this catches a broken or truncated download but cannot catch a compromised release. Clicking the update badge in the dashboard shows the right command for your install.
+For supported binary installs, run `urwebdash update` (or `urwebdash update --check` to check only). For systemd installs, run `sudo -v` first if sudo requires a password; the updater uses non-interactive sudo to restart the services. After a terminal-session install, stop it with Ctrl+C and run `urwebdash setup` again. The download is verified against `SHA256SUMS` published with the same release; this catches a broken or truncated download but cannot catch a compromised release. Clicking the update badge in the dashboard shows the right command for your install.
 
 For containers, pull the new image and re-create the container:
 
