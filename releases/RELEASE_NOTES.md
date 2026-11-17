@@ -10,7 +10,7 @@ This release adds traffic pattern views, a traffic-scaled Bittensor hero, and an
 ### Dashboard and updates
 
 - **Bittensor hero.** Traffic-scaled streaks animate the hero, with Soft and Bright styles. Bright is the default; reduced-motion preferences show a static frame.
-- **Update notice.** A dismissible badge opens install-specific update instructions. It never installs an update by itself. Set `UPDATE_CHECK=off` to disable release checks.
+- **Update notice.** A dismissible badge opens install-specific update instructions. It never installs an update by itself. Set `UPDATE_CHECK=off` to disable automatic release checks; `urwebdash update --check` still checks when run explicitly.
 - **Binary updates.** `urwebdash update --check` checks for a release; `urwebdash update` downloads the matching binary and verifies it against the release's `SHA256SUMS`. System service installs restart both services and attempt rollback if they fail to start. Containers must pull and recreate the image instead.
 - **Refresh fix.** Open dashboard tabs now replace their data on refresh, and report refresh errors once per failure streak.
 

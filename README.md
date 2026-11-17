@@ -177,7 +177,7 @@ Environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `UPDATE_CHECK` | `on` | Set to `off` to disable release checks |
+| `UPDATE_CHECK` | `on` | Set to `off` to disable automatic release checks |
 | `STATS_INTERVAL` | `1h` | Polling interval, minimum 1m. The server reports served bytes about hourly, so a shorter interval mostly repeats the same figure |
 | `JWT_PATH` | `~/.urnetwork/jwt` | URnetwork session token file |
 | `STATS_DB` | `~/.urwebdash/wallet_stats.db` | SQLite database path |
