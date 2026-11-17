@@ -305,12 +305,6 @@ text-transform:uppercase;color:rgba(214,230,244,.42);margin-bottom:6px}
 .hero-net .v{display:inline-block;font-size:30px;letter-spacing:.2em;text-transform:uppercase;
 color:#F2D9FF;text-shadow:0 0 6px rgba(237,143,255,.75),0 0 18px rgba(237,143,255,.45),0 0 42px rgba(237,143,255,.22)}
 @media(max-width:599px){.hero-sim{height:260px}.hero-net{width:56%}.hero-net .v{font-size:clamp(14px,5vw,21px);letter-spacing:.12em}}
-.hero-sim.mode-footer .hero-net{bottom:10px}
-.hero-sim.mode-footer .hero-net .v{font-size:20px}
-.hero-sim.mode-background .hero-net{bottom:auto;top:calc(50% + 40px)}
-.hero-sim.mode-footer{height:clamp(150px,18vh,200px);margin:18px 0 0}
-.hero-sim.mode-background{position:absolute;inset:0;height:auto;margin:0;border:0;border-radius:0;
-background:radial-gradient(120% 90% at 60% 40%,#000 0%,#000 45%,transparent 100%);opacity:.9;pointer-events:none;z-index:0}
 #section-bittensor{position:relative}
 #section-bittensor>.header,#section-bittensor>.theme-meta,#section-bittensor>.theme-wrap{position:relative;z-index:1}
 .hero-sim canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
@@ -393,7 +387,6 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="tb-group"><span class="tb-page" id="page-name">Data Stats</span></div>
     <div class="tb-group tb-right">
       <span id="theme-hint" class="theme-hint"></span>
-      <span id="hero-controls" hidden><label class="field-label" for="hero-mode">Hero</label> <select id="hero-mode" onchange="setHeroMode(this.value)"><option value="band">Band</option><option value="footer">Footer</option><option value="off">Off</option></select> <label class="field-label" for="hero-streaks">Streaks</label> <select id="hero-streaks" onchange="setHeroStreaks(this.value)"><option value="soft">Soft</option><option value="bright">Bright</option></select></span>
       <span id="update-badge" class="update-badge" hidden><a id="update-link" href="#" aria-haspopup="dialog" title="Show update commands"></a><button id="update-dismiss" type="button" aria-label="Dismiss update notice">x</button></span>
       <label class="field-label" for="clock-select">Clock</label>
       <select id="clock-select" onchange="clockSet(this.value)"><option value="auto">Auto</option><option value="12h">12h</option><option value="24h">24h</option></select>
@@ -505,7 +498,6 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     </div>
     <div class="theme-meta" id="theme-meta"></div>
     <div class="theme-wrap" id="theme-mount"></div>
-    <div id="hero-bottom-slot"></div>
   </div>
 
   <div id="section-webhook" class="section">
@@ -1709,7 +1701,6 @@ function go(name){
   window.scrollTo(0,0);
   const label={wallet:'Data Stats',payout:'Legacy Payouts',bittensor:'Bittensor Stats',webhook:'Webhook'}[name]||'';
   const pn=document.getElementById('page-name'); if(pn) pn.textContent=label;
-  const hc=document.getElementById('hero-controls'); if(hc) hc.hidden=name!=='bittensor';
   /* the data table pages over the whole store, so it loads when the section is
      first opened rather than on every page load */
   if(name==='wallet' && !WALLETROWS && typeof loadAllHistory==='function') loadAllHistory();
@@ -2803,21 +2794,7 @@ function heroDensity(rates){
 }
 function heroEase(value,target,dt){ return value+(target-value)*heroSpawnChance(0.02,dt); }
 
-const HERO_STYLES={
-  soft:{width:1,tail:0,head:1,headSize:0,glowSize:0,glowAlpha:0},
-  bright:{width:2,tail:.2,head:1,headSize:1.5,glowSize:3,glowAlpha:.2}
-};
-function heroStyle(name){ return Object.hasOwn(HERO_STYLES,name)?HERO_STYLES[name]:HERO_STYLES.bright; }
-function loadHeroStyle(){
-  try{ return heroStyle(localStorage.getItem('heroStreaks')); }catch(_){ return heroStyle(); }
-}
-let currentHeroStyle=loadHeroStyle();
-function setHeroStreaks(name){
-  currentHeroStyle=heroStyle(name);
-  const value=currentHeroStyle===HERO_STYLES.soft?'soft':'bright';
-  const sel=document.getElementById('hero-streaks'); if(sel) sel.value=value;
-  try{ localStorage.setItem('heroStreaks',value); }catch(_){}
-}
+const currentHeroStyle={width:2,tail:.2,head:1,headSize:1.5,glowSize:3,glowAlpha:.2};
 function drawHeroTrail(ctx,pt,style){
   const trail=pt.trail;
   ctx.strokeStyle=pt.color;ctx.lineWidth=style.width;
@@ -2984,10 +2961,9 @@ function startHeroSim(){
     const dt=lastTime===null?0:heroDt(now-lastTime); lastTime=now;
     refreshHeroRates(now); scene(dt,true); heroRaf=requestAnimationFrame(frame);
   }
-  function active(){ const on=document.querySelector('.section.active'); return !document.hidden&&on&&on.id==='section-bittensor'&&heroMode!=='off'; }
+  function active(){ const on=document.querySelector('.section.active'); return !document.hidden&&on&&on.id==='section-bittensor'; }
   function start(){
     if(heroRunning||reduce||!active()) return;
-    if(heroMode==='off') return; /* the section observer must not resurrect it */
     lastTime=null; heroRunning=true; heroRaf=requestAnimationFrame(frame);
   }
   function stop(){heroRunning=false;lastTime=null;if(heroRaf)cancelAnimationFrame(heroRaf);heroRaf=null;}
@@ -3003,25 +2979,6 @@ function startHeroSim(){
   if(reduce) staticFrame();else start();
 }
 window.__heroStart=startHeroSim;
-let heroMode='band';
-function setHeroMode(mode){
-  const el=document.getElementById('hero-sim');
-  if(!el) return;
-  if(!['band','footer','off'].includes(mode)) mode='band';
-  heroMode=mode;
-  const sel=document.getElementById('hero-mode'); if(sel) sel.value=mode;
-  try{ localStorage.setItem('heroMode',mode); }catch(_){}
-  el.className='hero-sim'+(mode==='footer'?' mode-footer':'')+(mode==='background'?' mode-background':'');
-  if(mode==='off'){ el.style.display='none'; window.__heroStop && window.__heroStop(); return; }
-  el.style.display='';
-  const sec=document.getElementById('section-bittensor');
-  const bottom=document.getElementById('hero-bottom-slot');
-  const header=sec.querySelector('.header');
-  if(mode==='footer'){ bottom.appendChild(el); }
-  else { sec.insertBefore(el, sec.querySelector('.theme-meta')); }
-  window.__heroResize && window.__heroResize();
-  window.__heroStart && window.__heroStart(true);
-}
 
 /* ---------- themes + accent ---------- */
 /* Curated accents: each set stays inside its theme's family. The stock list was
@@ -3611,8 +3568,6 @@ setTimeout(refreshDashData, 2000);
   if(want && document.getElementById('section-'+want)) go(want);
 })();
 renderPrice();
-try{ setHeroMode(localStorage.getItem('heroMode')||'band'); }catch(_){ setHeroMode('band'); }
-setHeroStreaks(currentHeroStyle===HERO_STYLES.soft?'soft':'bright');
 startHeroSim();
 { const n=document.getElementById('hero-net-name'); if(n) n.textContent=D.networkName||'network';
   const w=document.getElementById('net-name'); if(w) w.textContent=D.networkName||'—'; }

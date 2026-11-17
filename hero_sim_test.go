@@ -7,7 +7,7 @@ import (
 )
 
 func TestIndexHTML_HeroMarkers(t *testing.T) {
-	for _, s := range []string{"const HERO_TRAIL_LENGTH=10", "const HERO_PARTICLE_CAP=180", ".hero-sim{position:relative;height:400px", "height:260px", "if(heroMode==='off')"} {
+	for _, s := range []string{"const HERO_TRAIL_LENGTH=10", "const HERO_PARTICLE_CAP=180", ".hero-sim{position:relative;height:400px", "height:260px"} {
 		if !strings.Contains(indexHTML, s) {
 			t.Errorf("missing %s", s)
 		}
@@ -42,35 +42,19 @@ func heroStyleHarness(t *testing.T) (string, string) {
 	if err != nil {
 		t.Skip("node not installed")
 	}
-	styles := sliceBetween(t, indexHTML, "const HERO_STYLES=", "function startHeroSim(")
+	styles := sliceBetween(t, indexHTML, "const currentHeroStyle=", "function startHeroSim(")
 	return node, styles
 }
 
-func TestHeroStyleSoftValues(t *testing.T) {
+func TestHeroFixedStyleAndControls(t *testing.T) {
 	node, code := heroStyleHarness(t)
-	runNode(t, node, code+`
-if(JSON.stringify(heroStyle('soft'))!==JSON.stringify({width:1,tail:0,head:1,headSize:0,glowSize:0,glowAlpha:0}))throw Error('soft values');`)
-}
-
-func TestHeroStyleBrightValues(t *testing.T) {
-	node, code := heroStyleHarness(t)
-	runNode(t, node, code+`
-if(JSON.stringify(heroStyle('bright'))!==JSON.stringify({width:2,tail:.2,head:1,headSize:1.5,glowSize:3,glowAlpha:.2}))throw Error('bright values');`)
-}
-
-func TestHeroStyleFallback(t *testing.T) {
-	node, code := heroStyleHarness(t)
-	runNode(t, node, code+`
-if(heroStyle()!==HERO_STYLES.bright||heroStyle('unknown')!==HERO_STYLES.bright||heroStyle('toString')!==HERO_STYLES.bright)throw Error('fallback');`)
-}
-
-func TestHeroStyleBlockedStorage(t *testing.T) {
-	node, code := heroStyleHarness(t)
-	if !strings.Contains(code, "try{ return heroStyle(localStorage.getItem('heroStreaks'))") {
-		t.Fatal("saved style must be read inside try/catch")
+	for _, s := range []string{`id="hero-controls"`, `id="hero-mode"`, `id="hero-streaks"`, "heroMode", "heroStreaks"} {
+		if strings.Contains(indexHTML, s) {
+			t.Errorf("obsolete control or storage key: %s", s)
+		}
 	}
-	runNode(t, node, code+`
-const localStorage={getItem(){throw Error('blocked')}}; if(loadHeroStyle()!==HERO_STYLES.bright)throw Error('blocked storage');`)
+	runNode(t, node, `const localStorage={getItem(k){return {heroMode:'off',heroStreaks:'soft'}[k]},setItem(){throw Error('unexpected storage write')}};`+code+`
+if(JSON.stringify(currentHeroStyle)!==JSON.stringify({width:2,tail:.2,head:1,headSize:1.5,glowSize:3,glowAlpha:.2}))throw Error('bright values');`)
 }
 
 func TestHeroStyleNoPacketShadowBlur(t *testing.T) {
@@ -90,11 +74,10 @@ func TestHeroStyleDrawingCalls(t *testing.T) {
 	runNode(t, node, code+`
 const record=()=>{const calls=[]; const ctx=new Proxy({}, {set(_,p,v){calls.push([p,v]);return true},get(_,p){return (...a)=>calls.push([p,...a])}});return {ctx,calls}};
 const pt={color:'#abc',trail:[{x:1,y:2},{x:3,y:4},{x:5,y:6}]};
-const a=record(); drawHeroTrail(a.ctx,pt,heroStyle('soft'));
-// Exact drawing calls made by the packet loop at e7677fc.
-const expected=[['strokeStyle','#abc'],['lineWidth',1],['globalAlpha',1/3],['beginPath'],['moveTo',1,2],['lineTo',3,4],['stroke'],['globalAlpha',2/3],['beginPath'],['moveTo',3,4],['lineTo',5,6],['stroke'],['globalAlpha',1]];
-if(JSON.stringify(a.calls)!==JSON.stringify(expected))throw Error('soft drawing changed: '+JSON.stringify(a.calls));
-const b=record(); drawHeroTrail(b.ctx,pt,heroStyle('bright')); if(JSON.stringify(b.calls)===JSON.stringify(expected))throw Error('bright did not change');
+const a=record(); drawHeroTrail(a.ctx,pt,currentHeroStyle);
+// Recorded from the default bright path at v0.0.26.
+const expected=[['strokeStyle','#abc'],['lineWidth',2],['globalAlpha',.2],['beginPath'],['moveTo',1,2],['lineTo',3,4],['stroke'],['globalAlpha',1],['beginPath'],['moveTo',3,4],['lineTo',5,6],['stroke'],['globalAlpha',1],['fillStyle','#abc'],['globalAlpha',.2],['beginPath'],['arc',5,6,3,0,Math.PI*2],['fill'],['globalAlpha',1],['beginPath'],['arc',5,6,1.5,0,Math.PI*2],['fill'],['globalAlpha',1]];
+if(JSON.stringify(a.calls)!==JSON.stringify(expected))throw Error('bright drawing changed: '+JSON.stringify(a.calls));
 `)
 }
 
