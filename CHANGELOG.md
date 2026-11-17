@@ -4,6 +4,8 @@ All notable changes. Format loosely follows Keep a Changelog.
 
 ## Unreleased
 
+## v0.0.26 - 2026-11-17
+
 ### Added
 
 - Traffic patterns in Data Stats: a local-hour clock, a day-and-hour heatmap, a comparison of matched periods in this week and last week, and records from available history. Missing intervals remain visible as gaps. Intervals longer than three hours are excluded from these views, and traffic is apportioned evenly within each interval.
