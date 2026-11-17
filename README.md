@@ -8,7 +8,7 @@ Self-hosted wallet and payout stats dashboard for [URnetwork](https://ur.io) pro
 
 - Served bytes from the server's per-epoch figures, which arrive about hourly and two to three hours behind live traffic: total served, this week, the open epoch, last 24 hours, a weekly chart and a transfer rate chart, with byte counts auto-scaled between GB and TB. The old paid and unpaid counters stopped moving when USDC payouts ended and stay as an archive
 - Traffic patterns from sampled served-byte intervals: a local-hour clock, day-and-hour heatmap, matched week comparison, and records. Gaps and intervals longer than three hours are excluded, and bytes are spread evenly across each measured interval. Comparisons use up to 15 days of history (subject to the sample cap).
-- Traffic-scaled Bittensor hero animation with Soft and Bright streak styles and reduced-motion support
+- Traffic-scaled Bittensor hero animation with bright streaks and reduced-motion support
 - Release notice with install-specific update commands and checksum-verified binary updates
 - Per-day served totals for the last 7 days, and every time on the page follows the browser's timezone (Discord alerts use it too)
 - Full payment history: amounts, points per payment, Solana tx links
