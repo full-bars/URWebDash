@@ -45,7 +45,7 @@ const midnightStart=new Date(2027,8,5).getTime(), midnightEnd=new Date(2027,8,6)
 const midnightIvs=[]; for(let t=midnightStart;t<midnightEnd;t+=3600000) midnightIvs.push(iv(t,Math.min(t+3600000,midnightEnd),100));
 const midnightData=tpBuckets(midnightIvs,new Date(2027,8,7,12).getTime());
 check(new Set(midnightData.days.map(d=>new Date(d.start).toDateString())).size===midnightData.days.length,'unique local dates after midnight DST');
-check(tpRecords(midnightIvs,midnightData,[]).includes('100 B'), 'complete midnight transition day included');
+check(tpRecords(midnightIvs,midnightData,[]).includes('<span>Busiest complete day</span><strong>2 kB</strong>'), 'complete midnight transition day included');
 process.env.TZ='UTC';
 check(tpHeatmap(tpBuckets([],start)).includes('No measured'),'empty heatmap');
 check(tpClock(tpBuckets([],start)).includes('needs measured'),'empty clock');
