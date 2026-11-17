@@ -11,6 +11,7 @@ All notable changes. Format loosely follows Keep a Changelog.
 ### Changed
 
 - The served interval history returned to the page and `/api/served` now spans up to 15 days (subject to the existing 5,000-sample cap) to support week comparisons.
+- The Bittensor hero shows longer packet trails and scales its visual activity smoothly with recent served traffic. The band is taller on desktop and fits phone screens.
 
 ## v0.0.25 - 2026-11-15
 
