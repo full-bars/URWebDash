@@ -317,6 +317,22 @@ background:var(--panel);border:1px solid var(--line);border-radius:var(--radius)
 .tb-group{display:flex;align-items:center;gap:10px}
 .tb-right{margin-left:auto;gap:8px}
 .tb-page{font-size:12px;color:var(--muted);letter-spacing:.04em}
+.update-badge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--badge);border-radius:var(--radius);padding:4px 7px;font-size:11px;white-space:nowrap}
+.update-badge[hidden]{display:none}
+.update-badge a{color:var(--head);text-decoration:none}
+.update-badge button{border:0;background:transparent;color:var(--muted);cursor:pointer;font:inherit}
+.update-overlay{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:16px}
+.update-overlay[hidden]{display:none}
+.update-dialog{box-sizing:border-box;width:100%;max-width:580px;max-height:calc(100vh - 32px);overflow:auto;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:var(--radius);padding:20px;min-width:0}
+.update-dialog-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.update-dialog h2{margin:0;color:var(--head);font-size:18px}
+.update-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:18px 0 12px}
+.update-tabs [aria-selected=true]{border:2px solid var(--accent);color:var(--head);font-weight:700}
+.update-tabs [role=tab]:focus-visible{outline:2px solid var(--head);outline-offset:2px}
+.update-dialog pre{box-sizing:border-box;max-width:100%;overflow-x:auto;background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);padding:12px;white-space:pre;font-size:12px}
+.update-dialog p{color:var(--muted);line-height:1.5}
+.update-dialog a{display:inline-block;color:var(--head);margin-top:8px}
+.update-copy-status{margin-left:8px;color:var(--muted)}
 .swatches{display:flex;gap:6px;align-items:center}
 .swatch{width:18px;height:18px;border-radius:50%;border:1px solid var(--line);cursor:pointer;padding:0;transition:transform .12s,box-shadow .12s}
 .swatch:hover{transform:scale(1.12)}
@@ -345,6 +361,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
   .theme-hint{display:none}
   .tb-right{margin-left:0;flex-wrap:wrap}
   .dc-row{grid-template-columns:minmax(0,1fr)}
+  .update-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:visible}
 }
 </style>
 <style></style>
@@ -366,6 +383,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="tb-group tb-right">
       <span id="theme-hint" class="theme-hint"></span>
       <span id="hero-controls" hidden><label class="field-label" for="hero-mode">Hero</label> <select id="hero-mode" onchange="setHeroMode(this.value)"><option value="band">Band</option><option value="footer">Footer</option><option value="off">Off</option></select> <label class="field-label" for="hero-streaks">Streaks</label> <select id="hero-streaks" onchange="setHeroStreaks(this.value)"><option value="soft">Soft</option><option value="bright">Bright</option></select></span>
+      <span id="update-badge" class="update-badge" hidden><a id="update-link" href="#" aria-haspopup="dialog" title="Show update commands"></a><button id="update-dismiss" type="button" aria-label="Dismiss update notice">x</button></span>
       <label class="field-label" for="clock-select">Clock</label>
       <select id="clock-select" onchange="clockSet(this.value)"><option value="auto">Auto</option><option value="12h">12h</option><option value="24h">24h</option></select>
       <span class="field-label">Theme</span>
@@ -547,8 +565,108 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
     <div class="note">The webhook address comes from the dashboard's own configuration (an environment variable or a saved file) and is read on every send, so a change applies without a restart. The style options below change the preview only — the alert text is fixed.</div>
   </div>
 </main>
+<div id="update-overlay" class="update-overlay" hidden>
+  <div class="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-title">
+    <div class="update-dialog-head"><h2 id="update-title"></h2><button id="update-close" class="btn" type="button" aria-label="Close update dialog">Close</button></div>
+    <div class="update-tabs" role="tablist" aria-label="Installation method">
+      <button class="btn" type="button" role="tab" id="update-tab-binary" aria-controls="update-panel" data-tab="binary">Binary</button>
+      <button class="btn" type="button" role="tab" id="update-tab-docker" aria-controls="update-panel" data-tab="docker">Docker run</button>
+      <button class="btn" type="button" role="tab" id="update-tab-compose" aria-controls="update-panel" data-tab="compose">Docker Compose</button>
+    </div>
+    <div id="update-panel" role="tabpanel"><pre id="update-command"></pre><button id="update-copy" class="btn" type="button">Copy</button><span id="update-copy-status" class="update-copy-status" role="status"></span><p id="update-description"></p></div>
+    <a id="update-notes" target="_blank" rel="noopener noreferrer">Release notes</a>
+  </div>
+</div>
 
 <script>
+function updateShouldShow(data,dismissed){
+  if(!data.available || !/^v\d+\.\d+\.\d+$/.test(data.latest)) return false;
+  if(!/^v\d+\.\d+\.\d+$/.test(dismissed)) return true;
+  const a=data.latest.slice(1).split('.').map(BigInt), b=dismissed.slice(1).split('.').map(BigInt);
+  for(let i=0;i<3;i++){ if(a[i]!==b[i]) return a[i]>b[i]; }
+  return false;
+}
+const UPDATE_COMMANDS={
+  binary:'urwebdash update',
+  docker:'docker pull ghcr.io/full-bars/urwebdash:latest\ndocker rm -f urwebdash\ndocker run -d --name urwebdash \\\n  -p 127.0.0.1:3001:3001 \\\n  -v urwebdash-data:/data \\\n  ghcr.io/full-bars/urwebdash',
+  compose:'docker compose pull && docker compose up -d'
+};
+function updateDialogTab(install){ return install==='docker'?'docker':'binary'; }
+function updateCopyMethod(available){ return available?'clipboard':'fallback'; }
+let updateInstall='', updateTab='binary', updateCopyTimer;
+const updateOverlay=document.getElementById('update-overlay');
+const updateTabs=Array.from(document.querySelectorAll('.update-tabs [role=tab]'));
+function selectUpdateTab(tab,focus){
+  updateTab=tab;
+  updateTabs.forEach(button=>{ const selected=button.dataset.tab===tab; button.setAttribute('aria-selected',String(selected)); button.tabIndex=selected?0:-1; if(selected && focus) button.focus(); });
+  document.getElementById('update-panel').setAttribute('aria-labelledby','update-tab-'+tab);
+  document.getElementById('update-command').textContent=UPDATE_COMMANDS[tab];
+  document.getElementById('update-description').textContent=tab==='binary' ? "Checks the download against the release's checksum file and keeps your old copy."+(updateInstall==='systemd'?' It restarts the services and may ask you to run one sudo systemctl restart line.':'') : tab==='docker' ? 'Your data and login stay in the urwebdash-data volume; use the same -p and -v options you used before.' : '';
+  document.getElementById('update-copy-status').textContent='';
+}
+function closeUpdateDialog(){ updateOverlay.hidden=true; document.getElementById('update-link').focus(); }
+document.getElementById('update-link').addEventListener('click',event=>{
+  event.preventDefault();
+  document.getElementById('update-title').textContent='Update to '+shownUpdate;
+  selectUpdateTab(updateDialogTab(updateInstall),false);
+  updateOverlay.hidden=false; document.getElementById('update-close').focus();
+});
+document.getElementById('update-close').addEventListener('click',closeUpdateDialog);
+updateOverlay.addEventListener('click',event=>{ if(event.target===updateOverlay) closeUpdateDialog(); });
+updateOverlay.addEventListener('keydown',event=>{
+  if(event.key==='Escape'){ event.preventDefault(); closeUpdateDialog(); return; }
+  if(event.key==='Tab'){
+    const focusable=Array.from(updateOverlay.querySelectorAll('button:not([tabindex="-1"]),a[href],textarea')).filter(el=>!el.hidden);
+    if(event.shiftKey && document.activeElement===focusable[0]){ event.preventDefault(); focusable[focusable.length-1].focus(); }
+    else if(!event.shiftKey && document.activeElement===focusable[focusable.length-1]){ event.preventDefault(); focusable[0].focus(); }
+  }
+});
+updateTabs.forEach((button,index)=>{
+  button.addEventListener('click',()=>selectUpdateTab(button.dataset.tab,false));
+  button.addEventListener('keydown',event=>{
+    if(event.key!=='ArrowRight' && event.key!=='ArrowLeft') return;
+    event.preventDefault(); const next=(index+(event.key==='ArrowRight'?1:-1)+updateTabs.length)%updateTabs.length;
+    selectUpdateTab(updateTabs[next].dataset.tab,true);
+  });
+});
+document.getElementById('update-copy').addEventListener('click',async()=>{
+  const text=UPDATE_COMMANDS[updateTab], status=document.getElementById('update-copy-status');
+  let copied=false;
+  if(updateCopyMethod(!!(navigator.clipboard && navigator.clipboard.writeText))==='clipboard'){
+    try{ await navigator.clipboard.writeText(text); copied=true; }catch(_){}
+  }
+  if(!copied){
+    const area=document.createElement('textarea'); area.value=text; area.readOnly=true; area.setAttribute('aria-label','Update command');
+    area.style.cssText='position:fixed;left:16px;top:16px;width:1px;height:1px;opacity:0';
+    updateOverlay.querySelector('.update-dialog').appendChild(area); area.focus(); area.select();
+    try{ copied=document.execCommand('copy'); }catch(_){}
+    if(copied){ area.remove(); document.getElementById('update-copy').focus(); }
+    else { area.style.cssText='display:block;box-sizing:border-box;width:100%;height:100px;margin-top:10px'; area.focus(); area.select(); area.addEventListener('blur',()=>area.remove(),{once:true}); }
+  }
+  clearTimeout(updateCopyTimer); status.textContent=copied?'Copied':'Press Ctrl+C';
+  if(copied) updateCopyTimer=setTimeout(()=>{ status.textContent=''; },2000);
+});
+let dismissedUpdate='';
+try{ dismissedUpdate=localStorage.getItem('urwebdash.update.dismissed')||''; }catch(_){}
+let shownUpdate='';
+document.getElementById('update-dismiss').addEventListener('click',()=>{
+  dismissedUpdate=shownUpdate;
+  try{ localStorage.setItem('urwebdash.update.dismissed',dismissedUpdate); }catch(_){}
+  document.getElementById('update-badge').hidden=true;
+});
+async function refreshUpdate(){
+  try{
+    const response=await fetch('/api/update'); if(!response.ok) return;
+    const data=await response.json(), badge=document.getElementById('update-badge');
+    if(!updateShouldShow(data,dismissedUpdate)){ badge.hidden=true; return; }
+    if(typeof data.url!=='string' || !data.url.startsWith('https://github.com/full-bars/URWebDash/releases/')) return;
+    const link=document.getElementById('update-link');
+    link.textContent=data.latest+' available'; link.setAttribute('href',data.url);
+    document.getElementById('update-notes').setAttribute('href',data.url);
+    updateInstall=data.install; shownUpdate=data.latest; badge.hidden=false;
+  }catch(_){}
+}
+refreshUpdate(); setTimeout(refreshUpdate,45*1000); setInterval(refreshUpdate,60*60*1000);
 
 /* ---- theme set ---- */
 // Legacy: the shipped dashboard look, applied to the Bittensor page so the app

@@ -40,7 +40,16 @@ When it finishes it starts the dashboard and prints the URL. The first poll happ
 
 ### Updating
 
-Re-run the install command above. It replaces the binary and restarts services if installed. Data survives untouched.
+For installer installs, run `urwebdash update` (or `urwebdash update --check` to check only). After a terminal-session install, stop it with Ctrl+C and run `urwebdash setup` again. The download is verified against `SHA256SUMS` published with the same release; this catches a broken or truncated download but cannot catch a compromised release. Clicking the update badge in the dashboard shows the right command for your install.
+
+For containers, pull the new image and re-create the container:
+
+```bash
+docker pull ghcr.io/full-bars/urwebdash:latest
+docker compose pull && docker compose up -d
+```
+
+Older releases without checksums require the install command above.
 
 ### Uninstall
 
@@ -165,6 +174,7 @@ Environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
+| `UPDATE_CHECK` | `on` | Set to `off` to disable release checks |
 | `STATS_INTERVAL` | `1h` | Polling interval, minimum 1m. The server reports served bytes about hourly, so a shorter interval mostly repeats the same figure |
 | `JWT_PATH` | `~/.urnetwork/jwt` | URnetwork session token file |
 | `STATS_DB` | `~/.urwebdash/wallet_stats.db` | SQLite database path |
@@ -174,6 +184,8 @@ Environment variables:
 | `PAYOUT_NOTIFY_STORE` | `~/.urwebdash/payout_notified.json` | Notification dedup store |
 | `HOST` | `127.0.0.1` | Listen address. Inside Docker set `0.0.0.0`; exposure is controlled by the port mapping |
 | `EPOCH_FIRST_V2` | `4` | First SN25 epoch that settled under the v2 payout model. Epochs at or after it are labelled `v2`, earlier ones `v1` |
+
+The dashboard asks GitHub's public releases API for the latest version about every 6 hours. The request carries nothing about the install beyond what any web request carries: GitHub sees the IP address. Set `UPDATE_CHECK=off` to stop it.
 
 ### Bittensor (SN25) data
 
