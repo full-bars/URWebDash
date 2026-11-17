@@ -639,7 +639,7 @@ func servedLast24h(db *sql.DB, newest servedSample) (*servedWindow, error) {
 // of time, not a count, so a shorter STATS_INTERVAL does not shorten it. The
 // cap only bounds the payload for a very short interval.
 const (
-	servedHistoryDays = 9
+	servedHistoryDays = 15
 	servedSamplesCap  = 5000
 )
 
