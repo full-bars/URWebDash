@@ -2659,6 +2659,12 @@ const HERO_TRAIL_LENGTH=10;
 const HERO_PARTICLE_CAP=180;
 function heroDt(ms){ return Math.max(0,Math.min(50,ms))*60/1000; }
 function heroSpawnChance(p,dt){ return 1-Math.pow(1-p,dt); }
+function heroSpawnCount(p,dt,random=Math.random){
+  let count=0, whole=Math.floor(dt);
+  for(let i=0;i<whole;i++) if(random()<p) count++;
+  if(random()<p*(dt-whole)) count++;
+  return count;
+}
 function heroDensity(rates){
   const valid=rates.filter(x=>Number.isFinite(x)&&x>=0);
   if(!valid.length) return 1;
@@ -2762,14 +2768,14 @@ function startHeroSim(){
         targetDensity=heroDensity(rates);
       }
       density=heroEase(density,targetDensity,dt);
-      const chance=p=>Math.random()<heroSpawnChance(p,dt*density);
-      if(chance(0.25)){
+      const count=p=>heroSpawnCount(p,dt*density);
+      for(let i=count(0.25);i>0;i--){
         const u=users[Math.floor(Math.random()*N)], idx=Math.floor(Math.random()*N);
         spawn(u,'ops',null,HERO_COLORS.usd,'usd',0.015,0); u.balance+=0.5;
         spawn(u,'provider',idx,HERO_COLORS.prov,'data',0.015,0);
       }
-      if(chance(0.1)) spawn(ops,'hub',null,HERO_COLORS.ur,'ur',0.012,0);
-      if(chance(0.08)){
+      for(let i=count(0.1);i>0;i--) spawn(ops,'hub',null,HERO_COLORS.ur,'ur',0.012,0);
+      for(let i=count(0.08);i>0;i--){
         const u=users[Math.floor(Math.random()*N)];
         spawn(u,'hub',null,HERO_COLORS.ur,'ur_direct',0.015,0);
         if(Math.min(0.9,u.balance*0.05)>0.2) u.glow=1;
