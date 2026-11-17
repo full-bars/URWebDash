@@ -19,6 +19,9 @@ All notable changes. Format loosely follows Keep a Changelog.
 ### Fixed
 
 - Dashboard data now refreshes in open tabs, and refresh errors are reported once per failure streak.
+- Traffic heatmap dates and complete-day records handle local daylight-saving transitions at midnight.
+- Hero particle spawn rates remain consistent across display refresh rates.
+- Update instructions wrap on phones, and the selected tab and keyboard focus are easier to distinguish.
 
 ## v0.0.25 - 2026-11-15
 
