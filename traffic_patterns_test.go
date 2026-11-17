@@ -40,6 +40,12 @@ check(tpComparison([iv(oldStart,oldStart+7200000,200),iv(dstStart,dstStart+36000
 const autumn=Date.parse('2030-11-03T08:30:00Z');
 const autumnData=tpBuckets([iv(autumn,autumn+3600000,3600)],autumn+3600000);
 check(autumnData.hours[1].ms===3600000,'fall repeated hour');
+process.env.TZ='America/Santiago';
+const midnightStart=new Date(2027,8,5).getTime(), midnightEnd=new Date(2027,8,6).getTime();
+const midnightIvs=[]; for(let t=midnightStart;t<midnightEnd;t+=3600000) midnightIvs.push(iv(t,Math.min(t+3600000,midnightEnd),100));
+const midnightData=tpBuckets(midnightIvs,new Date(2027,8,7,12).getTime());
+check(new Set(midnightData.days.map(d=>new Date(d.start).toDateString())).size===midnightData.days.length,'unique local dates after midnight DST');
+check(tpRecords(midnightIvs,midnightData,[]).includes('100 B'), 'complete midnight transition day included');
 process.env.TZ='UTC';
 check(tpHeatmap(tpBuckets([],start)).includes('No measured'),'empty heatmap');
 check(tpClock(tpBuckets([],start)).includes('needs measured'),'empty clock');
