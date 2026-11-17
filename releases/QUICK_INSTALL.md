@@ -16,4 +16,4 @@ docker run -d --name urwebdash \
   ghcr.io/full-bars/urwebdash
 ```
 
-Replace `AUTH_CODE_HERE` with a code from https://ur.io and keep the single quotes. To update, run the install command again or pull the new image.
+Replace `AUTH_CODE_HERE` with a code from https://ur.io and keep the single quotes. For an existing binary install with the update command, run `urwebdash update`; older versions can run the installer again. For Docker, pull the image and recreate the container with the same volume and settings.

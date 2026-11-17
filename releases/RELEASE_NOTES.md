@@ -1,3 +1,24 @@
+# v0.0.26
+
+This release adds traffic pattern views, a traffic-scaled Bittensor hero, and an easier way to find and install dashboard updates.
+
+### Traffic patterns
+
+- **Traffic clock and heatmap.** Explore served traffic by local hour and by day and hour. Gaps stay visible; the views exclude intervals longer than three hours and spread each interval's bytes evenly across its duration.
+- **Comparisons and records.** Compare matched periods from this week and last week, and see the fastest interval, busiest fully measured day, and best completed week. Views use up to 15 days of sampled intervals, subject to the 5,000-sample cap.
+
+### Dashboard and updates
+
+- **Bittensor hero.** Traffic-scaled streaks animate the hero, with Soft and Bright styles. Bright is the default; reduced-motion preferences show a static frame.
+- **Update notice.** A dismissible badge opens install-specific update instructions. It never installs an update by itself. Set `UPDATE_CHECK=off` to disable release checks.
+- **Binary updates.** `urwebdash update --check` checks for a release; `urwebdash update` downloads the matching binary and verifies it against the release's `SHA256SUMS`. System service installs restart both services and attempt rollback if they fail to start. Containers must pull and recreate the image instead.
+- **Refresh fix.** Open dashboard tabs now replace their data on refresh, and report refresh errors once per failure streak.
+
+### Upgrade notes
+
+- Versions before this update command was introduced can be upgraded using the installer above. A release without `SHA256SUMS` also requires the installer.
+- Checksums detect a damaged download; they do not protect against a compromised release. For a terminal-session install, stop the running process and run `urwebdash setup` after updating. See the README for Docker and Compose update instructions.
+
 # v0.0.25
 
 This release adds a small trend graph beside each rate, a clock format choice, and a phone layout.
