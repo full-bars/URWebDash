@@ -4,6 +4,14 @@ All notable changes. Format loosely follows Keep a Changelog.
 
 ## Unreleased
 
+### Removed
+
+- Removed the Hero and Streaks dropdowns. The hero uses the band layout and bright streaks.
+
+### Fixed
+
+- The 12h clock choice now applies to all traffic graphs.
+
 ## v0.0.26 - 2026-11-17
 
 ### Added
