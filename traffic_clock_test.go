@@ -43,6 +43,7 @@ func TestPriceHoverClockChoices(t *testing.T) {
 	}
 	t.Setenv("TZ", "UTC")
 	t.Setenv("LANG", "en_US.UTF-8")
+	t.Setenv("LC_ALL", "en_US.UTF-8")
 	clock := funcBody(t, indexHTML, "function clockFormat(")
 	hover := funcBody(t, indexHTML, "function sparkHoverInit(")
 	runNode(t, node, `process.env.TZ='UTC'; let clockChoice='auto'; const events={};
